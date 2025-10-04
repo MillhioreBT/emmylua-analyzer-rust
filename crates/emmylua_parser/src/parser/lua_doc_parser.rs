@@ -91,7 +91,7 @@ impl<'b> LuaDocParser<'_, 'b> {
         }
 
         match self.lexer.state {
-            LuaDocLexerState::Normal | LuaDocLexerState::Version => {
+            LuaDocLexerState::Normal | LuaDocLexerState::Version | LuaDocLexerState::Mapped => {
                 while matches!(
                     self.current_token,
                     LuaTokenKind::TkDocContinue

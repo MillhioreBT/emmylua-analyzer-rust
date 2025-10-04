@@ -3,7 +3,7 @@ use crate::{
     grammar::DocParseResult,
     kind::{LuaOpKind, LuaSyntaxKind, LuaTokenKind, LuaTypeBinaryOperator, LuaTypeUnaryOperator},
     lexer::LuaDocLexerState,
-    parser::{CompleteMarker, LuaDocParser, LuaDocParserState, MarkerEventContainer},
+    parser::{CompleteMarker, LuaDocParser, LuaDocParserState, Marker, MarkerEventContainer},
     parser_error::LuaParseError,
 };
 
@@ -142,13 +142,7 @@ fn parse_simple_type(p: &mut LuaDocParser) -> DocParseResult {
 
 fn parse_primary_type(p: &mut LuaDocParser) -> DocParseResult {
     match p.current_token() {
-        LuaTokenKind::TkLeftBrace => {
-            if is_mapped_type_start(p) {
-                parse_mapped_type(p)
-            } else {
-                parse_object_type(p)
-            }
-        }
+        LuaTokenKind::TkLeftBrace => parse_object_or_mapped_type(p),
         LuaTokenKind::TkLeftBracket => parse_tuple_type(p),
         LuaTokenKind::TkLeftParen => parse_paren_type(p),
         LuaTokenKind::TkString
@@ -171,87 +165,45 @@ fn parse_primary_type(p: &mut LuaDocParser) -> DocParseResult {
     }
 }
 
-/// 判断是否是映射类型.
-///
-/// 这里与`TS`保持一致, 即第一个 key 必须为`[]` 且内部必须包含 `in`.
-fn is_mapped_type_start(p: &LuaDocParser) -> bool {
-    let text = p.origin_text();
-    let start = p.current_token_range().end_offset();
-    let rest = match text.get(start..) {
-        Some(value) => value,
-        None => return false,
-    };
-
-    let mut trimmed = rest.trim_start_matches(char::is_whitespace);
-
-    if let Some(after_dashes) = trimmed.strip_prefix("---") {
-        trimmed = after_dashes.trim_start_matches(char::is_whitespace);
-    }
-
-    if !trimmed.starts_with('[') {
-        return false;
-    }
-
-    let after_left_bracket = &trimmed[1..];
-    let rb_pos = match after_left_bracket.find(']') {
-        Some(pos) => pos,
-        None => return false,
-    };
-
-    let content = &after_left_bracket[..rb_pos];
-    let mut seen_identifier = false;
-    let mut token_start: Option<usize> = None;
-
-    for (idx, ch) in content.char_indices() {
-        if ch == '_' || ch.is_alphanumeric() {
-            if token_start.is_none() {
-                token_start = Some(idx);
-            }
-            continue;
-        }
-
-        if let Some(start_idx) = token_start.take() {
-            let token = &content[start_idx..idx];
-            if token == "in" {
-                return seen_identifier;
-            }
-            seen_identifier = true;
-        }
-    }
-
-    if let Some(start_idx) = token_start {
-        if &content[start_idx..] == "in" {
-            return seen_identifier;
-        }
-    }
-
-    false
-}
-
 // [Property in Type]: Type;
 // [Property in keyof Type]: Type;
-fn parse_mapped_type(p: &mut LuaDocParser) -> DocParseResult {
+fn parse_mapped_type(p: &mut LuaDocParser, m: Marker) -> DocParseResult {
     p.set_parser_state(LuaDocParserState::Mapped);
-    let m = p.mark(LuaSyntaxKind::TypeMapped);
-    p.bump();
 
-    if p.current_token() != LuaTokenKind::TkLeftBracket {
-        return Err(LuaParseError::doc_error_from(
-            &t!("expect mapped field"),
-            p.current_token_range(),
-        ));
+    match p.current_token() {
+        LuaTokenKind::TkPlus | LuaTokenKind::TkMinus => {
+            p.bump();
+            expect_token(p, LuaTokenKind::TkDocReadonly)?;
+        }
+        LuaTokenKind::TkDocReadonly => {
+            p.bump();
+        }
+        LuaTokenKind::TkLeftBracket => {}
+        _ => {
+            return Err(LuaParseError::doc_error_from(
+                &t!("expect mapped field"),
+                p.current_token_range(),
+            ));
+        }
     }
-    // key
+
     parse_mapped_key(p)?;
-    if p.current_token() == LuaTokenKind::TkDocQuestion {
-        p.bump();
+
+    match p.current_token() {
+        LuaTokenKind::TkPlus | LuaTokenKind::TkMinus => {
+            p.bump();
+            expect_token(p, LuaTokenKind::TkDocQuestion)?;
+        }
+        LuaTokenKind::TkDocQuestion => {
+            p.bump();
+        }
+        _ => {}
     }
+
     expect_token(p, LuaTokenKind::TkColon)?;
 
-    // value
     parse_type(p)?;
 
-    // end
     expect_token(p, LuaTokenKind::TkSemicolon)?;
     expect_token(p, LuaTokenKind::TkRightBrace)?;
 
@@ -281,11 +233,27 @@ fn parse_mapped_key(p: &mut LuaDocParser) -> DocParseResult {
 
 // { <name>: <type>, ... }
 // { <name> : <type>, ... }
-fn parse_object_type(p: &mut LuaDocParser) -> DocParseResult {
-    let m = p.mark(LuaSyntaxKind::TypeObject);
+fn parse_object_or_mapped_type(p: &mut LuaDocParser) -> DocParseResult {
+    p.set_lexer_state(LuaDocLexerState::Mapped);
+    let mut m = p.mark(LuaSyntaxKind::TypeObject);
     p.bump();
+    p.set_lexer_state(LuaDocLexerState::Normal);
 
     if p.current_token() != LuaTokenKind::TkRightBrace {
+        match p.current_token() {
+            LuaTokenKind::TkPlus | LuaTokenKind::TkMinus | LuaTokenKind::TkDocReadonly => {
+                m.set_kind(p, LuaSyntaxKind::TypeMapped);
+                return parse_mapped_type(p, m);
+            }
+            LuaTokenKind::TkLeftBracket => {
+                if is_mapped_type(p) {
+                    m.set_kind(p, LuaSyntaxKind::TypeMapped);
+                    return parse_mapped_type(p, m);
+                }
+            }
+            _ => {}
+        }
+
         parse_typed_field(p)?;
         while p.current_token() == LuaTokenKind::TkComma {
             p.bump();
@@ -299,6 +267,24 @@ fn parse_object_type(p: &mut LuaDocParser) -> DocParseResult {
     expect_token(p, LuaTokenKind::TkRightBrace)?;
 
     Ok(m.complete(p))
+}
+
+/// 判断是否为 mapped type
+fn is_mapped_type(p: &LuaDocParser) -> bool {
+    let mut lexer = p.lexer.clone();
+
+    loop {
+        let kind = lexer.lex();
+        match kind {
+            LuaTokenKind::TkIn => return true,
+            LuaTokenKind::TkLeftBracket | LuaTokenKind::TkRightBracket => return false,
+            LuaTokenKind::TkEof => return false,
+            LuaTokenKind::TkWhitespace
+            | LuaTokenKind::TkDocContinue
+            | LuaTokenKind::TkEndOfLine => {}
+            _ => {}
+        }
+    }
 }
 
 // <name> : <type>

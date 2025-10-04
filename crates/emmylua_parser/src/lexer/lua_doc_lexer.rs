@@ -27,6 +27,7 @@ pub enum LuaDocLexerState {
     Source,
     NormalDescription,
     CastExpr,
+    Mapped,
 }
 
 impl LuaDocLexer<'_> {
@@ -73,6 +74,7 @@ impl LuaDocLexer<'_> {
             LuaDocLexerState::Source => self.lex_source(),
             LuaDocLexerState::NormalDescription => self.lex_normal_description(),
             LuaDocLexerState::CastExpr => self.lex_cast_expr(),
+            LuaDocLexerState::Mapped => self.lex_mapped(),
         }
     }
 
@@ -577,6 +579,24 @@ impl LuaDocLexer<'_> {
                 reader.bump();
                 reader.eat_while(is_name_continue);
                 LuaTokenKind::TkName
+            }
+            _ => self.lex_normal(),
+        }
+    }
+
+    fn lex_mapped(&mut self) -> LuaTokenKind {
+        let reader = self.reader.as_mut().unwrap();
+        match reader.current_char() {
+            ch if is_doc_whitespace(ch) => {
+                reader.eat_while(is_doc_whitespace);
+                LuaTokenKind::TkWhitespace
+            }
+            ch if is_name_start(ch) => {
+                let (text, _) = read_doc_name(reader);
+                match text {
+                    "readonly" => LuaTokenKind::TkDocReadonly,
+                    _ => LuaTokenKind::TkName,
+                }
             }
             _ => self.lex_normal(),
         }
