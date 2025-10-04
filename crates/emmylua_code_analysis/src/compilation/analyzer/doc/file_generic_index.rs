@@ -28,10 +28,7 @@ impl FileGenericIndex {
     ) {
         let params_id = self.generic_params.len();
         // 由于我们允许 infer 推断出一个虚拟泛型, 因此需要计算已声明的泛型数量确定其位置
-        let start = ranges
-            .first()
-            .and_then(|range| self.find_generic_params(range.start()))
-            .map_or(0, |params_id| params_id.len());
+        let start = self.get_start(&ranges).unwrap_or(0);
         self.generic_params
             .push(TagGenericParams::new(params, is_func, start));
         let params_id = GenericParamId::new(params_id);
@@ -56,6 +53,17 @@ impl FileGenericIndex {
                 self.root_node_ids.push(GenericEffectId::new(child_node_id));
             }
         }
+    }
+
+    fn get_start(&self, ranges: &Vec<TextRange>) -> Option<usize> {
+        let params_ids = self.find_generic_params(ranges.first()?.start())?;
+        let mut start = 0;
+        for params_id in params_ids.iter() {
+            if let Some(params) = self.generic_params.get(*params_id) {
+                start += params.params.len();
+            }
+        }
+        Some(start)
     }
 
     fn try_add_range_to_effect_node(

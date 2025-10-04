@@ -356,4 +356,19 @@ mod test {
             "#,
         ));
     }
+
+    #[test]
+    fn test_type_mapped_base() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            ---@alias Pick1<T, K extends keyof T> { [P in K]: T[P]; }
+
+            ---@param v {name: string, age: number}
+            function accept(v)
+            end
+            "#,
+        );
+    }
 }

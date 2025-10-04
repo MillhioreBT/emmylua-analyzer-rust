@@ -64,6 +64,7 @@ pub enum LuaType {
     Language(ArcIntern<SmolStr>),
     Conditional(Arc<LuaConditionalType>),
     ConditionalInfer(ArcIntern<SmolStr>),
+    Mapped(Arc<LuaMappedType>),
 }
 
 impl PartialEq for LuaType {
@@ -115,6 +116,7 @@ impl PartialEq for LuaType {
             (LuaType::Language(a), LuaType::Language(b)) => a == b,
             (LuaType::Conditional(a), LuaType::Conditional(b)) => a == b,
             (LuaType::ConditionalInfer(a), LuaType::ConditionalInfer(b)) => a == b,
+            (LuaType::Mapped(a), LuaType::Mapped(b)) => a == b,
             _ => false, // 不同变体之间不相等
         }
     }
@@ -198,6 +200,10 @@ impl Hash for LuaType {
                 (48, ptr).hash(state)
             }
             LuaType::ConditionalInfer(a) => (49, a).hash(state),
+            LuaType::Mapped(a) => {
+                let ptr = Arc::as_ptr(a);
+                (50, ptr).hash(state)
+            }
         }
     }
 }
@@ -423,6 +429,7 @@ impl LuaType {
             LuaType::MultiLineUnion(inner) => inner.contain_tpl(),
             LuaType::TypeGuard(inner) => inner.contain_tpl(),
             LuaType::Conditional(inner) => inner.contain_tpl(),
+            LuaType::Mapped(_) => true,
             _ => false,
         }
     }
@@ -1521,5 +1528,20 @@ impl LuaConditionalType {
 impl From<LuaConditionalType> for LuaType {
     fn from(t: LuaConditionalType) -> Self {
         LuaType::Conditional(Arc::new(t))
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct LuaMappedType {
+    pub param: GenericParam,
+    pub value: LuaType,
+}
+
+impl LuaMappedType {
+    pub fn new(param: GenericParam, value_type: LuaType) -> Self {
+        Self {
+            param,
+            value: value_type,
+        }
     }
 }

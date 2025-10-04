@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use emmylua_parser::{
     LuaAst, LuaAstNode, LuaDocBinaryType, LuaDocConditionalType, LuaDocDescriptionOwner,
-    LuaDocFuncType, LuaDocGenericType, LuaDocInferType, LuaDocMultiLineUnionType,
-    LuaDocObjectFieldKey, LuaDocObjectType, LuaDocStrTplType, LuaDocType, LuaDocUnaryType,
-    LuaDocVariadicType, LuaLiteralToken, LuaSyntaxKind, LuaTypeBinaryOperator,
-    LuaTypeUnaryOperator, LuaVarExpr,
+    LuaDocFuncType, LuaDocGenericDecl, LuaDocGenericType, LuaDocIndexAccessType, LuaDocInferType,
+    LuaDocMappedType, LuaDocMultiLineUnionType, LuaDocObjectFieldKey, LuaDocObjectType,
+    LuaDocStrTplType, LuaDocType, LuaDocUnaryType, LuaDocVariadicType, LuaLiteralToken,
+    LuaSyntaxKind, LuaTypeBinaryOperator, LuaTypeUnaryOperator, LuaVarExpr,
 };
 use internment::ArcIntern;
 use rowan::TextRange;
@@ -16,8 +16,8 @@ use crate::{
     LuaArrayType, LuaMultiLineUnion, LuaTupleStatus, LuaTypeDeclId, TypeOps, VariadicType,
     db_index::{
         AnalyzeError, LuaAliasCallType, LuaConditionalType, LuaFunctionType, LuaGenericType,
-        LuaIndexAccessKey, LuaIntersectionType, LuaObjectType, LuaStringTplType, LuaTupleType,
-        LuaType,
+        LuaIndexAccessKey, LuaIntersectionType, LuaMappedType, LuaObjectType, LuaStringTplType,
+        LuaTupleType, LuaType,
     },
 };
 
@@ -119,7 +119,12 @@ pub fn infer_type(analyzer: &mut DocAnalyzer, node: LuaDocType) -> LuaType {
                 return LuaType::ConditionalInfer(ArcIntern::new(SmolStr::new(&name)));
             }
         }
-        _ => (),
+        LuaDocType::Mapped(mapped_type) => {
+            return infer_mapped_type(analyzer, mapped_type).unwrap_or(LuaType::Unknown);
+        }
+        LuaDocType::IndexAccess(index_access) => {
+            return infer_index_access_type(analyzer, index_access);
+        }
     }
     LuaType::Unknown
 }
@@ -685,4 +690,52 @@ fn collect_cond_infer_params(doc_type: &LuaDocType) -> Vec<GenericParam> {
         }
     }
     params
+}
+
+fn infer_mapped_type(
+    analyzer: &mut DocAnalyzer,
+    mapped_type: &LuaDocMappedType,
+) -> Option<LuaType> {
+    // [P in K]
+    let mapped_key = mapped_type.get_key()?;
+    let generic_decl = mapped_key.child::<LuaDocGenericDecl>()?;
+    let name_token = generic_decl.get_name_token()?;
+    let name = name_token.get_name_text();
+    let constraint = generic_decl
+        .get_type()
+        .map(|constraint| infer_type(analyzer, constraint));
+    let param = GenericParam::new(SmolStr::new(&name), constraint, generic_decl.is_variadic());
+
+    analyzer.generic_index.add_generic_scope(
+        vec![mapped_type.get_range()],
+        vec![param.clone()],
+        false,
+    );
+
+    let index_access = mapped_type.get_index_access()?;
+    let value_type = infer_index_access_type(analyzer, &index_access);
+
+    Some(LuaType::Mapped(
+        LuaMappedType::new(param, value_type).into(),
+    ))
+}
+
+fn infer_index_access_type(
+    analyzer: &mut DocAnalyzer,
+    index_access: &LuaDocIndexAccessType,
+) -> LuaType {
+    let mut types_iter = index_access.children::<LuaDocType>();
+    let Some(source_doc) = types_iter.next() else {
+        return LuaType::Unknown;
+    };
+    let Some(key_doc) = types_iter.next() else {
+        return LuaType::Unknown;
+    };
+
+    let source_type = infer_type(analyzer, source_doc);
+    let key_type = infer_type(analyzer, key_doc);
+
+    LuaType::Call(
+        LuaAliasCallType::new(LuaAliasCallKind::Index, vec![source_type, key_type]).into(),
+    )
 }

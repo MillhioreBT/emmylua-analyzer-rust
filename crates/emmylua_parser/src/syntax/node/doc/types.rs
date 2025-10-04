@@ -831,8 +831,12 @@ impl LuaAstNode for LuaDocMappedType {
 }
 
 impl LuaDocMappedType {
-    pub fn get_keys(&self) -> LuaAstChildren<LuaDocMappedKeys> {
-        self.children()
+    pub fn get_key(&self) -> Option<LuaDocMappedKey> {
+        self.child()
+    }
+
+    pub fn get_index_access(&self) -> Option<LuaDocIndexAccessType> {
+        self.child()
     }
 }
 
@@ -868,11 +872,11 @@ impl LuaAstNode for LuaDocIndexAccessType {
 impl LuaDocIndexAccessType {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LuaDocMappedKeys {
+pub struct LuaDocMappedKey {
     syntax: LuaSyntaxNode,
 }
 
-impl LuaAstNode for LuaDocMappedKeys {
+impl LuaAstNode for LuaDocMappedKey {
     fn syntax(&self) -> &LuaSyntaxNode {
         &self.syntax
     }
@@ -896,4 +900,4 @@ impl LuaAstNode for LuaDocMappedKeys {
     }
 }
 
-impl LuaDocMappedKeys {}
+impl LuaDocMappedKey {}
