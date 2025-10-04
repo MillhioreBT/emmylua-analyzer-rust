@@ -528,14 +528,12 @@ fn parse_suffixed_type(p: &mut LuaDocParser, cm: CompleteMarker) -> DocParseResu
                         m.set_kind(p, LuaSyntaxKind::TypeIndexAccess);
                         parse_type(p)?;
                     }
-                } else {
-                    if matches!(
-                        p.current_token(),
-                        LuaTokenKind::TkString | LuaTokenKind::TkInt | LuaTokenKind::TkName
-                    ) {
-                        m.set_kind(p, LuaSyntaxKind::IndexExpr);
-                        p.bump();
-                    }
+                } else if matches!(
+                    p.current_token(),
+                    LuaTokenKind::TkString | LuaTokenKind::TkInt | LuaTokenKind::TkName
+                ) {
+                    m.set_kind(p, LuaSyntaxKind::IndexExpr);
+                    p.bump();
                 }
 
                 expect_token(p, LuaTokenKind::TkRightBracket)?;

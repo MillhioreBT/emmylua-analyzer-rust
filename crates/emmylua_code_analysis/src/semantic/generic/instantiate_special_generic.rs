@@ -4,6 +4,7 @@ use crate::{
     DbIndex, LuaAliasCallKind, LuaAliasCallType, LuaMemberKey, LuaType, TypeOps, VariadicType,
     get_member_map,
     semantic::{
+        generic::instantiate_type_generic::key_type_to_member_key,
         member::{find_members, infer_raw_member_type},
         type_check,
     },
@@ -28,14 +29,14 @@ pub fn instantiate_alias_call(
                 return LuaType::Unknown;
             }
             // 如果类型为`Union`且只有一个类型, 则会解开`Union`包装
-            return TypeOps::Remove.apply(db, &operands[0], &operands[1]);
+            TypeOps::Remove.apply(db, &operands[0], &operands[1])
         }
         LuaAliasCallKind::Add => {
             if operands.len() != 2 {
                 return LuaType::Unknown;
             }
 
-            return TypeOps::Union.apply(db, &operands[0], &operands[1]);
+            TypeOps::Union.apply(db, &operands[0], &operands[1])
         }
         LuaAliasCallKind::KeyOf => {
             if operands.len() != 1 {
@@ -52,37 +53,40 @@ pub fn instantiate_alias_call(
                 })
                 .collect::<Vec<_>>();
 
-            return LuaType::from_vec(member_key_types);
+            LuaType::from_vec(member_key_types)
         }
+        // 条件类型不在此处理
         LuaAliasCallKind::Extends => {
             if operands.len() != 2 {
                 return LuaType::Unknown;
             }
 
             let compact = type_check::check_type_compact(db, &operands[0], &operands[1]).is_ok();
-            return LuaType::BooleanConst(compact);
+            LuaType::BooleanConst(compact)
         }
         LuaAliasCallKind::Select => {
             if operands.len() != 2 {
                 return LuaType::Unknown;
             }
 
-            return instantiate_select_call(&operands[0], &operands[1]);
+            instantiate_select_call(&operands[0], &operands[1])
         }
-        LuaAliasCallKind::Unpack => {
-            return instantiate_unpack_call(db, &operands);
-        }
+        LuaAliasCallKind::Unpack => instantiate_unpack_call(db, &operands),
         LuaAliasCallKind::RawGet => {
             if operands.len() != 2 {
                 return LuaType::Unknown;
             }
 
-            return instantiate_rawget_call(db, &operands[0], &operands[1]);
+            instantiate_rawget_call(db, &operands[0], &operands[1])
         }
-        _ => {}
-    }
+        LuaAliasCallKind::Index => {
+            if operands.len() != 2 {
+                return LuaType::Unknown;
+            }
 
-    LuaType::Unknown
+            instantiate_index_call(db, &operands[0], &operands[1])
+        }
+    }
 }
 
 enum NumOrLen {
@@ -249,4 +253,76 @@ fn instantiate_rawget_call(db: &DbIndex, owner: &LuaType, key: &LuaType) -> LuaT
     };
 
     infer_raw_member_type(db, owner, &member_key).unwrap_or(LuaType::Unknown)
+}
+
+fn instantiate_index_call(db: &DbIndex, owner: &LuaType, key: &LuaType) -> LuaType {
+    match owner {
+        LuaType::Union(union) => {
+            let results = union
+                .into_vec()
+                .iter()
+                .map(|member| instantiate_index_call(db, member, key))
+                .collect::<Vec<_>>();
+            return LuaType::from_vec(results);
+        }
+        LuaType::Intersection(intersection) => {
+            let results = intersection
+                .get_types()
+                .iter()
+                .map(|member| instantiate_index_call(db, member, key))
+                .collect::<Vec<_>>();
+            return LuaType::from_vec(results);
+        }
+        LuaType::Variadic(variadic) => match variadic.deref() {
+            VariadicType::Base(base) => {
+                return instantiate_index_call(db, base, key);
+            }
+            VariadicType::Multi(types) => {
+                let results = types
+                    .iter()
+                    .map(|member| instantiate_index_call(db, member, key))
+                    .collect::<Vec<_>>();
+                return LuaType::from_vec(results);
+            }
+        },
+        _ => {}
+    }
+
+    match key {
+        LuaType::Union(union) => {
+            let results = union
+                .into_vec()
+                .iter()
+                .map(|member| instantiate_index_call(db, owner, member))
+                .collect::<Vec<_>>();
+            return LuaType::from_vec(results);
+        }
+        LuaType::MultiLineUnion(multi) => {
+            let results = multi
+                .get_unions()
+                .iter()
+                .map(|(member, _)| instantiate_index_call(db, owner, member))
+                .collect::<Vec<_>>();
+            return LuaType::from_vec(results);
+        }
+        LuaType::Variadic(variadic) => match variadic.deref() {
+            VariadicType::Base(base) => {
+                return instantiate_index_call(db, owner, base);
+            }
+            VariadicType::Multi(types) => {
+                let results = types
+                    .iter()
+                    .map(|member| instantiate_index_call(db, owner, member))
+                    .collect::<Vec<_>>();
+                return LuaType::from_vec(results);
+            }
+        },
+        _ => {}
+    }
+
+    if let Some(member_key) = key_type_to_member_key(key) {
+        infer_raw_member_type(db, owner, &member_key).unwrap_or(LuaType::Unknown)
+    } else {
+        LuaType::Unknown
+    }
 }

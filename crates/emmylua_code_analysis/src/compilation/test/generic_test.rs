@@ -370,5 +370,13 @@ mod test {
             end
             "#,
         );
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type Pick1<{name: string, age: number, email: string}, "name" | "age">
+            local m
+            accept(m)
+            "#,
+        ));
     }
 }

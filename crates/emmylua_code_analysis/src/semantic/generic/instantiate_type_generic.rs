@@ -1,14 +1,14 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     ops::Deref,
 };
 
 use crate::{
-    DbIndex, GenericTpl, GenericTplId, LuaArrayType, LuaSignatureId, LuaTupleStatus,
+    DbIndex, GenericTpl, GenericTplId, LuaArrayType, LuaMemberKey, LuaSignatureId, LuaTupleStatus,
     check_type_compact,
     db_index::{
         LuaAliasCallKind, LuaConditionalType, LuaFunctionType, LuaGenericType, LuaIntersectionType,
-        LuaObjectType, LuaTupleType, LuaType, LuaUnionType, VariadicType,
+        LuaMappedType, LuaObjectType, LuaTupleType, LuaType, LuaUnionType, VariadicType,
     },
 };
 
@@ -42,6 +42,7 @@ pub fn instantiate_type_generic(
         LuaType::Call(alias_call) => instantiate_alias_call(db, alias_call, substitutor),
         LuaType::Variadic(variadic) => instantiate_variadic_type(db, variadic, substitutor),
         LuaType::Conditional(conditional) => instantiate_conditional(db, conditional, substitutor),
+        LuaType::Mapped(mapped) => instantiate_mapped_type(db, mapped.deref(), substitutor),
         LuaType::SelfInfer => {
             if let Some(typ) = substitutor.get_self_type() {
                 typ.clone()
@@ -709,4 +710,103 @@ fn resolve_infer_tpl_ids(
     conditional.get_false_type().visit_type(&mut visit);
 
     map
+}
+
+fn instantiate_mapped_type(
+    db: &DbIndex,
+    mapped: &LuaMappedType,
+    substitutor: &TypeSubstitutor,
+) -> LuaType {
+    let constraint = mapped
+        .param
+        .1
+        .type_constraint
+        .as_ref()
+        .map(|ty| instantiate_type_generic(db, ty, substitutor));
+
+    if let Some(constraint_ty) = constraint {
+        let mut key_types = Vec::new();
+        collect_mapped_key_atoms(&constraint_ty, &mut key_types);
+
+        let mut visited = HashSet::new();
+        let mut fields: HashMap<LuaMemberKey, LuaType> = HashMap::new();
+        let mut index_access: Vec<(LuaType, LuaType)> = Vec::new();
+
+        for key_ty in key_types {
+            if !visited.insert(key_ty.clone()) {
+                continue;
+            }
+
+            let value_ty =
+                instantiate_mapped_value(db, substitutor, &mapped.value, mapped.param.0, &key_ty);
+
+            if let Some(member_key) = key_type_to_member_key(&key_ty) {
+                match fields.entry(member_key) {
+                    Entry::Occupied(mut entry) => {
+                        let merged = LuaType::from_vec(vec![entry.get().clone(), value_ty]);
+                        entry.insert(merged);
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(value_ty);
+                    }
+                }
+            } else {
+                index_access.push((key_ty, value_ty));
+            }
+        }
+
+        if !fields.is_empty() || !index_access.is_empty() {
+            return LuaType::Object(LuaObjectType::new_with_fields(fields, index_access).into());
+        }
+    }
+
+    instantiate_type_generic(db, &mapped.value, substitutor)
+}
+
+fn instantiate_mapped_value(
+    db: &DbIndex,
+    substitutor: &TypeSubstitutor,
+    value: &LuaType,
+    tpl_id: GenericTplId,
+    replacement: &LuaType,
+) -> LuaType {
+    let mut local_substitutor = substitutor.clone();
+    local_substitutor.insert_type(tpl_id, replacement.clone());
+
+    instantiate_type_generic(db, value, &local_substitutor)
+}
+
+pub(super) fn key_type_to_member_key(key_ty: &LuaType) -> Option<LuaMemberKey> {
+    match key_ty {
+        LuaType::DocStringConst(s) => Some(LuaMemberKey::Name(s.deref().clone())),
+        LuaType::StringConst(s) => Some(LuaMemberKey::Name(s.deref().clone())),
+        LuaType::DocIntegerConst(i) => Some(LuaMemberKey::Integer(*i)),
+        LuaType::IntegerConst(i) => Some(LuaMemberKey::Integer(*i)),
+        _ => None,
+    }
+}
+
+fn collect_mapped_key_atoms(key_ty: &LuaType, acc: &mut Vec<LuaType>) {
+    match key_ty {
+        LuaType::Union(union) => {
+            for member in union.into_vec() {
+                collect_mapped_key_atoms(&member, acc);
+            }
+        }
+        LuaType::MultiLineUnion(multi) => {
+            for (member, _) in multi.get_unions() {
+                collect_mapped_key_atoms(member, acc);
+            }
+        }
+        LuaType::Variadic(variadic) => match variadic.deref() {
+            VariadicType::Base(base) => collect_mapped_key_atoms(base, acc),
+            VariadicType::Multi(types) => {
+                for member in types {
+                    collect_mapped_key_atoms(member, acc);
+                }
+            }
+        },
+        LuaType::Unknown => {}
+        _ => acc.push(key_ty.clone()),
+    }
 }

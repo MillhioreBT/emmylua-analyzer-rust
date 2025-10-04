@@ -1533,12 +1533,12 @@ impl From<LuaConditionalType> for LuaType {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LuaMappedType {
-    pub param: GenericParam,
+    pub param: (GenericTplId, GenericParam),
     pub value: LuaType,
 }
 
 impl LuaMappedType {
-    pub fn new(param: GenericParam, value_type: LuaType) -> Self {
+    pub fn new(param: (GenericTplId, GenericParam), value_type: LuaType) -> Self {
         Self {
             param,
             value: value_type,

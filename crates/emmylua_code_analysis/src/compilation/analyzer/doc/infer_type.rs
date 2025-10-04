@@ -138,6 +138,7 @@ fn infer_buildin_or_ref_type(
     let position = range.start();
     match name {
         "unknown" => LuaType::Unknown,
+        "never" => LuaType::Never,
         "nil" | "void" => LuaType::Nil,
         "any" => LuaType::Any,
         "userdata" => LuaType::Userdata,
@@ -704,19 +705,21 @@ fn infer_mapped_type(
     let constraint = generic_decl
         .get_type()
         .map(|constraint| infer_type(analyzer, constraint));
-    let param = GenericParam::new(SmolStr::new(&name), constraint, generic_decl.is_variadic());
+    let param = GenericParam::new(SmolStr::new(name), constraint, generic_decl.is_variadic());
 
     analyzer.generic_index.add_generic_scope(
         vec![mapped_type.get_range()],
         vec![param.clone()],
         false,
     );
+    let position = mapped_type.get_range().start();
+    let id = analyzer.generic_index.find_generic(position, name)?.0;
 
     let index_access = mapped_type.get_index_access()?;
     let value_type = infer_index_access_type(analyzer, &index_access);
 
     Some(LuaType::Mapped(
-        LuaMappedType::new(param, value_type).into(),
+        LuaMappedType::new((id, param), value_type).into(),
     ))
 }
 

@@ -55,7 +55,7 @@ impl FileGenericIndex {
         }
     }
 
-    fn get_start(&self, ranges: &Vec<TextRange>) -> Option<usize> {
+    fn get_start(&self, ranges: &[TextRange]) -> Option<usize> {
         let params_ids = self.find_generic_params(ranges.first()?.start())?;
         let mut start = 0;
         for params_id in params_ids.iter() {
@@ -163,8 +163,8 @@ impl FileGenericIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
-struct GenericParamId {
-    id: usize,
+pub struct GenericParamId {
+    pub id: usize,
 }
 
 impl GenericParamId {
