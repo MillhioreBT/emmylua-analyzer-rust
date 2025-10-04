@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     DbIndex, GenericTpl, GenericTplId, LuaArrayType, LuaMemberKey, LuaSignatureId, LuaTupleStatus,
-    check_type_compact,
+    TypeOps, check_type_compact,
     db_index::{
         LuaAliasCallKind, LuaConditionalType, LuaFunctionType, LuaGenericType, LuaIntersectionType,
         LuaMappedType, LuaObjectType, LuaTupleType, LuaType, LuaUnionType, VariadicType,
@@ -738,7 +738,7 @@ fn instantiate_mapped_type(
             }
 
             let value_ty =
-                instantiate_mapped_value(db, substitutor, &mapped.value, mapped.param.0, &key_ty);
+                instantiate_mapped_value(db, substitutor, &mapped, mapped.param.0, &key_ty);
 
             if let Some(member_key) = key_type_to_member_key(&key_ty) {
                 match fields.entry(member_key) {
@@ -766,14 +766,20 @@ fn instantiate_mapped_type(
 fn instantiate_mapped_value(
     db: &DbIndex,
     substitutor: &TypeSubstitutor,
-    value: &LuaType,
+    mapped: &LuaMappedType,
     tpl_id: GenericTplId,
     replacement: &LuaType,
 ) -> LuaType {
     let mut local_substitutor = substitutor.clone();
     local_substitutor.insert_type(tpl_id, replacement.clone());
+    let mut result = instantiate_type_generic(db, &mapped.value, &local_substitutor);
+    // 根据 readonly 和 optional 属性进行处理
+    if mapped.is_optional {
+        result = TypeOps::Union.apply(db, &result, &LuaType::Nil);
+    }
+    // TODO: 处理 readonly, 但目前 readonly 的实现存在问题, 这里我们先跳过
 
-    instantiate_type_generic(db, value, &local_substitutor)
+    result
 }
 
 pub(super) fn key_type_to_member_key(key_ty: &LuaType) -> Option<LuaMemberKey> {

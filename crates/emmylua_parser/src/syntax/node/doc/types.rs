@@ -4,6 +4,8 @@ use crate::{
     LuaTokenKind,
 };
 
+use rowan::SyntaxElement;
+
 use super::{LuaDocGenericDecl, LuaDocObjectField, LuaDocTypeList};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -835,8 +837,64 @@ impl LuaDocMappedType {
         self.child()
     }
 
-    pub fn get_index_access(&self) -> Option<LuaDocIndexAccessType> {
+    pub fn get_value_type(&self) -> Option<LuaDocType> {
         self.child()
+    }
+
+    pub fn is_readonly(&self) -> bool {
+        let mut modifier: Option<bool> = None;
+
+        for element in self.syntax().children_with_tokens() {
+            match element {
+                SyntaxElement::Node(node) => {
+                    if node.kind() == LuaSyntaxKind::DocMappedKey.into() {
+                        break;
+                    }
+                }
+                SyntaxElement::Token(token) => {
+                    let kind: LuaTokenKind = token.kind().into();
+                    match kind {
+                        LuaTokenKind::TkPlus => modifier = Some(true),
+                        LuaTokenKind::TkMinus => modifier = Some(false),
+                        LuaTokenKind::TkDocReadonly => return modifier.unwrap_or(true),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    pub fn is_optional(&self) -> bool {
+        let mut seen_key = false;
+        let mut modifier: Option<bool> = None;
+
+        for element in self.syntax().children_with_tokens() {
+            match element {
+                SyntaxElement::Node(node) => {
+                    if node.kind() == LuaSyntaxKind::DocMappedKey.into() {
+                        seen_key = true;
+                    }
+                }
+                SyntaxElement::Token(token) => {
+                    if !seen_key {
+                        continue;
+                    }
+
+                    let kind: LuaTokenKind = token.kind().into();
+                    match kind {
+                        LuaTokenKind::TkPlus => modifier = Some(true),
+                        LuaTokenKind::TkMinus => modifier = Some(false),
+                        LuaTokenKind::TkDocQuestion => return modifier.unwrap_or(true),
+                        LuaTokenKind::TkColon => break,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
 

@@ -715,11 +715,17 @@ fn infer_mapped_type(
     let position = mapped_type.get_range().start();
     let id = analyzer.generic_index.find_generic(position, name)?.0;
 
-    let index_access = mapped_type.get_index_access()?;
-    let value_type = infer_index_access_type(analyzer, &index_access);
+    let doc_type = mapped_type.get_value_type()?;
+    let value_type = infer_type(analyzer, doc_type);
 
     Some(LuaType::Mapped(
-        LuaMappedType::new((id, param), value_type).into(),
+        LuaMappedType::new(
+            (id, param),
+            value_type,
+            mapped_type.is_readonly(),
+            mapped_type.is_optional(),
+        )
+        .into(),
     ))
 }
 

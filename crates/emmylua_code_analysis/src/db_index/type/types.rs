@@ -1535,13 +1535,22 @@ impl From<LuaConditionalType> for LuaType {
 pub struct LuaMappedType {
     pub param: (GenericTplId, GenericParam),
     pub value: LuaType,
+    pub is_readonly: bool,
+    pub is_optional: bool,
 }
 
 impl LuaMappedType {
-    pub fn new(param: (GenericTplId, GenericParam), value_type: LuaType) -> Self {
+    pub fn new(
+        param: (GenericTplId, GenericParam),
+        value: LuaType,
+        is_readonly: bool,
+        is_optional: bool,
+    ) -> Self {
         Self {
             param,
-            value: value_type,
+            value,
+            is_readonly,
+            is_optional,
         }
     }
 }

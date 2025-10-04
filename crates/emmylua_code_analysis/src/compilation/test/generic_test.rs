@@ -358,12 +358,12 @@ mod test {
     }
 
     #[test]
-    fn test_type_mapped_base() {
+    fn test_type_mapped_pick() {
         let mut ws = VirtualWorkspace::new();
 
         ws.def(
             r#"
-            ---@alias Pick1<T, K extends keyof T> { [P in K]: T[P]; }
+            ---@alias Pick<T, K extends keyof T> { [P in K]: T[P]; }
 
             ---@param v {name: string, age: number}
             function accept(v)
@@ -373,7 +373,30 @@ mod test {
         assert!(ws.check_code_for(
             DiagnosticCode::ParamTypeNotMatch,
             r#"
-            ---@type Pick1<{name: string, age: number, email: string}, "name" | "age">
+            ---@type Pick<{name: string, age: number, email: string}, "name" | "age">
+            local m
+            accept(m)
+            "#,
+        ));
+    }
+
+    #[test]
+    fn test_type_partial() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            ---@alias Partial<T> { [P in keyof T]?: T[P]; }
+
+            ---@param v {name?: string, age?: number}
+            function accept(v)
+            end
+            "#,
+        );
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type Partial<{name: string, age: number}>
             local m
             accept(m)
             "#,
