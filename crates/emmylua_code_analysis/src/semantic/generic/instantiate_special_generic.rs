@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
 use crate::{
-    DbIndex, LuaAliasCallKind, LuaAliasCallType, LuaMemberKey, LuaType, TypeOps, VariadicType,
-    get_member_map,
+    DbIndex, LuaAliasCallKind, LuaAliasCallType, LuaMemberKey, LuaTupleStatus, LuaTupleType,
+    LuaType, TypeOps, VariadicType, get_member_map,
     semantic::{
         generic::instantiate_type_generic::key_type_to_member_key,
         member::{find_members, infer_raw_member_type},
@@ -42,6 +42,8 @@ pub fn instantiate_alias_call(
             if operands.len() != 1 {
                 return LuaType::Unknown;
             }
+            let is_tuple = operands.len() == 1 && operands[0].is_tuple();
+            // TODO: 根据`Typescript`的规则, 当为类型联合时, 应该返回共有字段, 但现在并不是
 
             let members = find_members(db, &operands[0]).unwrap_or_default();
             let member_key_types = members
@@ -52,8 +54,13 @@ pub fn instantiate_alias_call(
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-
-            LuaType::from_vec(member_key_types)
+            if is_tuple {
+                LuaType::Tuple(
+                    LuaTupleType::new(member_key_types, LuaTupleStatus::InferResolve).into(),
+                )
+            } else {
+                LuaType::from_vec(member_key_types)
+            }
         }
         // 条件类型不在此处理
         LuaAliasCallKind::Extends => {
@@ -89,6 +96,7 @@ pub fn instantiate_alias_call(
     }
 }
 
+#[derive(Debug)]
 enum NumOrLen {
     Num(i64),
     Len,
@@ -125,36 +133,30 @@ fn instantiate_select_call(source: &LuaType, index: &LuaType) -> LuaType {
         }
         _ => return LuaType::Unknown,
     };
-    let multi_return = if let LuaType::Variadic(multi) = source {
-        multi.deref()
-    } else {
-        &VariadicType::Base(source.clone())
-    };
 
     match num_or_len {
-        NumOrLen::Num(i) => match multi_return {
-            VariadicType::Base(_) => LuaType::Variadic(multi_return.clone().into()),
-            VariadicType::Multi(_) => {
-                let Some(total_len) = multi_return.get_min_len() else {
-                    return source.clone();
-                };
-
-                let start = if i < 0 { total_len as i64 + i } else { i - 1 };
-                if start < 0 || start >= (total_len as i64) {
-                    return source.clone();
+        NumOrLen::Num(i) => match source {
+            LuaType::Tuple(tuple) => {
+                if let Some(first) = tuple.get_type(0) {
+                    if first.is_variadic() {
+                        return first.clone();
+                    }
+                }
+                // 返回元组中从 i 开始的所有类型
+                let mut types = Vec::new();
+                for ty in tuple.get_types().iter().skip(i as usize - 1) {
+                    types.push(ty.clone());
                 }
 
-                let multi = multi_return.get_new_variadic_from(start as usize);
-                LuaType::Variadic(multi.into())
+                LuaType::Tuple(LuaTupleType::new(types, LuaTupleStatus::InferResolve).into())
             }
+            _ => LuaType::Unknown,
         },
         NumOrLen::Len => {
-            let len = multi_return.get_min_len();
-            if let Some(len) = len {
-                LuaType::IntegerConst(len as i64)
-            } else {
-                LuaType::Integer
+            if let LuaType::Tuple(tuple) = source {
+                return LuaType::IntegerConst(tuple.get_types().len() as i64);
             }
+            LuaType::Integer
         }
         NumOrLen::LenUnknown => LuaType::Integer,
     }

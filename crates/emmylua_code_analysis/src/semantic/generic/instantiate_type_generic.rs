@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, hash_map::Entry},
+    collections::{HashMap, HashSet},
     ops::Deref,
 };
 
@@ -134,7 +134,7 @@ pub fn instantiate_doc_function(
                         if tpl.is_variadic() {
                             if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
                                 for (j, typ) in generics.iter().enumerate() {
-                                    let param_name = format!("param{}", i + j);
+                                    let param_name = format!("args_{}", i + j);
                                     new_params.push((param_name, Some(typ.clone())));
                                 }
                             }
@@ -149,9 +149,17 @@ pub fn instantiate_doc_function(
                                 }
                                 SubstitutorValue::MultiTypes(types) => {
                                     for (i, typ) in types.iter().enumerate() {
-                                        let param_name = format!("param{}", i);
+                                        let param_name = format!("args_{}", i);
                                         new_params.push((param_name, Some(typ.clone())));
                                     }
+                                }
+                                // 剩余参数会被压制成元组, 我们需要展开他
+                                SubstitutorValue::Type(LuaType::Tuple(tuple)) => {
+                                    for (i, typ) in tuple.get_types().iter().enumerate() {
+                                        let param_name = format!("args_{}", i);
+                                        new_params.push((param_name, Some(typ.clone())));
+                                    }
+                                    continue;
                                 }
                                 _ => {
                                     new_params.push((
@@ -188,7 +196,71 @@ pub fn instantiate_doc_function(
     // 将 substitutor 中存储的类型的 def 转为 ref
     let mut modified_substitutor = substitutor.clone();
     modified_substitutor.convert_def_to_ref();
-    let inst_ret_type = instantiate_type_generic(db, tpl_ret, &modified_substitutor);
+    let mut inst_ret_type = instantiate_type_generic(db, tpl_ret, &modified_substitutor);
+    // 如果返回值可变的, 且对应的实例化对应值是 tuple, 那么我们将其展开
+    // TODO: 现在的实现过于复杂, 我们应该预处理可变参数
+    match (tpl_ret, &inst_ret_type) {
+        (LuaType::Variadic(tpl_ret), LuaType::Variadic(inst_ret)) => {
+            match (tpl_ret.deref(), inst_ret.deref()) {
+                (VariadicType::Base(tpl_base), VariadicType::Base(inst_base)) => {
+                    if tpl_base.is_variadic()
+                        && let LuaType::Tuple(inst_tuple) = inst_base
+                    {
+                        inst_ret_type = LuaType::Variadic(
+                            VariadicType::Multi(inst_tuple.get_types().to_vec()).into(),
+                        );
+                    }
+                }
+                (VariadicType::Multi(tpl_multi), VariadicType::Multi(inst_multi)) => {
+                    let tpl_last = tpl_multi.last().unwrap_or(&LuaType::Unknown);
+                    let inst_last = inst_multi.last().unwrap_or(&LuaType::Unknown);
+                    if tpl_last.is_variadic()
+                        && let LuaType::Tuple(inst_tuple) = inst_last
+                    {
+                        let mut new_types = Vec::new();
+                        for ty in inst_multi {
+                            new_types.push(ty.clone());
+                        }
+                        new_types.pop();
+                        new_types.extend_from_slice(inst_tuple.get_types());
+                        inst_ret_type = LuaType::Variadic(VariadicType::Multi(new_types).into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        (LuaType::Variadic(tpl_ret), LuaType::Tuple(inst_tuple)) => {
+            if let VariadicType::Base(_) = tpl_ret.deref() {
+                let mut new_types = Vec::new();
+                new_types.extend_from_slice(inst_tuple.get_types());
+                inst_ret_type = LuaType::Variadic(VariadicType::Multi(new_types).into());
+            }
+        }
+        (_, LuaType::Variadic(inst_ret)) => {
+            if let VariadicType::Base(base) = inst_ret.deref() {
+                if let LuaType::Tuple(tuple) = base {
+                    match tuple.len() {
+                        0 => inst_ret_type = LuaType::Unknown,
+                        1 => inst_ret_type = tuple.get_types()[0].clone(),
+                        _ => {
+                            inst_ret_type = LuaType::Variadic(
+                                VariadicType::Multi(tuple.get_types().to_vec()).into(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        (_, LuaType::Tuple(tuple)) => match tuple.len() {
+            0 => inst_ret_type = LuaType::Unknown,
+            1 => inst_ret_type = tuple.get_types()[0].clone(),
+            _ => {
+                inst_ret_type =
+                    LuaType::Variadic(VariadicType::Multi(tuple.get_types().to_vec()).into())
+            }
+        },
+        _ => {}
+    }
     LuaType::DocFunction(
         LuaFunctionType::new(async_state, colon_define, new_params, inst_ret_type).into(),
     )
@@ -322,6 +394,7 @@ fn instantiate_tpl_ref(_: &DbIndex, tpl: &GenericTpl, substitutor: &TypeSubstitu
             SubstitutorValue::Type(ty) => return ty.clone(),
             SubstitutorValue::MultiTypes(types) => {
                 return types.first().unwrap_or(&LuaType::Unknown).clone();
+                //    return LuaType::from_vec(types.clone());
             }
             SubstitutorValue::Params(params) => {
                 return params
@@ -373,8 +446,8 @@ fn instantiate_variadic_type(
     substitutor: &TypeSubstitutor,
 ) -> LuaType {
     match variadic {
-        VariadicType::Base(base) => {
-            if let LuaType::TplRef(tpl) = base {
+        VariadicType::Base(base) => match base {
+            LuaType::TplRef(tpl) => {
                 if tpl.is_variadic() {
                     if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
                         if generics.len() == 1 {
@@ -411,7 +484,11 @@ fn instantiate_variadic_type(
                     return LuaType::Never;
                 }
             }
-        }
+            LuaType::Generic(generic) => {
+                return instantiate_generic(db, generic, substitutor);
+            }
+            _ => {}
+        },
         VariadicType::Multi(types) => {
             if types.iter().any(|it| it.contain_tpl()) {
                 let mut new_types = Vec::new();
@@ -455,7 +532,7 @@ fn instantiate_conditional(
         let left = instantiate_type_generic(db, &alias_call.get_operands()[0], substitutor);
         let right_origin = &alias_call.get_operands()[1];
         let right = instantiate_type_generic(db, right_origin, substitutor);
-        dbg!(&left, &right);
+
         // infer 必须位于条件语句中(right), 判断是否包含并收集
         if contains_conditional_infer(&right)
             && collect_infer_assignments(db, &left, &right, &mut infer_assignments)
@@ -529,6 +606,23 @@ fn collect_infer_assignments(
     match pattern {
         LuaType::ConditionalInfer(name) => {
             insert_infer_assignment(assignments, name.as_str(), source)
+        }
+        LuaType::Generic(pattern_generic) => {
+            if let LuaType::Generic(source_generic) = source {
+                let pattern_params = pattern_generic.get_params();
+                let source_params = source_generic.get_params();
+                if pattern_params.len() != source_params.len() {
+                    return false;
+                }
+                for (pattern_param, source_param) in pattern_params.iter().zip(source_params) {
+                    if !collect_infer_assignments(db, source_param, pattern_param, assignments) {
+                        return false;
+                    }
+                }
+                true
+            } else {
+                false
+            }
         }
         LuaType::DocFunction(pattern_func) => {
             if let LuaType::DocFunction(source_func) = source {
@@ -724,12 +818,12 @@ fn instantiate_mapped_type(
         .as_ref()
         .map(|ty| instantiate_type_generic(db, ty, substitutor));
 
-    if let Some(constraint_ty) = constraint {
+    if let Some(constraint) = constraint {
         let mut key_types = Vec::new();
-        collect_mapped_key_atoms(&constraint_ty, &mut key_types);
+        collect_mapped_key_atoms(&constraint, &mut key_types);
 
         let mut visited = HashSet::new();
-        let mut fields: HashMap<LuaMemberKey, LuaType> = HashMap::new();
+        let mut fields: Vec<(LuaMemberKey, LuaType)> = Vec::new();
         let mut index_access: Vec<(LuaType, LuaType)> = Vec::new();
 
         for key_ty in key_types {
@@ -741,14 +835,11 @@ fn instantiate_mapped_type(
                 instantiate_mapped_value(db, substitutor, &mapped, mapped.param.0, &key_ty);
 
             if let Some(member_key) = key_type_to_member_key(&key_ty) {
-                match fields.entry(member_key) {
-                    Entry::Occupied(mut entry) => {
-                        let merged = LuaType::from_vec(vec![entry.get().clone(), value_ty]);
-                        entry.insert(merged);
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(value_ty);
-                    }
+                if let Some((_, existing)) = fields.iter_mut().find(|(key, _)| key == &member_key) {
+                    let merged = LuaType::from_vec(vec![existing.clone(), value_ty]);
+                    *existing = merged;
+                } else {
+                    fields.push((member_key, value_ty));
                 }
             } else {
                 index_access.push((key_ty, value_ty));
@@ -756,7 +847,14 @@ fn instantiate_mapped_type(
         }
 
         if !fields.is_empty() || !index_access.is_empty() {
-            return LuaType::Object(LuaObjectType::new_with_fields(fields, index_access).into());
+            if constraint.is_tuple() {
+                let types = fields.into_iter().map(|(_, ty)| ty).collect();
+                return LuaType::Tuple(
+                    LuaTupleType::new(types, LuaTupleStatus::InferResolve).into(),
+                );
+            }
+            let field_map: HashMap<LuaMemberKey, LuaType> = fields.into_iter().collect();
+            return LuaType::Object(LuaObjectType::new_with_fields(field_map, index_access).into());
         }
     }
 
@@ -812,7 +910,12 @@ fn collect_mapped_key_atoms(key_ty: &LuaType, acc: &mut Vec<LuaType>) {
                 }
             }
         },
-        LuaType::Unknown => {}
+        LuaType::Tuple(tuple) => {
+            for member in tuple.get_types() {
+                collect_mapped_key_atoms(member, acc);
+            }
+        }
+        LuaType::Unknown | LuaType::Never => {}
         _ => acc.push(key_ty.clone()),
     }
 }

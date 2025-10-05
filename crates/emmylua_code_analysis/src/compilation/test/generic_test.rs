@@ -402,4 +402,35 @@ mod test {
             "#,
         ));
     }
+
+    #[test]
+    fn test_issue_787() {
+        let mut ws = VirtualWorkspace::new();
+
+        // TODO: 我们应该删除`T...`功能, 改为泛型`T`遇到 ... 会自动收集其所有参数合并为 Tuple 类型
+        ws.def(
+            r#"
+            ---@class Wrapper<T>
+
+            ---@alias UnwrapUnion<T> { [K in keyof T]: T[K] extends Wrapper<infer U> and U or unknown; }
+
+            ---@generic T
+            ---@param ... T...
+            ---@return UnwrapUnion<T>...
+            function unwrap(...) end
+            "#,
+        );
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type Wrapper<int>, Wrapper<int>, Wrapper<string>
+            local a, b, c
+
+            D, E, F = unwrap(a, b, c)
+            "#,
+        ));
+        assert_eq!(ws.expr_ty("D"), ws.ty("int"));
+        assert_eq!(ws.expr_ty("E"), ws.ty("int"));
+        assert_eq!(ws.expr_ty("F"), ws.ty("string"));
+    }
 }

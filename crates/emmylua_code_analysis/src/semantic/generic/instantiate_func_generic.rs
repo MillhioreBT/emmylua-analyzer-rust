@@ -4,14 +4,15 @@ use emmylua_parser::{LuaAstNode, LuaCallExpr, LuaExpr};
 use internment::ArcIntern;
 
 use crate::{
-    GenericTpl, GenericTplId, LuaFunctionType, LuaGenericType, TypeVisitTrait,
+    GenericTpl, GenericTplId, LuaFunctionType, LuaGenericType, LuaTupleStatus, LuaTupleType,
+    TypeVisitTrait,
     db_index::{DbIndex, LuaType},
     semantic::{
         LuaInferCache,
         generic::{
             tpl_context::TplContext,
             tpl_pattern::{
-                multi_param_tpl_pattern_match_multi_return, tpl_pattern_match,
+                constant_decay, multi_param_tpl_pattern_match_multi_return, tpl_pattern_match,
                 variadic_tpl_pattern_match,
             },
         },
@@ -113,9 +114,12 @@ pub fn instantiate_func_generic(
                     let mut arg_types = vec![];
                     for arg_expr in &arg_exprs[i..] {
                         let arg_type = infer_expr(db, context.cache, arg_expr.clone())?;
-                        arg_types.push(arg_type);
+                        arg_types.push(constant_decay(arg_type));
                     }
-
+                    // 剩余参数应该推断为元组类型
+                    arg_types = vec![LuaType::Tuple(
+                        LuaTupleType::new(arg_types, LuaTupleStatus::InferResolve).into(),
+                    )];
                     variadic_tpl_pattern_match(&mut context, variadic, &arg_types)?;
                     break;
                 }
