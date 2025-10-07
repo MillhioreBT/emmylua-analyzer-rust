@@ -416,7 +416,7 @@ mod test {
 
             ---@generic T
             ---@param ... T...
-            ---@return UnwrapUnion<T>...
+            ---@return UnwrapUnion<[T...]>
             function unwrap(...) end
             "#,
         );

@@ -3147,4 +3147,12 @@ Syntax(Chunk)@0..110
 "#;
         assert_ast_eq!(code, result);
     }
+
+    #[test]
+    fn test_alias_conditional_infer_dots() {
+        let code = r#"
+        ---@alias ConstructorParameters<T> T extends (fun(infer: infer P): any) and P... or unknown
+        "#;
+        print_ast(code);
+    }
 }

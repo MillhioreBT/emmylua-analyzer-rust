@@ -4,8 +4,7 @@ use emmylua_parser::{LuaAstNode, LuaCallExpr, LuaExpr};
 use internment::ArcIntern;
 
 use crate::{
-    GenericTpl, GenericTplId, LuaFunctionType, LuaGenericType, LuaTupleStatus, LuaTupleType,
-    TypeVisitTrait,
+    GenericTpl, GenericTplId, LuaFunctionType, LuaGenericType, TypeVisitTrait,
     db_index::{DbIndex, LuaType},
     semantic::{
         LuaInferCache,
@@ -116,10 +115,6 @@ pub fn instantiate_func_generic(
                         let arg_type = infer_expr(db, context.cache, arg_expr.clone())?;
                         arg_types.push(constant_decay(arg_type));
                     }
-                    // 剩余参数应该推断为元组类型
-                    arg_types = vec![LuaType::Tuple(
-                        LuaTupleType::new(arg_types, LuaTupleStatus::InferResolve).into(),
-                    )];
                     variadic_tpl_pattern_match(&mut context, variadic, &arg_types)?;
                     break;
                 }
@@ -149,7 +144,6 @@ pub fn instantiate_func_generic(
     if contain_self && let Some(self_type) = infer_self_type(db, cache, &call_expr) {
         substitutor.add_self_type(self_type);
     }
-
     if let LuaType::DocFunction(f) = instantiate_doc_function(db, func, &substitutor) {
         Ok(f.deref().clone())
     } else {

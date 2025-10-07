@@ -32,19 +32,7 @@ mod test {
 
     #[test]
     fn test_select_type() {
-        let mut ws = crate::VirtualWorkspace::new();
-        ws.def(
-            r#"
-        ---@alias std.Select<T, StartOrLen> unknown
-        ---@alias std.ConstTpl<T> unknown
-
-        ---@generic T, Num: integer | '#'
-        ---@param index std.ConstTpl<Num>
-        ---@param ... T...
-        ---@return std.Select<T..., Num>
-        function select(index, ...) end
-        "#,
-        );
+        let mut ws = crate::VirtualWorkspace::new_with_init_std_lib();
         ws.def(
             r#"
         ---@param ... string

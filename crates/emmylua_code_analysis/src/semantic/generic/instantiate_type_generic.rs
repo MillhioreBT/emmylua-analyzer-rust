@@ -153,14 +153,6 @@ pub fn instantiate_doc_function(
                                         new_params.push((param_name, Some(typ.clone())));
                                     }
                                 }
-                                // 剩余参数会被压制成元组, 我们需要展开他
-                                SubstitutorValue::Type(LuaType::Tuple(tuple)) => {
-                                    for (i, typ) in tuple.get_types().iter().enumerate() {
-                                        let param_name = format!("args_{}", i);
-                                        new_params.push((param_name, Some(typ.clone())));
-                                    }
-                                    continue;
-                                }
                                 _ => {
                                     new_params.push((
                                         "...".to_string(),
@@ -196,71 +188,7 @@ pub fn instantiate_doc_function(
     // 将 substitutor 中存储的类型的 def 转为 ref
     let mut modified_substitutor = substitutor.clone();
     modified_substitutor.convert_def_to_ref();
-    let mut inst_ret_type = instantiate_type_generic(db, tpl_ret, &modified_substitutor);
-    // 如果返回值可变的, 且对应的实例化对应值是 tuple, 那么我们将其展开
-    // TODO: 现在的实现过于复杂, 我们应该预处理可变参数
-    match (tpl_ret, &inst_ret_type) {
-        (LuaType::Variadic(tpl_ret), LuaType::Variadic(inst_ret)) => {
-            match (tpl_ret.deref(), inst_ret.deref()) {
-                (VariadicType::Base(tpl_base), VariadicType::Base(inst_base)) => {
-                    if tpl_base.is_variadic()
-                        && let LuaType::Tuple(inst_tuple) = inst_base
-                    {
-                        inst_ret_type = LuaType::Variadic(
-                            VariadicType::Multi(inst_tuple.get_types().to_vec()).into(),
-                        );
-                    }
-                }
-                (VariadicType::Multi(tpl_multi), VariadicType::Multi(inst_multi)) => {
-                    let tpl_last = tpl_multi.last().unwrap_or(&LuaType::Unknown);
-                    let inst_last = inst_multi.last().unwrap_or(&LuaType::Unknown);
-                    if tpl_last.is_variadic()
-                        && let LuaType::Tuple(inst_tuple) = inst_last
-                    {
-                        let mut new_types = Vec::new();
-                        for ty in inst_multi {
-                            new_types.push(ty.clone());
-                        }
-                        new_types.pop();
-                        new_types.extend_from_slice(inst_tuple.get_types());
-                        inst_ret_type = LuaType::Variadic(VariadicType::Multi(new_types).into());
-                    }
-                }
-                _ => {}
-            }
-        }
-        (LuaType::Variadic(tpl_ret), LuaType::Tuple(inst_tuple)) => {
-            if let VariadicType::Base(_) = tpl_ret.deref() {
-                let mut new_types = Vec::new();
-                new_types.extend_from_slice(inst_tuple.get_types());
-                inst_ret_type = LuaType::Variadic(VariadicType::Multi(new_types).into());
-            }
-        }
-        (_, LuaType::Variadic(inst_ret)) => {
-            if let VariadicType::Base(base) = inst_ret.deref() {
-                if let LuaType::Tuple(tuple) = base {
-                    match tuple.len() {
-                        0 => inst_ret_type = LuaType::Unknown,
-                        1 => inst_ret_type = tuple.get_types()[0].clone(),
-                        _ => {
-                            inst_ret_type = LuaType::Variadic(
-                                VariadicType::Multi(tuple.get_types().to_vec()).into(),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        (_, LuaType::Tuple(tuple)) => match tuple.len() {
-            0 => inst_ret_type = LuaType::Unknown,
-            1 => inst_ret_type = tuple.get_types()[0].clone(),
-            _ => {
-                inst_ret_type =
-                    LuaType::Variadic(VariadicType::Multi(tuple.get_types().to_vec()).into())
-            }
-        },
-        _ => {}
-    }
+    let inst_ret_type = instantiate_type_generic(db, tpl_ret, &modified_substitutor);
     LuaType::DocFunction(
         LuaFunctionType::new(async_state, colon_define, new_params, inst_ret_type).into(),
     )
@@ -849,9 +777,10 @@ fn instantiate_mapped_type(
         if !fields.is_empty() || !index_access.is_empty() {
             if constraint.is_tuple() {
                 let types = fields.into_iter().map(|(_, ty)| ty).collect();
-                return LuaType::Tuple(
-                    LuaTupleType::new(types, LuaTupleStatus::InferResolve).into(),
-                );
+                return LuaType::Variadic(VariadicType::Multi(types).into());
+                // return LuaType::Tuple(
+                //     LuaTupleType::new(types, LuaTupleStatus::InferResolve).into(),
+                // );
             }
             let field_map: HashMap<LuaMemberKey, LuaType> = fields.into_iter().collect();
             return LuaType::Object(LuaObjectType::new_with_fields(field_map, index_access).into());
