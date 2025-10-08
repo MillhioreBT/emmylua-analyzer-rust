@@ -188,7 +188,21 @@ pub fn instantiate_doc_function(
     // 将 substitutor 中存储的类型的 def 转为 ref
     let mut modified_substitutor = substitutor.clone();
     modified_substitutor.convert_def_to_ref();
-    let inst_ret_type = instantiate_type_generic(db, tpl_ret, &modified_substitutor);
+    let mut inst_ret_type = instantiate_type_generic(db, tpl_ret, &modified_substitutor);
+    // 对于可变返回值, 如果实例化是 tuple, 那么我们将展开 tuple
+    if let LuaType::Variadic(_) = &&tpl_ret
+        && let LuaType::Tuple(tuple) = &inst_ret_type
+    {
+        match tuple.len() {
+            0 => {}
+            1 => inst_ret_type = tuple.get_types()[0].clone(),
+            _ => {
+                inst_ret_type =
+                    LuaType::Variadic(VariadicType::Multi(tuple.get_types().to_vec()).into())
+            }
+        }
+    }
+
     LuaType::DocFunction(
         LuaFunctionType::new(async_state, colon_define, new_params, inst_ret_type).into(),
     )
@@ -302,6 +316,7 @@ fn instantiate_table_generic(
 }
 
 fn instantiate_tpl_ref(_: &DbIndex, tpl: &GenericTpl, substitutor: &TypeSubstitutor) -> LuaType {
+    // 泛型是否以`T...`定义(非使用), 以`T...`定义的泛型我们应该将其视为一个元组
     if tpl.is_variadic() {
         if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
             if generics.len() == 1 {
@@ -745,6 +760,9 @@ fn instantiate_mapped_type(
         .type_constraint
         .as_ref()
         .map(|ty| instantiate_type_generic(db, ty, substitutor));
+    dbg!(&mapped);
+    dbg!(&substitutor);
+    dbg!(&constraint);
 
     if let Some(constraint) = constraint {
         let mut key_types = Vec::new();
@@ -777,10 +795,10 @@ fn instantiate_mapped_type(
         if !fields.is_empty() || !index_access.is_empty() {
             if constraint.is_tuple() {
                 let types = fields.into_iter().map(|(_, ty)| ty).collect();
-                return LuaType::Variadic(VariadicType::Multi(types).into());
-                // return LuaType::Tuple(
-                //     LuaTupleType::new(types, LuaTupleStatus::InferResolve).into(),
-                // );
+                // return LuaType::Variadic(VariadicType::Multi(types).into());
+                return LuaType::Tuple(
+                    LuaTupleType::new(types, LuaTupleStatus::InferResolve).into(),
+                );
             }
             let field_map: HashMap<LuaMemberKey, LuaType> = fields.into_iter().collect();
             return LuaType::Object(LuaObjectType::new_with_fields(field_map, index_access).into());

@@ -333,7 +333,7 @@ pub fn analyze_func_generic(analyzer: &mut DocAnalyzer, tag: LuaDocTagGeneric) -
             params_result.push(GenericParam::new(
                 SmolStr::new(name.as_str()),
                 type_ref.clone(),
-                false,
+                param.is_variadic(),
             ));
             param_info.push((name, type_ref));
         }

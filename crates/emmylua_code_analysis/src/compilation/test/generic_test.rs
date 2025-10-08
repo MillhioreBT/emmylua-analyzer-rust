@@ -407,16 +407,15 @@ mod test {
     fn test_issue_787() {
         let mut ws = VirtualWorkspace::new();
 
-        // TODO: 我们应该删除`T...`功能, 改为泛型`T`遇到 ... 会自动收集其所有参数合并为 Tuple 类型
         ws.def(
             r#"
             ---@class Wrapper<T>
 
             ---@alias UnwrapUnion<T> { [K in keyof T]: T[K] extends Wrapper<infer U> and U or unknown; }
 
-            ---@generic T
+            ---@generic T...
             ---@param ... T...
-            ---@return UnwrapUnion<[T...]>
+            ---@return UnwrapUnion<T>...
             function unwrap(...) end
             "#,
         );
