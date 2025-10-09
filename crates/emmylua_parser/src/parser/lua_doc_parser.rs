@@ -12,6 +12,7 @@ use super::{LuaParser, MarkEvent, MarkerEventContainer};
 pub enum LuaDocParserState {
     Normal,
     Mapped,
+    Extends,
 }
 
 pub struct LuaDocParser<'a, 'b> {
@@ -22,7 +23,6 @@ pub struct LuaDocParser<'a, 'b> {
     current_token_range: SourceRange,
     origin_token_index: usize,
     pub state: LuaDocParserState,
-    pub infer_depth: usize,
 }
 
 impl MarkerEventContainer for LuaDocParser<'_, '_> {
@@ -54,7 +54,6 @@ impl<'b> LuaDocParser<'_, 'b> {
             current_token: LuaTokenKind::None,
             current_token_range: SourceRange::EMPTY,
             origin_token_index: 0,
-            infer_depth: 0,
             state: LuaDocParserState::Normal,
         };
 
@@ -91,7 +90,10 @@ impl<'b> LuaDocParser<'_, 'b> {
         }
 
         match self.lexer.state {
-            LuaDocLexerState::Normal | LuaDocLexerState::Version | LuaDocLexerState::Mapped => {
+            LuaDocLexerState::Normal
+            | LuaDocLexerState::Version
+            | LuaDocLexerState::Mapped
+            | LuaDocLexerState::Extends => {
                 while matches!(
                     self.current_token,
                     LuaTokenKind::TkDocContinue
@@ -192,10 +194,6 @@ impl<'b> LuaDocParser<'_, 'b> {
 
     pub fn origin_text(&self) -> &'b str {
         self.lua_parser.origin_text()
-    }
-
-    pub fn is_infer_context(&self) -> bool {
-        self.infer_depth > 0
     }
 
     pub fn set_lexer_state(&mut self, state: LuaDocLexerState) {

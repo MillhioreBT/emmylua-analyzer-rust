@@ -1474,6 +1474,7 @@ pub struct LuaConditionalType {
     false_type: LuaType,
     /// infer 参数声明, 这些参数只在 true_type 的作用域内可见
     infer_params: Vec<GenericParam>,
+    pub has_new: bool,
 }
 
 impl TypeVisitTrait for LuaConditionalType {
@@ -1493,12 +1494,14 @@ impl LuaConditionalType {
         true_type: LuaType,
         false_type: LuaType,
         infer_params: Vec<GenericParam>,
+        has_new: bool,
     ) -> Self {
         Self {
             condition,
             true_type,
             false_type,
             infer_params,
+            has_new,
         }
     }
 

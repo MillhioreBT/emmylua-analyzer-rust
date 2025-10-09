@@ -503,6 +503,42 @@ impl LuaDocConditionalType {
         children.next()?;
         children.next()
     }
+
+    pub fn has_new(&self) -> Option<bool> {
+        let condition = self.children().next()?;
+        let binary = match condition {
+            LuaDocType::Binary(binary) => binary,
+            _ => return None,
+        };
+
+        let mut seen_extends = false;
+
+        for element in binary.syntax().children_with_tokens() {
+            match element {
+                SyntaxElement::Token(token) => {
+                    let kind: LuaTokenKind = token.kind().into();
+                    if !seen_extends {
+                        if kind == LuaTokenKind::TkDocExtends {
+                            seen_extends = true;
+                        }
+                    } else if kind == LuaTokenKind::TkDocNew {
+                        return Some(true);
+                    }
+                }
+                SyntaxElement::Node(node) => {
+                    if !seen_extends {
+                        continue;
+                    }
+
+                    if node.kind() == LuaSyntaxKind::TypeFun.into() {
+                        return Some(false);
+                    }
+                }
+            }
+        }
+
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

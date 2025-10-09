@@ -3151,8 +3151,69 @@ Syntax(Chunk)@0..110
     #[test]
     fn test_alias_conditional_infer_dots() {
         let code = r#"
-        ---@alias ConstructorParameters<T> T extends (fun(infer: infer P): any) and P... or unknown
+        ---@alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
         "#;
         print_ast(code);
+        let result = r#"
+Syntax(Chunk)@0..106
+  Syntax(Block)@0..106
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..97
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagAlias)@13..97
+        Token(TkTagAlias)@13..18 "alias"
+        Token(TkWhitespace)@18..19 " "
+        Token(TkName)@19..40 "ConstructorParameters"
+        Syntax(DocGenericDeclareList)@40..43
+          Token(TkLt)@40..41 "<"
+          Syntax(DocGenericParameter)@41..42
+            Token(TkName)@41..42 "T"
+          Token(TkGt)@42..43 ">"
+        Token(TkWhitespace)@43..44 " "
+        Syntax(TypeConditional)@44..97
+          Syntax(TypeBinary)@44..82
+            Syntax(TypeName)@44..45
+              Token(TkName)@44..45 "T"
+            Token(TkWhitespace)@45..46 " "
+            Token(TkDocExtends)@46..53 "extends"
+            Token(TkWhitespace)@53..54 " "
+            Token(TkDocNew)@54..57 "new"
+            Token(TkWhitespace)@57..58 " "
+            Token(TkLeftParen)@58..59 "("
+            Syntax(TypeFun)@59..81
+              Token(TkName)@59..62 "fun"
+              Token(TkLeftParen)@62..63 "("
+              Syntax(DocTypedParameter)@63..75
+                Token(TkDots)@63..66 "..."
+                Token(TkColon)@66..67 ":"
+                Token(TkWhitespace)@67..68 " "
+                Syntax(TypeInfer)@68..75
+                  Token(TkName)@68..73 "infer"
+                  Token(TkWhitespace)@73..74 " "
+                  Syntax(DocGenericParameter)@74..75
+                    Token(TkName)@74..75 "P"
+              Token(TkRightParen)@75..76 ")"
+              Token(TkColon)@76..77 ":"
+              Token(TkWhitespace)@77..78 " "
+              Syntax(DocTypeList)@78..81
+                Syntax(DocNamedReturnType)@78..81
+                  Syntax(TypeName)@78..81
+                    Token(TkName)@78..81 "any"
+            Token(TkRightParen)@81..82 ")"
+          Token(TkWhitespace)@82..83 " "
+          Token(TkAnd)@83..86 "and"
+          Token(TkWhitespace)@86..87 " "
+          Syntax(TypeName)@87..88
+            Token(TkName)@87..88 "P"
+          Token(TkWhitespace)@88..89 " "
+          Token(TkOr)@89..91 "or"
+          Token(TkWhitespace)@91..92 " "
+          Syntax(TypeName)@92..97
+            Token(TkName)@92..97 "never"
+    Token(TkEndOfLine)@97..98 "\n"
+    Token(TkWhitespace)@98..106 "        "
+        "#;
+        assert_ast_eq!(code, result);
     }
 }

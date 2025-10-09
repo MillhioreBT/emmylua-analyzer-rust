@@ -675,7 +675,14 @@ fn infer_conditional_type(
         let true_type = infer_type(analyzer, when_true);
         let false_type = infer_type(analyzer, when_false);
 
-        return LuaConditionalType::new(condition_type, true_type, false_type, infer_params).into();
+        return LuaConditionalType::new(
+            condition_type,
+            true_type,
+            false_type,
+            infer_params,
+            cond_type.has_new().unwrap_or(false),
+        )
+        .into();
     }
 
     LuaType::Unknown

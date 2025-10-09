@@ -107,8 +107,6 @@ pub fn instantiate_func_generic(
             }
 
             let arg_type = infer_expr(db, context.cache, call_arg_expr.clone())?;
-            dbg!(&func_param_type);
-            dbg!(&arg_type);
 
             match (func_param_type, &arg_type) {
                 (LuaType::Variadic(variadic), _) => {
@@ -152,10 +150,10 @@ pub fn instantiate_func_generic(
         substitutor.add_self_type(self_type);
     }
     if let LuaType::DocFunction(f) = instantiate_doc_function(db, func, &substitutor) {
-        dbg!(&func);
-        dbg!(&substitutor);
-        dbg!(&call_expr);
-        dbg!(&f);
+        // dbg!(&func);
+        // dbg!(&substitutor);
+        // dbg!(&call_expr);
+        // dbg!(&f);
         Ok(f.deref().clone())
     } else {
         Ok(func.clone())

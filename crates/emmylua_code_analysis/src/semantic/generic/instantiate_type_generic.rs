@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    DbIndex, GenericTpl, GenericTplId, LuaArrayType, LuaMemberKey, LuaSignatureId, LuaTupleStatus,
-    TypeOps, check_type_compact,
+    DbIndex, GenericTpl, GenericTplId, LuaArrayType, LuaMemberKey, LuaOperatorMetaMethod,
+    LuaSignatureId, LuaTupleStatus, LuaTypeDeclId, TypeOps, check_type_compact,
     db_index::{
         LuaAliasCallKind, LuaConditionalType, LuaFunctionType, LuaGenericType, LuaIntersectionType,
         LuaMappedType, LuaObjectType, LuaTupleType, LuaType, LuaUnionType, VariadicType,
@@ -41,8 +41,6 @@ pub fn instantiate_type_generic(
         LuaType::Signature(sig_id) => instantiate_signature(db, sig_id, substitutor),
         LuaType::Call(alias_call) => instantiate_alias_call(db, alias_call, substitutor),
         LuaType::Variadic(variadic) => instantiate_variadic_type(db, variadic, substitutor),
-        LuaType::Conditional(conditional) => instantiate_conditional(db, conditional, substitutor),
-        LuaType::Mapped(mapped) => instantiate_mapped_type(db, mapped.deref(), substitutor),
         LuaType::SelfInfer => {
             if let Some(typ) = substitutor.get_self_type() {
                 typ.clone()
@@ -54,6 +52,8 @@ pub fn instantiate_type_generic(
             let inner = instantiate_type_generic(db, guard.deref(), substitutor);
             LuaType::TypeGuard(inner.into())
         }
+        LuaType::Conditional(conditional) => instantiate_conditional(db, conditional, substitutor),
+        LuaType::Mapped(mapped) => instantiate_mapped_type(db, mapped.deref(), substitutor),
         _ => ty.clone(),
     }
 }
@@ -472,9 +472,22 @@ fn instantiate_conditional(
         && alias_call.get_call_kind() == LuaAliasCallKind::Extends
         && alias_call.get_operands().len() == 2
     {
-        let left = instantiate_type_generic(db, &alias_call.get_operands()[0], substitutor);
+        let mut left = instantiate_type_generic(db, &alias_call.get_operands()[0], substitutor);
         let right_origin = &alias_call.get_operands()[1];
         let right = instantiate_type_generic(db, right_origin, substitutor);
+        // 如果存在 new 标记与左侧为类定义, 那么我们需要的是他的构造函数签名
+        if conditional.has_new
+            && let LuaType::Ref(id) | LuaType::Def(id) = &left
+        {
+            if let Some(decl) = db.get_type_index().get_type_decl(id) {
+                // 我们取第一个构造函数签名
+                if decl.is_class()
+                    && let Some(constructor) = get_default_constructor(db, id)
+                {
+                    left = constructor;
+                }
+            }
+        }
 
         // infer 必须位于条件语句中(right), 判断是否包含并收集
         if contains_conditional_infer(&right)
@@ -523,6 +536,7 @@ fn instantiate_conditional(
             new_true,
             new_false,
             conditional.get_infer_params().to_vec(),
+            conditional.has_new,
         )
         .into(),
     )
@@ -865,4 +879,14 @@ fn collect_mapped_key_atoms(key_ty: &LuaType, acc: &mut Vec<LuaType>) {
         LuaType::Unknown | LuaType::Never => {}
         _ => acc.push(key_ty.clone()),
     }
+}
+
+fn get_default_constructor(db: &DbIndex, decl_id: &LuaTypeDeclId) -> Option<LuaType> {
+    let ids = db
+        .get_operator_index()
+        .get_operators(&decl_id.clone().into(), LuaOperatorMetaMethod::Call)?;
+
+    let id = ids.first()?;
+    let operator = db.get_operator_index().get_operator(id)?;
+    Some(operator.get_operator_func(db))
 }

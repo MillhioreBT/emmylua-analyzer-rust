@@ -89,13 +89,22 @@ pub fn parse_binary_operator(
     while bop != LuaTypeBinaryOperator::None && bop.get_priority().left > limit {
         let range = p.current_token_range();
         let m = cm.precede(p, LuaSyntaxKind::TypeBinary);
-        p.bump();
+
+        if bop == LuaTypeBinaryOperator::Extends {
+            let prev_lexer_state = p.lexer.state;
+            p.set_lexer_state(LuaDocLexerState::Extends);
+            p.bump();
+            p.set_lexer_state(prev_lexer_state);
+        } else {
+            p.bump();
+        }
         if p.current_token() != LuaTokenKind::TkDocQuestion {
             // infer 只有在条件类型中才能被解析为关键词
             let parse_result = if bop == LuaTypeBinaryOperator::Extends {
-                p.infer_depth += 1;
+                let prev_state = p.state;
+                p.set_parser_state(LuaDocParserState::Extends);
                 let res = parse_sub_type(p, bop.get_priority().right);
-                p.infer_depth = p.infer_depth.saturating_sub(1);
+                p.set_parser_state(prev_state);
                 res
             } else {
                 parse_sub_type(p, bop.get_priority().right)
@@ -150,7 +159,7 @@ fn parse_primary_type(p: &mut LuaDocParser) -> DocParseResult {
         | LuaTokenKind::TkTrue
         | LuaTokenKind::TkFalse => parse_literal_type(p),
         LuaTokenKind::TkName => {
-            if p.is_infer_context() && p.current_token_text() == "infer" {
+            if p.state == LuaDocParserState::Extends && p.current_token_text() == "infer" {
                 parse_infer_type(p)
             } else {
                 parse_name_or_func_type(p)
@@ -158,6 +167,7 @@ fn parse_primary_type(p: &mut LuaDocParser) -> DocParseResult {
         }
         LuaTokenKind::TkStringTemplateType => parse_string_template_type(p),
         LuaTokenKind::TkDots => parse_vararg_type(p),
+        LuaTokenKind::TkDocNew => parse_constructor_type(p),
         _ => Err(LuaParseError::doc_error_from(
             &t!("expect type"),
             p.current_token_range(),
@@ -580,4 +590,27 @@ fn parse_one_line_type(p: &mut LuaDocParser) -> DocParseResult {
     }
 
     Ok(m.complete(p))
+}
+
+fn parse_constructor_type(p: &mut LuaDocParser) -> DocParseResult {
+    let new_range = p.current_token_range();
+    expect_token(p, LuaTokenKind::TkDocNew)?;
+
+    let cm = match parse_sub_type(p, 0) {
+        Ok(cm) => {
+            if cm.kind != LuaSyntaxKind::TypeFun {
+                let err = LuaParseError::doc_error_from(
+                    &t!("new keyword must be followed by function type"),
+                    new_range,
+                );
+                p.push_error(err.clone());
+                return Err(err);
+            }
+            cm
+        }
+        Err(err) => {
+            return Err(err);
+        }
+    };
+    Ok(cm)
 }

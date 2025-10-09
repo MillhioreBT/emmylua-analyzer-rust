@@ -432,4 +432,38 @@ mod test {
         assert_eq!(ws.expr_ty("E"), ws.ty("int"));
         assert_eq!(ws.expr_ty("F"), ws.ty("string"));
     }
+
+    #[test]
+    fn test_infer_new_constructor() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
+
+            ---@generic T
+            ---@param name `T`|T
+            ---@param ... ConstructorParameters<T>
+            function f(name, ...)
+            end
+            "#,
+        );
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@class A
+            ---@overload fun(name: string, age: number)
+            local A = {}
+
+            f(A, "b", 1)
+            f("A", "b", 1)
+
+            "#,
+        ));
+        assert!(!ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            f("A", "b", "1")
+            "#,
+        ));
+    }
 }
