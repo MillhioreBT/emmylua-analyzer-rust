@@ -164,7 +164,7 @@ mod test {
         let mut ws = VirtualWorkspace::new();
         ws.def(
             r#"
-            ---@alias Predicate<A: any[]> fun(...: A): boolean
+            ---@alias Predicate<A> fun(...: A...): boolean
             ---@type Predicate<[string, integer, table]>
             pred = function() end
             "#,
@@ -269,7 +269,7 @@ mod test {
 
             ---@generic T
             ---@param fn T
-            ---@param ... Parameters<T>
+            ---@param ... Parameters<T>...
             function f(fn, ...)
             end
             "#,
@@ -442,7 +442,7 @@ mod test {
 
             ---@generic T
             ---@param name `T`|T
-            ---@param ... ConstructorParameters<T>
+            ---@param ... ConstructorParameters<T>...
             function f(name, ...)
             end
             "#,

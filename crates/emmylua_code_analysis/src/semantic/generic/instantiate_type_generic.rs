@@ -129,12 +129,12 @@ pub fn instantiate_doc_function(
         };
         match origin_param_type {
             LuaType::Variadic(variadic) => match variadic.deref() {
-                VariadicType::Base(base) => {
-                    if let LuaType::TplRef(tpl) = base {
+                VariadicType::Base(base) => match base {
+                    LuaType::TplRef(tpl) => {
                         if tpl.is_variadic() {
                             if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
                                 for (j, typ) in generics.iter().enumerate() {
-                                    let param_name = format!("args_{}", i + j);
+                                    let param_name = format!("var{}", i + j);
                                     new_params.push((param_name, Some(typ.clone())));
                                 }
                             }
@@ -149,7 +149,7 @@ pub fn instantiate_doc_function(
                                 }
                                 SubstitutorValue::MultiTypes(types) => {
                                     for (i, typ) in types.iter().enumerate() {
-                                        let param_name = format!("args_{}", i);
+                                        let param_name = format!("var{}", i);
                                         new_params.push((param_name, Some(typ.clone())));
                                     }
                                 }
@@ -164,22 +164,37 @@ pub fn instantiate_doc_function(
                             }
                         }
                     }
-                }
+                    LuaType::Generic(generic) => {
+                        let new_type = instantiate_generic(db, generic, substitutor);
+                        // 如果是 rest 参数且实例化后的类型是 tuple, 那么我们将展开 tuple
+                        if let LuaType::Tuple(tuple_type) = &new_type {
+                            let base_index = new_params.len();
+                            for (offset, tuple_element) in tuple_type.get_types().iter().enumerate()
+                            {
+                                let param_name = format!("var{}", base_index + offset);
+                                new_params.push((param_name, Some(tuple_element.clone())));
+                            }
+                            continue;
+                        }
+                        new_params.push((origin_param.0.clone(), Some(new_type)));
+                    }
+                    _ => {}
+                },
                 VariadicType::Multi(_) => (),
             },
             _ => {
                 let new_type = instantiate_type_generic(db, origin_param_type, substitutor);
                 // 如果是 rest 参数且实例化后的类型是 tuple, 那么我们将展开 tuple
-                if origin_param.0 == "..." && tpl_func_params.len() == i + 1 {
-                    if let LuaType::Tuple(tuple_type) = &new_type {
-                        let base_index = new_params.len();
-                        for (offset, tuple_element) in tuple_type.get_types().iter().enumerate() {
-                            let param_name = format!("args_{}", base_index + offset);
-                            new_params.push((param_name, Some(tuple_element.clone())));
-                        }
-                        continue;
-                    }
-                }
+                // if origin_param.0 == "..." && tpl_func_params.len() == i + 1 {
+                //     if let LuaType::Tuple(tuple_type) = &new_type {
+                //         let base_index = new_params.len();
+                //         for (offset, tuple_element) in tuple_type.get_types().iter().enumerate() {
+                //             let param_name = format!("var{}", base_index + offset);
+                //             new_params.push((param_name, Some(tuple_element.clone())));
+                //         }
+                //         continue;
+                //     }
+                // }
                 new_params.push((origin_param.0.clone(), Some(new_type)));
             }
         }
@@ -202,6 +217,9 @@ pub fn instantiate_doc_function(
             }
         }
     }
+    // dbg!(&new_params);
+    // dbg!(&inst_ret_type);
+    // dbg!(&modified_substitutor);
 
     LuaType::DocFunction(
         LuaFunctionType::new(async_state, colon_define, new_params, inst_ret_type).into(),
@@ -267,17 +285,17 @@ fn instantiate_generic(
     let mut new_params = Vec::new();
     for param in generic_params {
         let new_param = instantiate_type_generic(db, param, substitutor);
-        if let LuaType::Variadic(variadic) = &new_param {
-            match variadic.deref() {
-                VariadicType::Base(_) => {}
-                VariadicType::Multi(types) => {
-                    for typ in types {
-                        new_params.push(typ.clone());
-                    }
-                    continue;
-                }
-            }
-        }
+        // if let LuaType::Variadic(variadic) = &new_param {
+        //     match variadic.deref() {
+        //         VariadicType::Base(_) => {}
+        //         VariadicType::Multi(types) => {
+        //             for typ in types {
+        //                 new_params.push(typ.clone());
+        //             }
+        //             continue;
+        //         }
+        //     }
+        // }
         new_params.push(new_param);
     }
 
@@ -319,12 +337,14 @@ fn instantiate_tpl_ref(_: &DbIndex, tpl: &GenericTpl, substitutor: &TypeSubstitu
     // 泛型是否以`T...`定义(非使用), 以`T...`定义的泛型我们应该将其视为一个元组
     if tpl.is_variadic() {
         if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
-            if generics.len() == 1 {
-                return generics[0].clone();
-            } else {
-                return LuaType::Tuple(
-                    LuaTupleType::new(generics.clone(), LuaTupleStatus::DocResolve).into(),
-                );
+            match generics.len() {
+                1 => return generics[0].clone(),
+                _ => {
+                    return LuaType::Variadic(VariadicType::Multi(generics.clone()).into());
+                    // return LuaType::Tuple(
+                    //     LuaTupleType::new(generics.clone(), LuaTupleStatus::DocResolve).into(),
+                    // );
+                }
             }
         } else {
             return LuaType::Never;
@@ -466,6 +486,9 @@ fn instantiate_conditional(
     // 记录右侧出现的每个 infer 名称对应的具体类型
     let mut infer_assignments: HashMap<String, LuaType> = HashMap::new();
     let mut condition_result: Option<bool> = None;
+    // dbg!(&conditional);
+    // dbg!(&substitutor);
+    // println!("substitutor: {:?}", substitutor);
 
     // 仅当条件形如 T extends ... 时才尝试提前求值, 否则返回原始结构
     if let LuaType::Call(alias_call) = conditional.get_condition()
@@ -488,6 +511,8 @@ fn instantiate_conditional(
                 }
             }
         }
+        // dbg!(&left);
+        // dbg!(&right);
 
         // infer 必须位于条件语句中(right), 判断是否包含并收集
         if contains_conditional_infer(&right)
@@ -774,9 +799,6 @@ fn instantiate_mapped_type(
         .type_constraint
         .as_ref()
         .map(|ty| instantiate_type_generic(db, ty, substitutor));
-    dbg!(&mapped);
-    dbg!(&substitutor);
-    dbg!(&constraint);
 
     if let Some(constraint) = constraint {
         let mut key_types = Vec::new();

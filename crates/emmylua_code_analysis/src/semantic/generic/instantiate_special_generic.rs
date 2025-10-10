@@ -1,8 +1,8 @@
-use std::ops::Deref;
+use std::{ops::Deref, vec};
 
 use crate::{
-    DbIndex, LuaAliasCallKind, LuaAliasCallType, LuaMemberKey, LuaTupleStatus, LuaTupleType,
-    LuaType, TypeOps, VariadicType, get_member_map,
+    DbIndex, LuaAliasCallKind, LuaAliasCallType, LuaMemberInfo, LuaMemberKey, LuaTupleStatus,
+    LuaTupleType, LuaType, TypeOps, VariadicType, get_member_map,
     semantic::{
         generic::instantiate_type_generic::key_type_to_member_key,
         member::{find_members, infer_raw_member_type},
@@ -42,10 +42,9 @@ pub fn instantiate_alias_call(
             if operands.len() != 1 {
                 return LuaType::Unknown;
             }
-            let is_tuple = operands.len() == 1 && operands[0].is_tuple();
-            // TODO: 根据`Typescript`的规则, 当为类型联合时, 应该返回共有字段, 但现在并不是
+            // let is_tuple = operands.len() == 1 && operands[0].is_tuple();
 
-            let members = find_members(db, &operands[0]).unwrap_or_default();
+            let members = get_keyof_members(db, &operands[0]).unwrap_or_default();
             let member_key_types = members
                 .iter()
                 .filter_map(|m| match &m.key {
@@ -54,13 +53,14 @@ pub fn instantiate_alias_call(
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            if is_tuple {
-                LuaType::Tuple(
-                    LuaTupleType::new(member_key_types, LuaTupleStatus::InferResolve).into(),
-                )
-            } else {
-                LuaType::from_vec(member_key_types)
-            }
+            LuaType::Tuple(LuaTupleType::new(member_key_types, LuaTupleStatus::InferResolve).into())
+            // if is_tuple {
+            //     LuaType::Tuple(
+            //         LuaTupleType::new(member_key_types, LuaTupleStatus::InferResolve).into(),
+            //     )
+            // } else {
+            //     LuaType::from_vec(member_key_types)
+            // }
         }
         // 条件类型不在此处理
         LuaAliasCallKind::Extends => {
@@ -265,73 +265,51 @@ fn instantiate_rawget_call(db: &DbIndex, owner: &LuaType, key: &LuaType) -> LuaT
 }
 
 fn instantiate_index_call(db: &DbIndex, owner: &LuaType, key: &LuaType) -> LuaType {
-    match owner {
-        LuaType::Union(union) => {
-            let results = union
-                .into_vec()
-                .iter()
-                .map(|member| instantiate_index_call(db, member, key))
-                .collect::<Vec<_>>();
-            return LuaType::from_vec(results);
-        }
-        LuaType::Intersection(intersection) => {
-            let results = intersection
-                .get_types()
-                .iter()
-                .map(|member| instantiate_index_call(db, member, key))
-                .collect::<Vec<_>>();
-            return LuaType::from_vec(results);
-        }
-        LuaType::Variadic(variadic) => match variadic.deref() {
+    if let LuaType::Variadic(variadic) = owner {
+        match variadic.deref() {
             VariadicType::Base(base) => {
-                return instantiate_index_call(db, base, key);
+                return base.clone();
             }
             VariadicType::Multi(types) => {
-                let results = types
-                    .iter()
-                    .map(|member| instantiate_index_call(db, member, key))
-                    .collect::<Vec<_>>();
-                return LuaType::from_vec(results);
+                if let LuaType::IntegerConst(key) | LuaType::DocIntegerConst(key) = key {
+                    return types.get(*key as usize).cloned().unwrap_or(LuaType::Never);
+                }
             }
-        },
-        _ => {}
-    }
-
-    match key {
-        LuaType::Union(union) => {
-            let results = union
-                .into_vec()
-                .iter()
-                .map(|member| instantiate_index_call(db, owner, member))
-                .collect::<Vec<_>>();
-            return LuaType::from_vec(results);
         }
-        LuaType::MultiLineUnion(multi) => {
-            let results = multi
-                .get_unions()
-                .iter()
-                .map(|(member, _)| instantiate_index_call(db, owner, member))
-                .collect::<Vec<_>>();
-            return LuaType::from_vec(results);
-        }
-        LuaType::Variadic(variadic) => match variadic.deref() {
-            VariadicType::Base(base) => {
-                return instantiate_index_call(db, owner, base);
-            }
-            VariadicType::Multi(types) => {
-                let results = types
-                    .iter()
-                    .map(|member| instantiate_index_call(db, owner, member))
-                    .collect::<Vec<_>>();
-                return LuaType::from_vec(results);
-            }
-        },
-        _ => {}
     }
 
     if let Some(member_key) = key_type_to_member_key(key) {
-        infer_raw_member_type(db, owner, &member_key).unwrap_or(LuaType::Unknown)
+        infer_raw_member_type(db, owner, &member_key).unwrap_or(LuaType::Never)
     } else {
-        LuaType::Unknown
+        LuaType::Never
+    }
+}
+
+fn get_keyof_members(db: &DbIndex, prefix_type: &LuaType) -> Option<Vec<LuaMemberInfo>> {
+    match prefix_type {
+        LuaType::Variadic(variadic) => match variadic.deref() {
+            VariadicType::Base(base) => Some(vec![LuaMemberInfo {
+                property_owner_id: None,
+                key: LuaMemberKey::Integer(0),
+                typ: base.clone(),
+                feature: None,
+                overload_index: None,
+            }]),
+            VariadicType::Multi(types) => {
+                let mut members = Vec::new();
+                for (idx, typ) in types.iter().enumerate() {
+                    members.push(LuaMemberInfo {
+                        property_owner_id: None,
+                        key: LuaMemberKey::Integer(idx as i64),
+                        typ: typ.clone(),
+                        feature: None,
+                        overload_index: None,
+                    });
+                }
+
+                Some(members)
+            }
+        },
+        _ => find_members(db, prefix_type),
     }
 }
