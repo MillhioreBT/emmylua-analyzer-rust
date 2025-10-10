@@ -105,6 +105,8 @@ pub enum DiagnosticCode {
     PreferredLocalAlias,
     /// readonly
     ReadOnly,
+    /// Global variable defined in non-module scope
+    GlobalInNonModule,
 
     #[serde(other)]
     None,

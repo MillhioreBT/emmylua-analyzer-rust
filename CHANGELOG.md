@@ -4,6 +4,24 @@
 
 ---
 
+## [0.15.0] - 2025-10-10
+
+### ✨ Added
+- **Use Clippy as linter**: core codebase now uses Clippy as the linter, improving code quality and consistency.
+- **Support `textdocument/diagnostic`**: Added support for the `textDocument/diagnostic` request, allowing clients to fetch diagnostics for a specific document.
+- **Support annotation `@readonly`**: You can now use the `@readonly` annotation to mark fields as read-only. For example:
+```lua
+---@readonly
+local myVar = 42
+```
+- **Add check for `global in non module`**: Added a new diagnostic to check for global variable declarations in non-module scope. This helps detect unintended global variable declarations.
+
+### 🔧 Changed
+- **Optimize semantic token**: Optimized semantic token handling for delimiter symbols.
+
+### 🐛 Fixed
+- **Fix generic pattern matching issue**: Fixed an issue where generic pattern matching aliases could lead to incorrect type inference.
+
 ## [0.14.0] - 2025-9-19
 
 ### 🔧 Changed

@@ -5,15 +5,21 @@ use lsp_server::{Request, Response};
 use lsp_types::request::{
     CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare,
     CodeActionRequest, CodeLensRequest, CodeLensResolve, ColorPresentationRequest, Completion,
-    DocumentColor, DocumentHighlightRequest, DocumentLinkRequest, DocumentLinkResolve,
-    DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest, Formatting, GotoDefinition,
-    GotoImplementation, HoverRequest, InlayHintRequest, InlayHintResolveRequest,
+    DocumentColor, DocumentDiagnosticRequest, DocumentHighlightRequest, DocumentLinkRequest,
+    DocumentLinkResolve, DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest, Formatting,
+    GotoDefinition, GotoImplementation, HoverRequest, InlayHintRequest, InlayHintResolveRequest,
     InlineValueRequest, OnTypeFormatting, PrepareRenameRequest, RangeFormatting, References,
     Rename, Request as LspRequest, ResolveCompletionItem, SelectionRangeRequest,
     SemanticTokensFullRequest, SignatureHelpRequest, WorkspaceSymbolRequest,
 };
 
-use crate::{context::ServerContext, handlers::document_type_format::on_type_formatting_handler};
+use crate::{
+    context::ServerContext,
+    handlers::{
+        document_diagnostic::on_pull_document_diagnostic,
+        document_type_format::on_type_formatting_handler,
+    },
+};
 
 use super::{
     call_hierarchy::{
@@ -112,6 +118,7 @@ pub async fn on_request_handler(
         CallHierarchyPrepare => on_prepare_call_hierarchy_handler,
         CallHierarchyIncomingCalls => on_incoming_calls_handler,
         CallHierarchyOutgoingCalls => on_outgoing_calls_handler,
+        DocumentDiagnosticRequest => on_pull_document_diagnostic,
     });
 
     Ok(())

@@ -274,7 +274,7 @@ impl LspServer {
                 sender: connection.connection.sender.clone(),
                 receiver: connection.connection.receiver.clone(),
             },
-            Arc::new(params.capabilities.clone()),
+            params.capabilities.clone(),
         );
 
         Self {

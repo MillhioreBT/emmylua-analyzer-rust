@@ -1,6 +1,7 @@
 mod client;
 mod client_id;
 mod file_diagnostic;
+mod lsp_features;
 mod snapshot;
 mod status_bar;
 mod workspace_manager;
@@ -21,6 +22,7 @@ pub use workspace_manager::WorkspaceFileMatcher;
 pub use workspace_manager::WorkspaceManager;
 pub use workspace_manager::load_emmy_config;
 
+use crate::context::lsp_features::LspFeatures;
 use crate::context::snapshot::ServerContextInner;
 
 pub struct ServerContext {
@@ -31,7 +33,7 @@ pub struct ServerContext {
 }
 
 impl ServerContext {
-    pub fn new(conn: Connection, client_capabilities: Arc<ClientCapabilities>) -> Self {
+    pub fn new(conn: Connection, client_capabilities: ClientCapabilities) -> Self {
         let client = Arc::new(ClientProxy::new(Connection {
             sender: conn.sender.clone(),
             receiver: conn.receiver.clone(),
@@ -50,6 +52,7 @@ impl ServerContext {
             status_bar.clone(),
             file_diagnostic.clone(),
         )));
+        let lsp_features = Arc::new(LspFeatures::new(client_capabilities));
 
         ServerContext {
             conn,
@@ -60,7 +63,7 @@ impl ServerContext {
                 file_diagnostic,
                 workspace_manager,
                 status_bar,
-                client_capabilities,
+                lsp_features,
             }),
         }
     }

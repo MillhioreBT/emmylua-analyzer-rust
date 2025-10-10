@@ -24,13 +24,15 @@ pub async fn on_did_open_text_document(
     }
 
     let file_id = analysis.update_file_by_uri(&uri, Some(text));
-    let emmyrc = analysis.get_emmyrc();
-    let interval = emmyrc.diagnostics.diagnostic_interval.unwrap_or(500);
-    if let Some(file_id) = file_id {
-        context
-            .file_diagnostic()
-            .add_diagnostic_task(file_id, interval)
-            .await;
+    if !context.lsp_features().supports_pull_diagnostics() {
+        let emmyrc = analysis.get_emmyrc();
+        let interval = emmyrc.diagnostics.diagnostic_interval.unwrap_or(500);
+        if let Some(file_id) = file_id {
+            context
+                .file_diagnostic()
+                .add_diagnostic_task(file_id, interval)
+                .await;
+        }
     }
 
     let mut workspace = context.workspace_manager().write().await;
@@ -87,13 +89,14 @@ pub async fn on_did_change_text_document(
         workspace.extend_reindex_delay().await;
         drop(workspace);
     }
-    if let Some(file_id) = file_id {
-        context
-            .file_diagnostic()
-            .add_diagnostic_task(file_id, interval)
-            .await;
+    if !context.lsp_features().supports_pull_diagnostics() {
+        if let Some(file_id) = file_id {
+            context
+                .file_diagnostic()
+                .add_diagnostic_task(file_id, interval)
+                .await;
+        }
     }
-
     Some(())
 }
 

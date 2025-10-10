@@ -32,13 +32,18 @@ pub async fn on_semantic_token_handler(
     let client_id = workspace_manager.client_config.client_id;
     let _ = workspace_manager;
 
-    semantic_token(&analysis, file_id, context.client_capabilities(), client_id)
+    semantic_token(
+        &analysis,
+        file_id,
+        context.lsp_features().supports_multiline_tokens(),
+        client_id,
+    )
 }
 
 pub fn semantic_token(
     analysis: &EmmyLuaAnalysis,
     file_id: FileId,
-    client_capabilities: &ClientCapabilities,
+    supports_multiline_tokens: bool,
     client_id: ClientId,
 ) -> Option<SemanticTokensResult> {
     let semantic_model = analysis.compilation.get_semantic_model(file_id)?;
@@ -49,7 +54,7 @@ pub fn semantic_token(
 
     let result = build_semantic_tokens(
         &semantic_model,
-        supports_multiline_tokens(client_capabilities),
+        supports_multiline_tokens,
         client_id,
         emmyrc,
     )?;
@@ -78,15 +83,4 @@ impl RegisterCapabilities for SemanticTokenCapabilities {
             }),
         );
     }
-}
-
-fn supports_multiline_tokens(client_capability: &ClientCapabilities) -> bool {
-    if let Some(text_document) = &client_capability.text_document
-        && let Some(support) = &text_document.semantic_tokens
-        && let Some(support) = &support.multiline_token_support
-    {
-        return *support;
-    }
-
-    false
 }

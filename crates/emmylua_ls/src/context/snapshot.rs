@@ -1,8 +1,9 @@
-use lsp_types::ClientCapabilities;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use emmylua_code_analysis::EmmyLuaAnalysis;
+
+use crate::context::lsp_features::LspFeatures;
 
 use super::{
     client::ClientProxy, file_diagnostic::FileDiagnostic, status_bar::StatusBar,
@@ -39,8 +40,8 @@ impl ServerContextSnapshot {
         &self.inner.status_bar
     }
 
-    pub fn client_capabilities(&self) -> &ClientCapabilities {
-        &self.inner.client_capabilities
+    pub fn lsp_features(&self) -> &LspFeatures {
+        &self.inner.lsp_features
     }
 }
 
@@ -50,5 +51,5 @@ pub struct ServerContextInner {
     pub file_diagnostic: Arc<FileDiagnostic>,
     pub workspace_manager: Arc<RwLock<WorkspaceManager>>,
     pub status_bar: Arc<StatusBar>,
-    pub client_capabilities: Arc<ClientCapabilities>,
+    pub lsp_features: Arc<LspFeatures>,
 }

@@ -10,6 +10,7 @@ mod duplicate_index_test;
 mod duplicate_require_test;
 mod enum_value_mismatch_test;
 mod generic_constraint_mismatch_test;
+mod global_in_non_module_test;
 mod incomplete_signature_doc_test;
 mod inject_field_test;
 mod missing_fields_test;

@@ -23,12 +23,7 @@ pub async fn on_did_change_configuration(
 
     drop(workspace_manager);
 
-    let supports_config_request = context
-        .client_capabilities()
-        .workspace
-        .as_ref()?
-        .configuration
-        .unwrap_or_default();
+    let supports_config_request = context.lsp_features().supports_config_request();
 
     log::info!("change config client_id: {:?}", client_id);
     let new_client_config = get_client_config(&context, client_id, supports_config_request).await;

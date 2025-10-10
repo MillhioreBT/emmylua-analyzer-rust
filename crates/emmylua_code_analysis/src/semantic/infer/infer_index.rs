@@ -664,10 +664,10 @@ fn infer_union_member(
             index_expr.clone(),
             &infer_guard.fork(),
         );
-        if let Ok(typ) = result
-            && !typ.is_nil()
-        {
+        if let Ok(typ) = result {
             member_types.push(typ);
+        } else {
+            member_types.push(LuaType::Nil);
         }
     }
 
