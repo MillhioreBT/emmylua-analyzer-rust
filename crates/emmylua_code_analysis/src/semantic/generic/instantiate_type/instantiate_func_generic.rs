@@ -9,6 +9,7 @@ use crate::{
     semantic::{
         LuaInferCache,
         generic::{
+            instantiate_type::instantiate_doc_function,
             tpl_context::TplContext,
             tpl_pattern::{
                 constant_decay, multi_param_tpl_pattern_match_multi_return, tpl_pattern_match,
@@ -20,7 +21,7 @@ use crate::{
     },
 };
 
-use super::{TypeSubstitutor, instantiate_type_generic::instantiate_doc_function};
+use super::TypeSubstitutor;
 
 pub fn instantiate_func_generic(
     db: &DbIndex,
@@ -107,6 +108,8 @@ pub fn instantiate_func_generic(
             }
 
             let arg_type = infer_expr(db, context.cache, call_arg_expr.clone())?;
+            dbg!(&func_param_type);
+            dbg!(&arg_type);
 
             match (func_param_type, &arg_type) {
                 (LuaType::Variadic(variadic), _) => {
@@ -149,11 +152,12 @@ pub fn instantiate_func_generic(
     if contain_self && let Some(self_type) = infer_self_type(db, cache, &call_expr) {
         substitutor.add_self_type(self_type);
     }
+    dbg!(&substitutor);
+
     if let LuaType::DocFunction(f) = instantiate_doc_function(db, func, &substitutor) {
-        // dbg!(&func);
-        // dbg!(&substitutor);
         // dbg!(&call_expr);
-        // dbg!(&f);
+        dbg!(&func);
+        dbg!(&f);
         Ok(f.deref().clone())
     } else {
         Ok(func.clone())

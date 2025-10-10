@@ -78,6 +78,14 @@ fn find_members_guard(
         LuaType::Tuple(tuple_type) => find_tuple_members(tuple_type, filter),
         LuaType::Object(object_type) => find_object_members(object_type, filter),
         LuaType::Union(union_type) => find_union_members(db, union_type, infer_guard, filter),
+        LuaType::MultiLineUnion(multi_union) => {
+            let union_type = multi_union.to_union();
+            if let LuaType::Union(union_type) = union_type {
+                find_union_members(db, &union_type, infer_guard, filter)
+            } else {
+                None
+            }
+        }
         LuaType::Intersection(intersection_type) => {
             find_intersection_members(db, intersection_type, infer_guard, filter)
         }
@@ -282,7 +290,15 @@ fn find_union_members(
     filter: &FindMemberFilter,
 ) -> FindMembersResult {
     let mut members = Vec::new();
+    let mut meet_string = false;
     for typ in union_type.into_vec().iter() {
+        if typ.is_string() {
+            if meet_string {
+                continue;
+            }
+            meet_string = true;
+        }
+
         let sub_members = find_members_guard(db, typ, &infer_guard.fork(), filter);
         if let Some(sub_members) = sub_members {
             members.extend(sub_members);

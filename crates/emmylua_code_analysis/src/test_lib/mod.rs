@@ -201,6 +201,11 @@ impl VirtualWorkspace {
         humanize_type(db, &ty, RenderLevel::Brief)
     }
 
+    pub fn humanize_type_detailed(&self, ty: LuaType) -> String {
+        let db = &self.analysis.compilation.get_db();
+        humanize_type(db, &ty, RenderLevel::Detailed)
+    }
+
     pub fn get_db_mut(&mut self) -> &mut DbIndex {
         (self.analysis.compilation.get_db_mut()) as _
     }

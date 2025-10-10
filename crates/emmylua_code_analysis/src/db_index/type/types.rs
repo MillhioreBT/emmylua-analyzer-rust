@@ -10,7 +10,7 @@ use rowan::TextRange;
 use smol_str::SmolStr;
 
 use crate::{
-    AsyncState, DbIndex, InFiled, SemanticModel,
+    AsyncState, DbIndex, FileId, InFiled, SemanticModel,
     db_index::{LuaMemberKey, LuaSignatureId, r#type::type_visit_trait::TypeVisitTrait},
 };
 
@@ -62,6 +62,7 @@ pub enum LuaType {
     TypeGuard(Arc<LuaType>),
     ConstTplRef(Arc<GenericTpl>),
     Language(ArcIntern<SmolStr>),
+    ModuleRef(FileId),
     Conditional(Arc<LuaConditionalType>),
     ConditionalInfer(ArcIntern<SmolStr>),
     Mapped(Arc<LuaMappedType>),
@@ -114,6 +115,7 @@ impl PartialEq for LuaType {
             (LuaType::Never, LuaType::Never) => true,
             (LuaType::ConstTplRef(a), LuaType::ConstTplRef(b)) => a == b,
             (LuaType::Language(a), LuaType::Language(b)) => a == b,
+            (LuaType::ModuleRef(a), LuaType::ModuleRef(b)) => a == b,
             (LuaType::Conditional(a), LuaType::Conditional(b)) => a == b,
             (LuaType::ConditionalInfer(a), LuaType::ConditionalInfer(b)) => a == b,
             (LuaType::Mapped(a), LuaType::Mapped(b)) => a == b,
@@ -195,14 +197,15 @@ impl Hash for LuaType {
             LuaType::Never => 45.hash(state),
             LuaType::ConstTplRef(a) => (46, a).hash(state),
             LuaType::Language(a) => (47, a).hash(state),
+            LuaType::ModuleRef(a) => (48, a).hash(state),
             LuaType::Conditional(a) => {
                 let ptr = Arc::as_ptr(a);
-                (48, ptr).hash(state)
+                (49, ptr).hash(state)
             }
-            LuaType::ConditionalInfer(a) => (49, a).hash(state),
+            LuaType::ConditionalInfer(a) => (50, a).hash(state),
             LuaType::Mapped(a) => {
                 let ptr = Arc::as_ptr(a);
-                (50, ptr).hash(state)
+                (51, ptr).hash(state)
             }
         }
     }

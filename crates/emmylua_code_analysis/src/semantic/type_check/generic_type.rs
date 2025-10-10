@@ -1,17 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    LuaGenericType, LuaMemberOwner, LuaType, LuaTypeCache, RenderLevel, TypeSubstitutor,
-    humanize_type,
-    semantic::{
-        member::find_members,
-        type_check::{is_sub_type_of, type_check_context::TypeCheckContext},
-    },
+    LuaGenericType, LuaMemberOwner, LuaType, LuaTypeCache, LuaTypeDeclId, RenderLevel,
+    TypeSubstitutor, humanize_type, instantiate_type_generic,
+    semantic::{member::find_members, type_check::type_check_context::TypeCheckContext},
 };
 
 use super::{
-    TypeCheckResult, check_general_type_compact, check_ref_type_compact,
-    type_check_fail_reason::TypeCheckFailReason, type_check_guard::TypeCheckGuard,
+    TypeCheckResult, check_general_type_compact, type_check_fail_reason::TypeCheckFailReason,
+    type_check_guard::TypeCheckGuard,
 };
 
 pub fn check_generic_type_compact(
@@ -48,12 +45,42 @@ pub fn check_generic_type_compact(
             if is_tpl {
                 return Ok(());
             }
-            check_generic_type_compact_generic(
+            let first_result = check_generic_type_compact_generic(
                 context,
                 source_generic,
                 compact_generic,
                 check_guard.next_level()?,
-            )
+            );
+            if first_result.is_ok() {
+                return Ok(());
+            }
+
+            if let Some(supers) = context
+                .db
+                .get_type_index()
+                .get_super_types(&compact_generic.get_base_type_id())
+            {
+                for mut super_type in supers {
+                    if super_type.contain_tpl() {
+                        let substitutor =
+                            TypeSubstitutor::from_type_array(compact_generic.get_params().clone());
+                        super_type =
+                            instantiate_type_generic(context.db, &super_type, &substitutor);
+                    }
+
+                    let result = check_generic_type_compact(
+                        context,
+                        source_generic,
+                        &super_type,
+                        check_guard.next_level()?,
+                    );
+                    if result.is_ok() {
+                        return Ok(());
+                    }
+                }
+            }
+
+            first_result
         }
         LuaType::TableConst(range) => check_generic_type_compact_table(
             context,
@@ -61,14 +88,14 @@ pub fn check_generic_type_compact(
             LuaMemberOwner::Element(range.clone()),
             check_guard.next_level()?,
         ),
-        LuaType::Ref(_) | LuaType::Def(_) => {
+        LuaType::Ref(ref_id) | LuaType::Def(ref_id) => {
             if is_tpl {
                 return Ok(());
             }
-            check_ref_type_compact(
+            check_generic_type_compact_ref_type(
                 context,
-                &source_generic.get_base_type_id(),
-                compact_type,
+                source_generic,
+                ref_id,
                 check_guard.next_level()?,
             )
         }
@@ -84,7 +111,26 @@ fn check_generic_type_compact_generic(
 ) -> TypeCheckResult {
     let source_base_id = source_generic.get_base_type_id();
     let compact_base_id = compact_generic.get_base_type_id();
-    if !is_sub_type_of(context.db, &compact_base_id, &source_base_id) {
+    let compact_decl = context
+        .db
+        .get_type_index()
+        .get_type_decl(&compact_base_id)
+        .ok_or(TypeCheckFailReason::TypeNotMatch)?;
+    if compact_decl.is_alias() {
+        let substitutor = TypeSubstitutor::from_alias(
+            compact_generic.get_params().clone(),
+            compact_base_id.clone(),
+        );
+        if let Some(origin_type) = compact_decl.get_alias_origin(context.db, Some(&substitutor)) {
+            return check_generic_type_compact(
+                context,
+                source_generic,
+                &origin_type,
+                check_guard.next_level()?,
+            );
+        }
+    }
+    if compact_base_id != source_base_id {
         return Err(TypeCheckFailReason::TypeNotMatch);
     }
 
@@ -195,4 +241,48 @@ fn check_generic_type_compact_table(
     }
 
     Ok(())
+}
+
+fn check_generic_type_compact_ref_type(
+    context: &TypeCheckContext,
+    source_generic: &LuaGenericType,
+    ref_id: &LuaTypeDeclId,
+    check_guard: TypeCheckGuard,
+) -> TypeCheckResult {
+    let type_decl = context
+        .db
+        .get_type_index()
+        .get_type_decl(ref_id)
+        .ok_or(TypeCheckFailReason::TypeNotMatch)?;
+
+    if type_decl.is_alias() {
+        if let Some(origin_type) = type_decl.get_alias_origin(context.db, None) {
+            return check_general_type_compact(
+                context,
+                &LuaType::Generic(source_generic.clone().into()),
+                &origin_type,
+                check_guard.next_level()?,
+            );
+        }
+    }
+
+    for super_type in context
+        .db
+        .get_type_index()
+        .get_super_types(ref_id)
+        .unwrap_or_default()
+    {
+        if check_generic_type_compact(
+            context,
+            source_generic,
+            &super_type,
+            check_guard.next_level()?,
+        )
+        .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
+    Err(TypeCheckFailReason::TypeNotMatch)
 }

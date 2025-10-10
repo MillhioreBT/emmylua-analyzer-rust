@@ -487,4 +487,31 @@ mod test {
         let expected = ws.ty("LocalTimer");
         assert_eq!(ws.humanize_type(ty), ws.humanize_type(expected));
     }
+
+    #[test]
+    fn test_issue_791() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias HookAlias fun(a:integer)
+
+            ---@class TypeA
+            ---@field hook HookAlias
+
+            ---@class TypeB
+            ---@field hook fun(a:integer)
+
+            ---@param d TypeA
+            function fnA(d) end
+
+            ---@param d TypeB
+            function fnB(d) end
+
+            fnA({ hook = function(obj) a = obj end }) -- obj is any, not integer
+            "#,
+        );
+        let ty = ws.expr_ty("a");
+        let expected = ws.ty("integer");
+        assert_eq!(ty, expected);
+    }
 }

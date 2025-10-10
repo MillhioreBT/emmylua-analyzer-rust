@@ -222,6 +222,8 @@ fn add_generic_index(analyzer: &mut DocAnalyzer, generic_params: Vec<GenericPara
         }
     }
 
+    dbg!(&ranges);
+
     analyzer
         .generic_index
         .add_generic_scope(ranges, generic_params, false);

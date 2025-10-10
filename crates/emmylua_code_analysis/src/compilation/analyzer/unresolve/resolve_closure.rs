@@ -486,10 +486,11 @@ fn resolve_doc_function(
     Ok(())
 }
 
-fn filter_signature_type(typ: &LuaType) -> Option<Vec<Arc<LuaFunctionType>>> {
+fn filter_signature_type(db: &DbIndex, typ: &LuaType) -> Option<Vec<Arc<LuaFunctionType>>> {
     let mut result: Vec<Arc<LuaFunctionType>> = Vec::new();
     let mut stack = Vec::new();
     stack.push(typ.clone());
+    let guard = InferGuard::new();
     while let Some(typ) = stack.pop() {
         match typ {
             LuaType::DocFunction(func) => {
@@ -499,6 +500,24 @@ fn filter_signature_type(typ: &LuaType) -> Option<Vec<Arc<LuaFunctionType>>> {
                 let types = union.into_vec();
                 for typ in types.into_iter().rev() {
                     stack.push(typ);
+                }
+            }
+            LuaType::Ref(type_ref_id) => {
+                guard.check(&type_ref_id).ok()?;
+                let type_decl = db.get_type_index().get_type_decl(&type_ref_id)?;
+                if let Some(func) = type_decl.get_alias_origin(db, None) {
+                    match func {
+                        LuaType::DocFunction(f) => {
+                            result.push(f.clone());
+                        }
+                        LuaType::Union(union) => {
+                            let types = union.into_vec();
+                            for typ in types.into_iter().rev() {
+                                stack.push(typ);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             _ => {}
@@ -522,7 +541,7 @@ fn find_best_function_type(
     if let Ok(result) = find_decl_function_type(db, cache, prefix_type, index_member_expr) {
         if result.is_current_owner {
             // 对应当前类型下的声明, 我们需要过滤掉所有`signature`类型
-            if let Some(filtered_types) = filter_signature_type(&result.typ) {
+            if let Some(filtered_types) = filter_signature_type(db, &result.typ) {
                 match filtered_types.len() {
                     0 => {}
                     1 => return Some(LuaType::DocFunction(filtered_types[0].clone())),

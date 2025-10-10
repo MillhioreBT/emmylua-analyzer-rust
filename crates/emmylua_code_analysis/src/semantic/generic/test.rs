@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::LuaType;
+    use crate::{LuaType, VirtualWorkspace};
 
     #[test]
     fn test_variadic_func() {
@@ -121,5 +121,77 @@ mod test {
         let a = ws.expr_ty("R");
         let expected = ws.ty("nil");
         assert_eq!(a, expected);
+    }
+
+    #[test]
+    fn test_issue_797() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+---@class Holder<T>
+
+---@class C_StringHolder : Holder<string>
+
+---@class C_StringHolderExt : C_StringHolder
+
+---@class C_StringHolderWith<T> : Holder<string>
+
+---@class C_StringHolderWithExt<T> : C_StringHolderWith<T>
+
+---@alias A_StringHolder Holder<string>
+
+---@alias A_StringHolderExt A_StringHolder
+
+---@alias A_StringHolderWith<T> Holder<string>
+
+---@alias A_StringHolderWithExt<T> A_StringHolderWith<T>
+
+---@generic T
+---@param v Holder<T>
+---@return T
+local function extract_holder(v) return v end
+
+local direct ---@type Holder<string>
+
+local class_a ---@type C_StringHolder
+local class_b ---@type C_StringHolderExt
+local class_c ---@type C_StringHolderWith<table>
+local class_d ---@type C_StringHolderWithExt<table>
+
+local alias_a ---@type A_StringHolder
+local alias_b ---@type A_StringHolderExt
+local alias_c ---@type A_StringHolderWith<table>
+local alias_d ---@type A_StringHolderWithExt<table>
+
+result = {
+    direct = extract_holder(direct),
+
+    class_a = extract_holder(class_a),
+    class_b = extract_holder(class_b),
+    class_c = extract_holder(class_c),
+    class_d = extract_holder(class_d),
+
+    alias_a = extract_holder(alias_a),
+    alias_b = extract_holder(alias_b),
+    alias_c = extract_holder(alias_c),
+    alias_d = extract_holder(alias_d),
+}
+        "#,
+        );
+
+        let a = ws.expr_ty("result");
+        let a_desc = ws.humanize_type_detailed(a);
+        let expected = r#"{
+    direct: string,
+    class_a: string,
+    class_b: string,
+    class_c: string,
+    class_d: string,
+    alias_a: string,
+    alias_b: string,
+    alias_c: string,
+    alias_d: string,
+}"#;
+        assert_eq!(a_desc, expected);
     }
 }

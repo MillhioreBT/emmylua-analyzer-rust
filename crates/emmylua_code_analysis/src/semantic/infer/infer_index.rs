@@ -170,6 +170,14 @@ pub fn infer_member_by_member_key(
         LuaType::Union(union_type) => {
             infer_union_member(db, cache, union_type, index_expr, infer_guard)
         }
+        LuaType::MultiLineUnion(multi_union) => {
+            let union_type = multi_union.to_union();
+            if let LuaType::Union(union_type) = union_type {
+                infer_union_member(db, cache, &union_type, index_expr, infer_guard)
+            } else {
+                Err(InferFailReason::FieldNotFound)
+            }
+        }
         LuaType::Intersection(intersection_type) => {
             infer_intersection_member(db, cache, intersection_type, index_expr, infer_guard)
         }
@@ -641,7 +649,14 @@ fn infer_union_member(
     infer_guard: &InferGuardRef,
 ) -> InferResult {
     let mut member_types = Vec::new();
+    let mut meet_string = false;
     for sub_type in union_type.into_vec() {
+        if sub_type.is_string() {
+            if meet_string {
+                continue;
+            }
+            meet_string = true;
+        }
         let result = infer_member_by_member_key(
             db,
             cache,

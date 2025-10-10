@@ -169,4 +169,43 @@ mod test {
         "#
         ));
     }
+
+    #[test]
+    fn test_issue_790() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+        ---@class Holder<T>
+
+        ---@class StringHolder: Holder<string>
+
+        ---@class NumberHolder: Holder<number>
+
+        ---@class StringHolderWith<T>: Holder<string>
+
+        ---@generic T
+        ---@param a T
+        ---@param b T
+        function test(a, b) end
+        "#,
+        );
+
+        assert!(!ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type Holder<string>, NumberHolder
+            local a, b
+            test(a, b)
+        "#
+        ));
+
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type Holder<string>, StringHolderWith<table>
+            local a, b
+            test(a, b)
+        "#
+        ));
+    }
 }

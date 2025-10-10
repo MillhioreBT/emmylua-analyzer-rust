@@ -1,3 +1,5 @@
+mod generic_tpl_pattern;
+
 use std::{ops::Deref, sync::Arc};
 
 use emmylua_parser::LuaAstNode;
@@ -12,9 +14,11 @@ use crate::{
     db_index::{DbIndex, LuaGenericType, LuaType},
     infer_node_semantic_decl,
     semantic::{
-        generic::{tpl_context::TplContext, type_substitutor::SubstitutorValue},
+        generic::{
+            tpl_context::TplContext, tpl_pattern::generic_tpl_pattern::generic_tpl_pattern_match,
+            type_substitutor::SubstitutorValue,
+        },
         member::{find_index_operations, get_member_map},
-        type_check::is_sub_type_of,
     },
 };
 
@@ -496,38 +500,6 @@ fn table_generic_tpl_pattern_member_owner_match(
 
     tpl_pattern_match(context, &table_generic_params[0], &key_type)?;
     tpl_pattern_match(context, &table_generic_params[1], &value_type)?;
-
-    Ok(())
-}
-
-fn generic_tpl_pattern_match(
-    context: &mut TplContext,
-    generic: &LuaGenericType,
-    target: &LuaType,
-) -> TplPatternMatchResult {
-    if let LuaType::Generic(target_generic) = target {
-        let base = generic.get_base_type_id_ref();
-        let target_base = target_generic.get_base_type_id_ref();
-
-        if !is_sub_type_of(context.db, target_base, base) {
-            return Err(InferFailReason::None);
-        }
-
-        let params = generic.get_params();
-        let target_params = target_generic.get_params();
-        let min_len = params.len().min(target_params.len());
-        for i in 0..min_len {
-            match (&params[i], &target_params[i]) {
-                (LuaType::Variadic(variadict), _) => {
-                    variadic_tpl_pattern_match(context, variadict, &target_params[i..])?;
-                    break;
-                }
-                _ => {
-                    tpl_pattern_match(context, &params[i], &target_params[i])?;
-                }
-            }
-        }
-    }
 
     Ok(())
 }

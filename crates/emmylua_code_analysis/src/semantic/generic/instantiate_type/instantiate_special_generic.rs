@@ -4,7 +4,7 @@ use crate::{
     DbIndex, LuaAliasCallKind, LuaAliasCallType, LuaMemberInfo, LuaMemberKey, LuaTupleStatus,
     LuaTupleType, LuaType, TypeOps, VariadicType, get_member_map,
     semantic::{
-        generic::instantiate_type_generic::key_type_to_member_key,
+        generic::key_type_to_member_key,
         member::{find_members, infer_raw_member_type},
         type_check,
     },

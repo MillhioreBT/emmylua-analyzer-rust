@@ -164,8 +164,8 @@ mod test {
         let mut ws = VirtualWorkspace::new();
         ws.def(
             r#"
-            ---@alias Predicate<A> fun(...: A...): boolean
-            ---@type Predicate<[string, integer, table]>
+            ---@alias Predicate<A...> fun(...: A...): boolean
+            ---@type Predicate<string, integer, table>
             pred = function() end
             "#,
         );

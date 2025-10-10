@@ -22,9 +22,10 @@ use super::{
 
 pub fn get_buildin_type_map_type_id(type_: &LuaType) -> Option<LuaTypeDeclId> {
     match type_ {
-        LuaType::String | LuaType::StringConst(_) | LuaType::DocStringConst(_) => {
-            Some(LuaTypeDeclId::new("string"))
-        }
+        LuaType::String
+        | LuaType::StringConst(_)
+        | LuaType::DocStringConst(_)
+        | LuaType::Language(_) => Some(LuaTypeDeclId::new("string")),
         LuaType::Io => Some(LuaTypeDeclId::new("io")),
         _ => None,
     }
