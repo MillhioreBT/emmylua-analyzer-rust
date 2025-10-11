@@ -15,30 +15,16 @@ pub async fn on_pull_document_diagnostic(
     token: CancellationToken,
 ) -> DocumentDiagnosticReportResult {
     let uri = params.text_document.uri;
-    let analysis = context.analysis().read().await;
-    let Some(file_id) = analysis.get_file_id(&uri) else {
-        return default_diagnostic_report();
-    };
-
-    let analysis = context.analysis().read().await;
-    let diagnostics = analysis.diagnose_file(file_id, token).unwrap_or_default();
+    let diagnostics = context
+        .file_diagnostic()
+        .pull_file_diagnostics(uri, token)
+        .await;
 
     DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
         related_documents: None,
         full_document_diagnostic_report: FullDocumentDiagnosticReport {
             result_id: None,
             items: diagnostics,
-        },
-    })
-    .into()
-}
-
-fn default_diagnostic_report() -> DocumentDiagnosticReportResult {
-    DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-        related_documents: None,
-        full_document_diagnostic_report: FullDocumentDiagnosticReport {
-            result_id: None,
-            items: vec![],
         },
     })
     .into()

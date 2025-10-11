@@ -23,8 +23,7 @@ pub async fn on_did_change_watched_files(
                     // 发送空诊断消息以清除客户端显示的诊断
                     context
                         .file_diagnostic()
-                        .clear_file_diagnostics(file_event.uri)
-                        .await;
+                        .clear_file_diagnostics(file_event.uri);
                     continue;
                 }
 

@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use emmylua_code_analysis::{EmmyLuaAnalysis, FileId, Profile};
 use log::{debug, info};
+use lsp_types::{Diagnostic, Uri};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
@@ -85,7 +86,7 @@ impl FileDiagnostic {
     }
 
     /// 清除指定文件的诊断信息
-    pub async fn clear_file_diagnostics(&self, uri: lsp_types::Uri) {
+    pub fn clear_file_diagnostics(&self, uri: lsp_types::Uri) {
         let diagnostic_param = lsp_types::PublishDiagnosticsParams {
             uri,
             diagnostics: vec![],
@@ -127,6 +128,22 @@ impl FileDiagnostic {
             token.cancel();
         }
         tokens.clear();
+    }
+
+    pub async fn pull_file_diagnostics(
+        &self,
+        uri: Uri,
+        cancel_token: CancellationToken,
+    ) -> Vec<Diagnostic> {
+        let analysis = self.analysis.read().await;
+        let Some(file_id) = analysis.get_file_id(&uri) else {
+            return vec![];
+        };
+
+        self.clear_file_diagnostics(uri);
+
+        let diagnostics = analysis.diagnose_file(file_id, cancel_token);
+        diagnostics.unwrap_or_default()
     }
 }
 

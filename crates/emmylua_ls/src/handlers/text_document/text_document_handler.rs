@@ -121,8 +121,7 @@ pub async fn on_did_close_document(
 
         context
             .file_diagnostic()
-            .clear_file_diagnostics(uri.clone())
-            .await;
+            .clear_file_diagnostics(uri.clone());
 
         return Some(());
     }
@@ -142,8 +141,7 @@ pub async fn on_did_close_document(
         // 发送空诊断消息以清除客户端显示的诊断
         context
             .file_diagnostic()
-            .clear_file_diagnostics(uri.clone())
-            .await;
+            .clear_file_diagnostics(uri.clone());
     }
 
     Some(())
