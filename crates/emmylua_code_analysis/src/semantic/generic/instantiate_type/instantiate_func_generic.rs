@@ -108,8 +108,6 @@ pub fn instantiate_func_generic(
             }
 
             let arg_type = infer_expr(db, context.cache, call_arg_expr.clone())?;
-            dbg!(&func_param_type);
-            dbg!(&arg_type);
 
             match (func_param_type, &arg_type) {
                 (LuaType::Variadic(variadic), _) => {
@@ -152,12 +150,8 @@ pub fn instantiate_func_generic(
     if contain_self && let Some(self_type) = infer_self_type(db, cache, &call_expr) {
         substitutor.add_self_type(self_type);
     }
-    dbg!(&substitutor);
 
     if let LuaType::DocFunction(f) = instantiate_doc_function(db, func, &substitutor) {
-        // dbg!(&call_expr);
-        dbg!(&func);
-        dbg!(&f);
         Ok(f.deref().clone())
     } else {
         Ok(func.clone())
@@ -176,7 +170,6 @@ pub fn build_self_type(db: &DbIndex, self_type: &LuaType) -> LuaType {
                         params.push(LuaType::TplRef(Arc::new(GenericTpl::new(
                             GenericTplId::Type(i as u32),
                             ArcIntern::new(generic_param.name.clone()),
-                            generic_param.is_variadic,
                         ))));
                     }
                 }

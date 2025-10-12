@@ -159,12 +159,10 @@ fn infer_buildin_or_ref_type(
             LuaType::Table
         }
         _ => {
-            if let Some((tpl_id, is_variadic)) = analyzer.generic_index.find_generic(position, name)
-            {
+            if let Some(tpl_id) = analyzer.generic_index.find_generic(position, name) {
                 return LuaType::TplRef(Arc::new(GenericTpl::new(
                     tpl_id,
                     SmolStr::new(name).into(),
-                    is_variadic,
                 )));
             }
 
@@ -694,7 +692,7 @@ fn collect_cond_infer_params(doc_type: &LuaDocType) -> Vec<GenericParam> {
     let doc_infer_types = doc_type.descendants::<LuaDocInferType>();
     for infer_type in doc_infer_types {
         if let Some(name) = infer_type.get_name_text() {
-            params.push(GenericParam::new(SmolStr::new(&name), None, false));
+            params.push(GenericParam::new(SmolStr::new(&name), None));
         }
     }
     params
@@ -712,7 +710,7 @@ fn infer_mapped_type(
     let constraint = generic_decl
         .get_type()
         .map(|constraint| infer_type(analyzer, constraint));
-    let param = GenericParam::new(SmolStr::new(name), constraint, generic_decl.is_variadic());
+    let param = GenericParam::new(SmolStr::new(name), constraint);
 
     analyzer.generic_index.add_generic_scope(
         vec![mapped_type.get_range()],
@@ -720,7 +718,7 @@ fn infer_mapped_type(
         false,
     );
     let position = mapped_type.get_range().start();
-    let id = analyzer.generic_index.find_generic(position, name)?.0;
+    let id = analyzer.generic_index.find_generic(position, name)?;
 
     let doc_type = mapped_type.get_value_type()?;
     let value_type = infer_type(analyzer, doc_type);

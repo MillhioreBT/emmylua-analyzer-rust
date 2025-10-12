@@ -159,11 +159,8 @@ pub fn analyze_alias(analyzer: &mut DocAnalyzer, tag: LuaDocTagAlias) -> Option<
             .generic_index
             .add_generic_scope(vec![range], generic_params, false);
     }
-    // dbg!(&tag);
 
     let origin_type = infer_type(analyzer, tag.get_type()?);
-
-    // dbg!(&origin_type);
 
     let alias = analyzer
         .db
@@ -193,8 +190,7 @@ fn get_generic_params(
             .get_type()
             .map(|type_ref| infer_type(analyzer, type_ref));
 
-        let is_variadic = param.is_variadic();
-        params_result.push(GenericParam::new(name, type_ref, is_variadic));
+        params_result.push(GenericParam::new(name, type_ref));
     }
 
     params_result
@@ -336,7 +332,6 @@ pub fn analyze_func_generic(analyzer: &mut DocAnalyzer, tag: LuaDocTagGeneric) -
             params_result.push(GenericParam::new(
                 SmolStr::new(name.as_str()),
                 type_ref.clone(),
-                param.is_variadic(),
             ));
             param_info.push((name, type_ref));
         }

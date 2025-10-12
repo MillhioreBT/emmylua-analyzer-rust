@@ -73,12 +73,12 @@ fn instantiate_tuple(db: &DbIndex, tuple: &LuaTupleType, substitutor: &TypeSubst
             match inner.deref() {
                 VariadicType::Base(base) => {
                     if let LuaType::TplRef(tpl) = base {
-                        if tpl.is_variadic() {
-                            if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
-                                new_types.extend_from_slice(&generics);
-                            }
-                            break;
-                        }
+                        // if tpl.is_variadic() {
+                        //     if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
+                        //         new_types.extend_from_slice(&generics);
+                        //     }
+                        //     break;
+                        // }
 
                         if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
                             match value {
@@ -122,7 +122,7 @@ pub fn instantiate_doc_function(
     let colon_define = doc_func.is_colon_define();
 
     let mut new_params = Vec::new();
-    for (i, origin_param) in tpl_func_params.iter().enumerate() {
+    for origin_param in tpl_func_params.iter() {
         let origin_param_type = if let Some(ty) = &origin_param.1 {
             ty
         } else {
@@ -133,17 +133,26 @@ pub fn instantiate_doc_function(
             LuaType::Variadic(variadic) => match variadic.deref() {
                 VariadicType::Base(base) => match base {
                     LuaType::TplRef(tpl) => {
-                        if tpl.is_variadic() {
-                            if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
-                                for (j, typ) in generics.iter().enumerate() {
-                                    let param_name = format!("var{}", i + j);
-                                    new_params.push((param_name, Some(typ.clone())));
-                                }
-                            }
-                            continue;
-                        }
                         if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
                             match value {
+                                SubstitutorValue::Type(ty) => {
+                                    // 如果参数是 `...: T...` 且类型是 tuple, 那么我们将展开 tuple
+                                    if origin_param.0 == "..."
+                                        && let LuaType::Tuple(tuple) = ty
+                                    {
+                                        for (i, typ) in tuple.get_types().iter().enumerate() {
+                                            let param_name = format!("var{}", i);
+                                            new_params.push((param_name, Some(typ.clone())));
+                                        }
+                                        continue;
+                                    }
+                                    new_params.push((
+                                        "...".to_string(),
+                                        Some(LuaType::Variadic(
+                                            VariadicType::Base(LuaType::Any).into(),
+                                        )),
+                                    ));
+                                }
                                 SubstitutorValue::Params(params) => {
                                     for param in params {
                                         new_params.push(param.clone());
@@ -208,9 +217,6 @@ pub fn instantiate_doc_function(
             }
         }
     }
-    // dbg!(&new_params);
-    // dbg!(&inst_ret_type);
-    // dbg!(&modified_substitutor);
 
     LuaType::DocFunction(
         LuaFunctionType::new(async_state, colon_define, new_params, inst_ret_type).into(),
@@ -325,30 +331,29 @@ fn instantiate_table_generic(
 }
 
 fn instantiate_tpl_ref(_: &DbIndex, tpl: &GenericTpl, substitutor: &TypeSubstitutor) -> LuaType {
-    // 泛型是否以`T...`定义(非使用), 以`T...`定义的泛型我们应该将其视为一个元组
-    if tpl.is_variadic() {
-        if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
-            match generics.len() {
-                1 => return generics[0].clone(),
-                _ => {
-                    return LuaType::Variadic(VariadicType::Multi(generics.clone()).into());
-                    // return LuaType::Tuple(
-                    //     LuaTupleType::new(generics.clone(), LuaTupleStatus::DocResolve).into(),
-                    // );
-                }
-            }
-        } else {
-            return LuaType::Never;
-        }
-    }
+    // if tpl.is_variadic() {
+    //     if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
+    //         match generics.len() {
+    //             1 => return generics[0].clone(),
+    //             _ => {
+    //                 return LuaType::Variadic(VariadicType::Multi(generics.clone()).into());
+    //                 // return LuaType::Tuple(
+    //                 //     LuaTupleType::new(generics.clone(), LuaTupleStatus::DocResolve).into(),
+    //                 // );
+    //             }
+    //         }
+    //     } else {
+    //         return LuaType::Never;
+    //     }
+    // }
 
     if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
         match value {
             SubstitutorValue::None => {}
             SubstitutorValue::Type(ty) => return ty.clone(),
             SubstitutorValue::MultiTypes(types) => {
-                return types.first().unwrap_or(&LuaType::Unknown).clone();
-                //    return LuaType::from_vec(types.clone());
+                return LuaType::Variadic(VariadicType::Multi(types.clone()).into());
+                // return types.first().unwrap_or(&LuaType::Unknown).clone();
             }
             SubstitutorValue::Params(params) => {
                 return params
@@ -402,17 +407,17 @@ fn instantiate_variadic_type(
     match variadic {
         VariadicType::Base(base) => match base {
             LuaType::TplRef(tpl) => {
-                if tpl.is_variadic() {
-                    if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
-                        if generics.len() == 1 {
-                            return generics[0].clone();
-                        } else {
-                            return LuaType::Variadic(VariadicType::Multi(generics.clone()).into());
-                        }
-                    } else {
-                        return LuaType::Never;
-                    }
-                }
+                // if tpl.is_variadic() {
+                //     if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
+                //         if generics.len() == 1 {
+                //             return generics[0].clone();
+                //         } else {
+                //             return LuaType::Variadic(VariadicType::Multi(generics.clone()).into());
+                //         }
+                //     } else {
+                //         return LuaType::Never;
+                //     }
+                // }
 
                 if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
                     match value {
@@ -477,9 +482,6 @@ fn instantiate_conditional(
     // 记录右侧出现的每个 infer 名称对应的具体类型
     let mut infer_assignments: HashMap<String, LuaType> = HashMap::new();
     let mut condition_result: Option<bool> = None;
-    // dbg!(&conditional);
-    // dbg!(&substitutor);
-    // println!("substitutor: {:?}", substitutor);
 
     // 仅当条件形如 T extends ... 时才尝试提前求值, 否则返回原始结构
     if let LuaType::Call(alias_call) = conditional.get_condition()
@@ -502,8 +504,6 @@ fn instantiate_conditional(
                 }
             }
         }
-        // dbg!(&left);
-        // dbg!(&right);
 
         // infer 必须位于条件语句中(right), 判断是否包含并收集
         if contains_conditional_infer(&right)

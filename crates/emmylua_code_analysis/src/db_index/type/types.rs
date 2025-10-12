@@ -1325,16 +1325,11 @@ impl GenericTplId {
 pub struct GenericTpl {
     tpl_id: GenericTplId,
     name: ArcIntern<SmolStr>,
-    is_variadic: bool,
 }
 
 impl GenericTpl {
-    pub fn new(tpl_id: GenericTplId, name: ArcIntern<SmolStr>, is_variadic: bool) -> Self {
-        Self {
-            tpl_id,
-            name,
-            is_variadic,
-        }
+    pub fn new(tpl_id: GenericTplId, name: ArcIntern<SmolStr>) -> Self {
+        Self { tpl_id, name }
     }
 
     pub fn get_tpl_id(&self) -> GenericTplId {
@@ -1343,10 +1338,6 @@ impl GenericTpl {
 
     pub fn get_name(&self) -> &str {
         &self.name
-    }
-
-    pub fn is_variadic(&self) -> bool {
-        self.is_variadic
     }
 }
 

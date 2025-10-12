@@ -164,12 +164,16 @@ mod test {
         let mut ws = VirtualWorkspace::new();
         ws.def(
             r#"
-            ---@alias Predicate<A...> fun(...: A...): boolean
-            ---@type Predicate<string, integer, table>
+            ---@alias Predicate<A> fun(...: A...): boolean
+            ---@type Predicate<[string, integer, table]>
             pred = function() end
             "#,
         );
         assert!(ws.check_code_for(DiagnosticCode::ParamTypeNotMatch, r#"pred('hello', 1, {})"#));
+        assert!(!ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"pred('hello',"1", {})"#
+        ));
     }
 
     #[test]
@@ -413,7 +417,7 @@ mod test {
 
             ---@alias UnwrapUnion<T> { [K in keyof T]: T[K] extends Wrapper<infer U> and U or unknown; }
 
-            ---@generic T...
+            ---@generic T
             ---@param ... T...
             ---@return UnwrapUnion<T>...
             function unwrap(...) end
