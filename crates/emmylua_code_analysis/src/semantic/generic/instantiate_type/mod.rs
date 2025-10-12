@@ -424,7 +424,15 @@ fn instantiate_variadic_type(
                         SubstitutorValue::None => {
                             return LuaType::Never;
                         }
-                        SubstitutorValue::Type(ty) => return ty.clone(),
+                        SubstitutorValue::Type(ty) => {
+                            if matches!(
+                                ty,
+                                LuaType::Nil | LuaType::Any | LuaType::Unknown | LuaType::Never
+                            ) {
+                                return ty.clone();
+                            }
+                            return LuaType::Variadic(VariadicType::Base(ty.clone()).into());
+                        }
                         SubstitutorValue::MultiTypes(types) => {
                             return LuaType::Variadic(VariadicType::Multi(types.clone()).into());
                         }

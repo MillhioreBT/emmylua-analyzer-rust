@@ -470,4 +470,86 @@ mod test {
             "#,
         ));
     }
+
+    #[test]
+    fn test_variadic_base() {
+        let mut ws = VirtualWorkspace::new();
+        {
+            ws.def(
+                r#"
+            ---@generic T
+            ---@param ... T... # 所有传入参数合并为一个`可变序列`, 即(T1, T2, ...)
+            ---@return T # 返回可变序列
+            function f1(...) end
+            "#,
+            );
+            assert!(ws.check_code_for(
+                DiagnosticCode::ParamTypeNotMatch,
+                r#"
+              A, B, C =  f1(1, "2", true)
+            "#,
+            ));
+            assert_eq!(ws.expr_ty("A"), ws.ty("integer"));
+            assert_eq!(ws.expr_ty("B"), ws.ty("string"));
+            assert_eq!(ws.expr_ty("C"), ws.ty("boolean"));
+        }
+        {
+            ws.def(
+                r#"
+                ---@generic T
+                ---@param ... T...
+                ---@return T... # `...`的作用是转换类型为序列, 此时 T 为序列, 那么 T... = T
+                function f2(...) end
+            "#,
+            );
+            assert!(ws.check_code_for(
+                DiagnosticCode::ParamTypeNotMatch,
+                r#"
+              D, E, F =  f2(1, "2", true)
+            "#,
+            ));
+            assert_eq!(ws.expr_ty("D"), ws.ty("integer"));
+            assert_eq!(ws.expr_ty("E"), ws.ty("string"));
+            assert_eq!(ws.expr_ty("F"), ws.ty("boolean"));
+        }
+
+        {
+            ws.def(
+                r#"
+            ---@generic T
+            ---@param ... T # T为单类型, `@param ... T`在语义上等同于 TS 的 T[]
+            ---@return T # 返回一个单类型
+            function f3(...) end
+            "#,
+            );
+            assert!(!ws.check_code_for(
+                DiagnosticCode::ParamTypeNotMatch,
+                r#"
+              G, H =  f3(1, "2")
+            "#,
+            ));
+            assert_eq!(ws.expr_ty("G"), ws.ty("integer"));
+            assert_eq!(ws.expr_ty("H"), ws.ty("any"));
+        }
+
+        {
+            ws.def(
+                r#"
+            ---@generic T
+            ---@param ... T # T为单类型
+            ---@return T... # 将单类型转为可变序列返回, 即返回了(T, T, T, ...)
+            function f4(...) end
+            "#,
+            );
+            assert!(!ws.check_code_for(
+                DiagnosticCode::ParamTypeNotMatch,
+                r#"
+              I, J, K =  f4(1, "2")
+            "#,
+            ));
+            assert_eq!(ws.expr_ty("I"), ws.ty("integer"));
+            assert_eq!(ws.expr_ty("J"), ws.ty("integer"));
+            assert_eq!(ws.expr_ty("K"), ws.ty("integer"));
+        }
+    }
 }

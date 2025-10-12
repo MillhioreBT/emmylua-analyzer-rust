@@ -26,7 +26,7 @@ mod test {
         );
 
         let ty = ws.expr_ty("async_create(locaf)");
-        let expected = ws.ty("async fun(a: number, b: string, c:boolean): number");
+        let expected = ws.ty("async fun(a: number, b: string, c:boolean): number...");
         assert_eq!(ty, expected);
     }
 
