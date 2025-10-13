@@ -152,6 +152,10 @@ impl LuaDocLexer<'_> {
                 let text = reader.current_text();
                 to_tag(text)
             }
+            '<' => {
+                reader.bump();
+                LuaTokenKind::TkCallGeneric
+            }
             _ => {
                 reader.eat_while(|_| true);
                 LuaTokenKind::TkDocTrivia

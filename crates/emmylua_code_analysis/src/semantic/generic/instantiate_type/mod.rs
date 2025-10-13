@@ -273,7 +273,7 @@ fn instantiate_intersection(
     LuaType::Intersection(LuaIntersectionType::new(new_types).into())
 }
 
-fn instantiate_generic(
+pub fn instantiate_generic(
     db: &DbIndex,
     generic: &LuaGenericType,
     substitutor: &TypeSubstitutor,

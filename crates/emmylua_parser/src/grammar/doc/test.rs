@@ -3216,4 +3216,49 @@ Syntax(Chunk)@0..106
         "#;
         assert_ast_eq!(code, result);
     }
+
+    #[test]
+    fn test_call_generic() {
+        let code = r#"
+        call_generic--[[@<number | string>]](1, "2")
+      "#;
+        print_ast(code);
+        let result = r#"
+Syntax(Chunk)@0..60
+  Syntax(Block)@0..60
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(CallExprStat)@9..53
+      Syntax(CallExpr)@9..53
+        Syntax(NameExpr)@9..21
+          Token(TkName)@9..21 "call_generic"
+        Syntax(Comment)@21..45
+          Token(TkDocLongStart)@21..26 "--[[@"
+          Syntax(DocTagCallGeneric)@26..43
+            Token(TkCallGeneric)@26..27 "<"
+            Syntax(DocTypeList)@27..42
+              Syntax(TypeBinary)@27..42
+                Syntax(TypeName)@27..33
+                  Token(TkName)@27..33 "number"
+                Token(TkWhitespace)@33..34 " "
+                Token(TkDocOr)@34..35 "|"
+                Token(TkWhitespace)@35..36 " "
+                Syntax(TypeName)@36..42
+                  Token(TkName)@36..42 "string"
+            Token(TkGt)@42..43 ">"
+          Token(TkLongCommentEnd)@43..45 "]]"
+        Syntax(CallArgList)@45..53
+          Token(TkLeftParen)@45..46 "("
+          Syntax(LiteralExpr)@46..47
+            Token(TkInt)@46..47 "1"
+          Token(TkComma)@47..48 ","
+          Token(TkWhitespace)@48..49 " "
+          Syntax(LiteralExpr)@49..52
+            Token(TkString)@49..52 "\"2\""
+          Token(TkRightParen)@52..53 ")"
+    Token(TkEndOfLine)@53..54 "\n"
+    Token(TkWhitespace)@54..60 "      "
+"#;
+        assert_ast_eq!(code, result);
+    }
 }

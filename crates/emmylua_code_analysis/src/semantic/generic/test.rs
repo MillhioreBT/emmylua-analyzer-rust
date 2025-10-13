@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::{LuaType, VirtualWorkspace};
+    use crate::{DiagnosticCode, LuaType, VirtualWorkspace};
 
     #[test]
     fn test_variadic_func() {
@@ -193,5 +193,38 @@ result = {
     alias_d: string,
 }"#;
         assert_eq!(a_desc, expected);
+    }
+
+    #[test]
+    fn test_call_generic() {
+        let mut ws = crate::VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias Warp<T> T
+
+            ---@generic T
+            ---@param ... Warp<T>
+            function test(...)
+            end
+        "#,
+        );
+
+        assert!(!ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type Warp<number>, Warp<string>
+            local a, b
+            test(a, b)
+        "#,
+        ));
+
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type Warp<number>, Warp<string>
+            local a, b
+            test--[[@<number | string>]](a, b)
+        "#,
+        ));
     }
 }

@@ -92,6 +92,7 @@ pub enum LuaSyntaxKind {
     DocTagReturnCast,
     DocTagExport,
     DocTagLanguage,
+    DocTagCallGeneric,
 
     // doc Type
     TypeArray,          // baseType []
