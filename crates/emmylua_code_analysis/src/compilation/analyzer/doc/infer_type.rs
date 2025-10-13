@@ -115,7 +115,7 @@ pub fn infer_type(analyzer: &mut DocAnalyzer, node: LuaDocType) -> LuaType {
             return infer_conditional_type(analyzer, cond_type);
         }
         LuaDocType::Infer(infer_type) => {
-            if let Some(name) = infer_type.get_name_text() {
+            if let Some(name) = infer_type.get_generic_decl_name_text() {
                 return LuaType::ConditionalInfer(ArcIntern::new(SmolStr::new(&name)));
             }
         }
@@ -691,7 +691,7 @@ fn collect_cond_infer_params(doc_type: &LuaDocType) -> Vec<GenericParam> {
     let mut params = Vec::new();
     let doc_infer_types = doc_type.descendants::<LuaDocInferType>();
     for infer_type in doc_infer_types {
-        if let Some(name) = infer_type.get_name_text() {
+        if let Some(name) = infer_type.get_generic_decl_name_text() {
             params.push(GenericParam::new(SmolStr::new(&name), None));
         }
     }

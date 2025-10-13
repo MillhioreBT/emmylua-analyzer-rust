@@ -199,12 +199,9 @@ impl LuaDocInferType {
         self.child()
     }
 
-    pub fn get_name_token(&self) -> Option<LuaNameToken> {
-        self.get_generic_decl()?.get_name_token()
-    }
-
-    pub fn get_name_text(&self) -> Option<String> {
-        self.get_name_token()
+    pub fn get_generic_decl_name_text(&self) -> Option<String> {
+        self.get_generic_decl()?
+            .get_name_token()
             .map(|it| it.get_name_text().to_string())
     }
 }
