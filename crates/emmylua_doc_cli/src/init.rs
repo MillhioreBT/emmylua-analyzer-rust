@@ -66,7 +66,8 @@ pub fn load_workspace(
     main_path: PathBuf,
     mut workspace_folders: Vec<PathBuf>,
     config_paths: Option<Vec<PathBuf>>,
-    ignore: Option<Vec<String>>,
+    exclude_pattern: Option<Vec<String>>,
+    include_pattern: Option<Vec<String>>,
 ) -> Option<EmmyLuaAnalysis> {
     let (config_files, config_root): (Vec<PathBuf>, PathBuf) =
         if let Some(config_paths) = config_paths {
@@ -111,7 +112,12 @@ pub fn load_workspace(
     analysis.update_config(Arc::new(emmyrc));
     analysis.init_std_lib(None);
 
-    let file_infos = collect_files(&workspace_folders, &analysis.emmyrc, ignore);
+    let file_infos = collect_files(
+        &workspace_folders,
+        &analysis.emmyrc,
+        exclude_pattern,
+        include_pattern,
+    );
     let files = file_infos
         .into_iter()
         .filter_map(|file| {
@@ -140,10 +146,12 @@ pub fn load_workspace(
 pub fn collect_files(
     workspaces: &Vec<PathBuf>,
     emmyrc: &Emmyrc,
-    ignore: Option<Vec<String>>,
+    exclude_pattern: Option<Vec<String>>,
+    include_pattern: Option<Vec<String>>,
 ) -> Vec<LuaFileInfo> {
     let mut files = Vec::new();
-    let (match_pattern, exclude, exclude_dir) = calculate_include_and_exclude(emmyrc, ignore);
+    let (match_pattern, exclude, exclude_dir) =
+        calculate_include_and_exclude(emmyrc, exclude_pattern, include_pattern);
 
     let encoding = &emmyrc.workspace.encoding;
 
@@ -167,21 +175,32 @@ pub fn collect_files(
 /// File patterns for workspace scanning: (include_patterns, exclude_patterns, exclude_dirs)
 type FilePatterns = (Vec<String>, Vec<String>, Vec<PathBuf>);
 
-pub fn calculate_include_and_exclude(emmyrc: &Emmyrc, ignore: Option<Vec<String>>) -> FilePatterns {
-    let mut include = vec!["**/*.lua".to_string(), "**/.editorconfig".to_string()];
+pub fn calculate_include_and_exclude(
+    emmyrc: &Emmyrc,
+    exclude_pattern: Option<Vec<String>>,
+    include_pattern: Option<Vec<String>>,
+) -> FilePatterns {
+    let mut include = Vec::new();
     let mut exclude = Vec::new();
     let mut exclude_dirs = Vec::new();
 
-    for extension in &emmyrc.runtime.extensions {
-        if extension.starts_with(".") {
-            log::info!("Adding extension: **/*{}", extension);
-            include.push(format!("**/*{}", extension));
-        } else if extension.starts_with("*.") {
-            log::info!("Adding extension: **/{}", extension);
-            include.push(format!("**/{}", extension));
-        } else {
-            log::info!("Adding extension: {}", extension);
-            include.push(extension.clone());
+    if let Some(p) = include_pattern {
+        include.extend(p);
+    } else {
+        include.push("**/*.lua".to_string());
+        include.push("**/.editorconfig".to_string());
+
+        for extension in &emmyrc.runtime.extensions {
+            if extension.starts_with(".") {
+                log::info!("Adding extension: **/*{}", extension);
+                include.push(format!("**/*{}", extension));
+            } else if extension.starts_with("*.") {
+                log::info!("Adding extension: **/{}", extension);
+                include.push(format!("**/{}", extension));
+            } else {
+                log::info!("Adding extension: {}", extension);
+                include.push(extension.clone());
+            }
         }
     }
 
@@ -190,9 +209,9 @@ pub fn calculate_include_and_exclude(emmyrc: &Emmyrc, ignore: Option<Vec<String>
         exclude.push(ignore_glob.clone());
     }
 
-    if let Some(ignore) = ignore {
-        log::info!("Adding ignores from \"--ignore\": {:?}", ignore);
-        exclude.extend(ignore);
+    if let Some(p) = exclude_pattern {
+        log::info!("Adding excludes from \"--exclude(or --ignore)\": {:?}", p);
+        exclude.extend(p);
     }
 
     for dir in &emmyrc.workspace.ignore_dir {

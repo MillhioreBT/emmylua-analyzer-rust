@@ -10,13 +10,14 @@ use lsp_types::request::{
     GotoDefinition, GotoImplementation, HoverRequest, InlayHintRequest, InlayHintResolveRequest,
     InlineValueRequest, OnTypeFormatting, PrepareRenameRequest, RangeFormatting, References,
     Rename, Request as LspRequest, ResolveCompletionItem, SelectionRangeRequest,
-    SemanticTokensFullRequest, SignatureHelpRequest, WorkspaceSymbolRequest,
+    SemanticTokensFullRequest, SignatureHelpRequest, WorkspaceDiagnosticRequest,
+    WorkspaceSymbolRequest,
 };
 
 use crate::{
     context::ServerContext,
     handlers::{
-        document_diagnostic::on_pull_document_diagnostic,
+        diagnostic::{on_pull_document_diagnostic, on_pull_workspace_diagnostic},
         document_type_format::on_type_formatting_handler,
     },
 };
@@ -119,6 +120,7 @@ pub async fn on_request_handler(
         CallHierarchyIncomingCalls => on_incoming_calls_handler,
         CallHierarchyOutgoingCalls => on_outgoing_calls_handler,
         DocumentDiagnosticRequest => on_pull_document_diagnostic,
+        WorkspaceDiagnosticRequest => on_pull_workspace_diagnostic,
     });
 
     Ok(())

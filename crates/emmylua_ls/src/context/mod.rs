@@ -10,6 +10,7 @@ pub use client::ClientProxy;
 pub use client_id::{ClientId, get_client_id};
 use emmylua_code_analysis::EmmyLuaAnalysis;
 pub use file_diagnostic::FileDiagnostic;
+pub use lsp_features::LspFeatures;
 use lsp_server::{Connection, ErrorCode, Message, RequestId, Response};
 use lsp_types::ClientCapabilities;
 pub use snapshot::ServerContextSnapshot;
@@ -18,11 +19,8 @@ pub use status_bar::StatusBar;
 use std::{collections::HashMap, future::Future, sync::Arc};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
-pub use workspace_manager::WorkspaceFileMatcher;
-pub use workspace_manager::WorkspaceManager;
-pub use workspace_manager::load_emmy_config;
+pub use workspace_manager::*;
 
-use crate::context::lsp_features::LspFeatures;
 use crate::context::snapshot::ServerContextInner;
 
 pub struct ServerContext {
@@ -46,13 +44,14 @@ impl ServerContext {
             status_bar.clone(),
             client.clone(),
         ));
+        let lsp_features = Arc::new(LspFeatures::new(client_capabilities));
         let workspace_manager = Arc::new(RwLock::new(WorkspaceManager::new(
             analysis.clone(),
             client.clone(),
             status_bar.clone(),
             file_diagnostic.clone(),
+            lsp_features.clone(),
         )));
-        let lsp_features = Arc::new(LspFeatures::new(client_capabilities));
 
         ServerContext {
             conn,

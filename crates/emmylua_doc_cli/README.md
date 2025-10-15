@@ -109,7 +109,9 @@ Arguments:
 
 Options:
   -c, --config <CONFIG>                        Configuration file paths. If not provided, both ".emmyrc.json" and ".luarc.json" will be searched in the workspace directory
-      --ignore <IGNORE>                        Comma separated list of ignore patterns. Patterns must follow glob syntax
+      --include <INCLUDE>                      Comma separated list of include patterns. Patterns must follow glob syntax. It will override the default include patterns.
+      --ignore <EXCLUDE>                       Comma separated list of exclude patterns. Patterns must follow glob syntax(deprecated, use --exclude instead)
+      --exclude <EXCLUDE>                      Comma separated list of exclude patterns. Patterns must follow glob syntax. Exclude patterns take precedence over include patterns
   -f, --output-format <OUTPUT_FORMAT>          Specify output format [default: markdown] [possible values: json, markdown]
   -o, --output <OUTPUT>                        Specify output destination (can be stdout when output_format is json) [default: ./output]
       --override-template <OVERRIDE_TEMPLATE>  The path of the override template

@@ -71,7 +71,7 @@ fn check_cast_compatibility(
         return Some(());
     }
 
-    // 检查是否可以从原始类型转换为目标类型
+    // 检查是否可以从原始类型转换为目标类型, 允许父类转为子类
     let result = match origin_type {
         LuaType::Union(union_type) => {
             for member_type in union_type.into_vec() {
@@ -138,6 +138,7 @@ fn add_cast_type_mismatch_diagnostic(
     }
 }
 
+/// 允许父类转为子类
 fn cast_type_check(
     semantic_model: &SemanticModel,
     origin_type: &LuaType,
@@ -198,8 +199,13 @@ fn cast_type_check(
             } else if origin_type.is_number() && target_type.is_number() {
                 return Ok(());
             }
-
-            semantic_model.type_check_detail(target_type, origin_type)
+            match semantic_model.type_check_detail(target_type, origin_type) {
+                Ok(_) => Ok(()),
+                Err(_) => match semantic_model.type_check_detail(origin_type, target_type) {
+                    Ok(_) => Ok(()),
+                    Err(reason) => Err(reason),
+                },
+            }
         }
     }
 }

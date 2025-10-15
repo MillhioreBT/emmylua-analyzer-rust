@@ -1308,4 +1308,30 @@ mod test {
         "#
         ));
     }
+
+    #[test]
+    fn test_self_contain_tpl() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def_file(
+            "test.lua",
+            r#"
+                ---@class Observable<T>
+                Observable = {}
+
+                ---@param ... Observable<any>
+                function zip(...)
+                end
+
+        "#,
+        );
+
+        assert!(ws.check_code_for_namespace(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            function Observable:test()
+                zip(self)
+            end
+        "#
+        ));
+    }
 }

@@ -13,6 +13,7 @@ pub async fn on_did_change_watched_files(
     let encoding = &emmyrc.workspace.encoding;
     let interval = emmyrc.diagnostics.diagnostic_interval.unwrap_or(500);
     let mut watched_lua_files: Vec<(Uri, Option<String>)> = Vec::new();
+    let lsp_features = context.lsp_features();
     // let
     for file_event in params.changes.into_iter() {
         let file_type = get_file_type(&file_event.uri);
@@ -20,10 +21,11 @@ pub async fn on_did_change_watched_files(
             Some(WatchedFileType::Lua) => {
                 if file_event.typ == FileChangeType::DELETED {
                     analysis.remove_file_by_uri(&file_event.uri);
-                    // 发送空诊断消息以清除客户端显示的诊断
-                    context
-                        .file_diagnostic()
-                        .clear_file_diagnostics(file_event.uri);
+                    if !lsp_features.supports_pull_diagnostic() {
+                        context
+                            .file_diagnostic()
+                            .clear_push_file_diagnostics(file_event.uri);
+                    }
                     continue;
                 }
 

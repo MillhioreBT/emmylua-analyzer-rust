@@ -5,8 +5,8 @@ mod command;
 mod completion;
 mod configuration;
 mod definition;
+mod diagnostic;
 mod document_color;
-mod document_diagnostic;
 mod document_formatting;
 mod document_highlight;
 mod document_link;
@@ -76,7 +76,6 @@ capabilities!(modules: {
     document_highlight => DocumentHighlightCapabilities,
     document_formatting => DocumentFormattingCapabilities,
     document_range_formatting => DocumentRangeFormattingCapabilities,
-    document_diagnostic => DocumentDiagnosticCapabilities,
     // document_type_format => DocumentTypeFormattingCapabilities,
     completion => CompletionCapabilities,
     inlay_hint => InlayHintCapabilities,
@@ -96,4 +95,5 @@ capabilities!(modules: {
     configuration => ConfigurationCapabilities,
     call_hierarchy => CallHierarchyCapabilities,
     workspace => WorkspaceCapabilities,
+    diagnostic => DiagnosticCapabilities,
 });

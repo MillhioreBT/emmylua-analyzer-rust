@@ -44,7 +44,8 @@ pub fn run_doc_cli(mut cmd_args: CmdArgs) -> Result<(), Box<dyn std::error::Erro
         main_path.clone(),
         workspaces.clone(),
         cmd_args.config,
-        cmd_args.ignore,
+        cmd_args.exclude_pattern,
+        cmd_args.include_pattern,
     ) {
         Some(analysis) => analysis,
         None => {

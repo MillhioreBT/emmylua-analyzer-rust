@@ -113,11 +113,11 @@ fn build_hover_content<'a>(
     match property_id {
         LuaSemanticDeclId::LuaDecl(decl_id) => {
             let typ = typ?;
-            build_decl_hover(&mut builder, db, typ, decl_id);
+            build_decl_hover(&mut builder, db, typ, decl_id, is_completion)?;
         }
         LuaSemanticDeclId::Member(member_id) => {
             let typ = typ?;
-            build_member_hover(&mut builder, db, typ, member_id);
+            build_member_hover(&mut builder, db, typ, member_id, is_completion);
         }
         LuaSemanticDeclId::TypeDecl(type_decl_id) => {
             build_type_decl_hover(&mut builder, db, type_decl_id);
@@ -132,6 +132,7 @@ fn build_decl_hover(
     db: &DbIndex,
     typ: LuaType,
     decl_id: LuaDeclId,
+    is_completion: bool,
 ) -> Option<()> {
     let decl = db.get_decl_index().get_decl(&decl_id)?;
 
@@ -141,8 +142,12 @@ fn build_decl_hover(
     replace_semantic_type(&mut semantic_decls, &typ);
     // 处理类型签名
     if is_function(&typ) {
+        if is_completion {
+            let decl_semantic_id = LuaSemanticDeclId::LuaDecl(decl_id);
+            semantic_decls.retain(|(decl, _)| decl == &decl_semantic_id);
+        }
         // 如果找到了那么需要将它移动到末尾, 因为尾部最优先显示
-        if let Some(pos) = semantic_decls
+        else if let Some(pos) = semantic_decls
             .iter()
             .position(|(_, origin_type)| origin_type == &typ)
         {
@@ -203,7 +208,9 @@ fn build_decl_hover(
         let mut semantic_decl_set = HashSet::new();
         let decl_decl = LuaSemanticDeclId::LuaDecl(decl_id);
         semantic_decl_set.insert(&decl_decl);
-        semantic_decl_set.extend(semantic_decls.iter().map(|(decl, _)| decl));
+        if !is_completion {
+            semantic_decl_set.extend(semantic_decls.iter().map(|(decl, _)| decl));
+        }
         for semantic_decl in semantic_decl_set {
             builder.add_description(semantic_decl);
         }
@@ -217,6 +224,7 @@ fn build_member_hover(
     db: &DbIndex,
     typ: LuaType,
     member_id: LuaMemberId,
+    is_completion: bool,
 ) -> Option<()> {
     let member = db.get_member_index().get_member(&member_id)?;
     let mut semantic_decls =
@@ -231,8 +239,12 @@ fn build_member_hover(
     };
 
     if is_function(&typ) {
+        if is_completion {
+            let member_semantic_id = LuaSemanticDeclId::Member(member_id);
+            semantic_decls.retain(|(decl, _)| decl == &member_semantic_id);
+        }
         // 如果找到了那么需要将它移动到末尾, 因为尾部最优先显示
-        if let Some(pos) = semantic_decls
+        else if let Some(pos) = semantic_decls
             .iter()
             .position(|(_, origin_type)| origin_type == &typ)
         {
@@ -276,7 +288,9 @@ fn build_member_hover(
         let mut semantic_decl_set = HashSet::new();
         let member_decl = LuaSemanticDeclId::Member(member.get_id());
         semantic_decl_set.insert(&member_decl);
-        semantic_decl_set.extend(semantic_decls.iter().map(|(decl, _)| decl));
+        if !is_completion {
+            semantic_decl_set.extend(semantic_decls.iter().map(|(decl, _)| decl));
+        }
         for semantic_decl in semantic_decl_set {
             builder.add_description(semantic_decl);
         }

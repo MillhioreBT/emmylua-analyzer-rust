@@ -465,8 +465,19 @@ impl LuaType {
                 let mut result_types = Vec::new();
                 let mut hash_set = HashSet::new();
                 for typ in types {
-                    if hash_set.insert(typ.clone()) {
-                        result_types.push(typ);
+                    match typ {
+                        LuaType::Union(u) => {
+                            for t in u.into_vec() {
+                                if hash_set.insert(t.clone()) {
+                                    result_types.push(t);
+                                }
+                            }
+                        }
+                        _ => {
+                            if hash_set.insert(typ.clone()) {
+                                result_types.push(typ);
+                            }
+                        }
                     }
                 }
 

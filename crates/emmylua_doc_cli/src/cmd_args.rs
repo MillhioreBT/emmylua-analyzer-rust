@@ -18,10 +18,16 @@ pub struct CmdArgs {
     #[arg(num_args = 1..)]
     pub workspace: Vec<PathBuf>,
 
-    /// Comma separated list of ignore patterns.
+    /// Comma separated list of exclude patterns
     /// Patterns must follow glob syntax
-    #[arg(long, value_delimiter = ',')]
-    pub ignore: Option<Vec<String>>,
+    /// Exclude patterns take precedence over include patterns
+    #[arg(long = "exclude", alias = "ignore", value_delimiter = ',')]
+    pub exclude_pattern: Option<Vec<String>>,
+
+    /// Comma separated list of include patterns
+    /// Patterns must follow glob syntax
+    #[arg(long = "include", value_delimiter = ',')]
+    pub include_pattern: Option<Vec<String>>,
 
     /// Specify output format
     #[arg(

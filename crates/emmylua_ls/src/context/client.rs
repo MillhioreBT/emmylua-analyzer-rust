@@ -156,4 +156,8 @@ impl ClientProxy {
         let request_id = self.next_id();
         self.send_request_no_wait(request_id, method, params);
     }
+
+    pub fn refresh_workspace_diagnostics(&self) {
+        self.send_request_no_response("workspace/diagnostic/refresh", ());
+    }
 }

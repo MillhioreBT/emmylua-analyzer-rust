@@ -54,6 +54,10 @@ fn check_general_type_compact(
         return Ok(());
     }
 
+    if fast_eq_check(source, compact_type) {
+        return Ok(());
+    }
+
     if let Some(origin_type) = escape_type(context.db, compact_type) {
         return check_general_type_compact(
             context,
@@ -165,6 +169,26 @@ fn is_like_any(ty: &LuaType) -> bool {
             | LuaType::StrTplRef(_)
             | LuaType::ConstTplRef(_)
     )
+}
+
+fn fast_eq_check(a: &LuaType, b: &LuaType) -> bool {
+    match (a, b) {
+        (LuaType::Nil, LuaType::Nil)
+        | (LuaType::Table, LuaType::Table)
+        | (LuaType::Userdata, LuaType::Userdata)
+        | (LuaType::Function, LuaType::Function)
+        | (LuaType::Thread, LuaType::Thread)
+        | (LuaType::Boolean, LuaType::Boolean)
+        | (LuaType::String, LuaType::String)
+        | (LuaType::Integer, LuaType::Integer)
+        | (LuaType::Number, LuaType::Number)
+        | (LuaType::Io, LuaType::Io)
+        | (LuaType::Global, LuaType::Global)
+        | (LuaType::Unknown, LuaType::Unknown)
+        | (LuaType::Any, LuaType::Any) => true,
+        (LuaType::Ref(type_id_left), LuaType::Ref(type_id_right)) => type_id_left == type_id_right,
+        _ => false,
+    }
 }
 
 fn escape_type(db: &DbIndex, typ: &LuaType) -> Option<LuaType> {

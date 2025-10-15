@@ -284,5 +284,15 @@ fn check_generic_type_compact_ref_type(
         }
     }
 
+    // 如果泛型参数是`any`, 那么我们只需要匹配基础类型
+    if source_generic.get_params().iter().any(|p| p.is_any()) {
+        return check_general_type_compact(
+            context,
+            &source_generic.get_base_type(),
+            &LuaType::Ref(ref_id.clone()),
+            check_guard.next_level()?,
+        );
+    }
+
     Err(TypeCheckFailReason::TypeNotMatch)
 }
