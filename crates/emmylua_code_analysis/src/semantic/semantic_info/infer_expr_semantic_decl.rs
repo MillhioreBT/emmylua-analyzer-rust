@@ -7,7 +7,10 @@ use crate::{
     DbIndex, LuaDeclId, LuaDeclOrMemberId, LuaInferCache, LuaInstanceType, LuaMemberId,
     LuaMemberKey, LuaMemberOwner, LuaSemanticDeclId, LuaType, LuaTypeCache, LuaTypeDeclId,
     LuaUnionType,
-    semantic::{infer::find_self_decl_or_member_id, member::get_buildin_type_map_type_id},
+    semantic::{
+        infer::find_self_decl_or_member_id, member::get_buildin_type_map_type_id,
+        semantic_info::resolve_global_decl_id,
+    },
 };
 
 use super::{
@@ -160,7 +163,7 @@ fn get_name_decl_id(
         }
     }
 
-    db.get_global_index().resolve_global_decl_id(db, name)
+    resolve_global_decl_id(db, cache, name, Some(&name_expr))
 }
 
 fn infer_self_semantic_decl(
@@ -279,7 +282,7 @@ fn infer_member_semantic_decl_by_member_key(
             member_key,
             semantic_guard.next_level()?,
         ),
-        LuaType::Global => infer_global_member_semantic_decl_by_member_key(db, member_key),
+        LuaType::Global => infer_global_member_semantic_decl_by_member_key(db, cache, member_key),
         _ => None,
     }
 }
@@ -393,10 +396,9 @@ fn infer_instance_member_semantic_decl_by_member_key(
 
 fn infer_global_member_semantic_decl_by_member_key(
     db: &DbIndex,
+    cache: &mut LuaInferCache,
     member_key: &LuaMemberKey,
 ) -> Option<LuaSemanticDeclId> {
     let name = member_key.get_name()?;
-    db.get_global_index()
-        .resolve_global_decl_id(db, name)
-        .map(LuaSemanticDeclId::LuaDecl)
+    resolve_global_decl_id(db, cache, name, None).map(LuaSemanticDeclId::LuaDecl)
 }

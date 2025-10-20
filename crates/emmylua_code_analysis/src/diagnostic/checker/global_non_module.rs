@@ -1,6 +1,6 @@
 use emmylua_parser::{LuaAssignStat, LuaAst, LuaAstNode, LuaBlock, LuaVarExpr};
 
-use crate::{DiagnosticCode, LuaDeclId, SemanticModel};
+use crate::{DiagnosticCode, LuaDeclId, SemanticModel, resolve_global_decl_id};
 
 use super::{Checker, DiagnosticContext};
 
@@ -62,11 +62,12 @@ fn is_global_define_in_non_module_scope(
     }
 
     let name = var.get_text();
-    let Some(global_id) = semantic_model
-        .get_db()
-        .get_global_index()
-        .resolve_global_decl_id(semantic_model.get_db(), &name)
-    else {
+    let Some(global_id) = resolve_global_decl_id(
+        semantic_model.get_db(),
+        &mut semantic_model.get_cache().borrow_mut(),
+        &name,
+        None,
+    ) else {
         return true;
     };
 

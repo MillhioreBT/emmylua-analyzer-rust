@@ -683,6 +683,7 @@ fn to_token_or_name(text: &str) -> LuaTokenKind {
         "in" => LuaTokenKind::TkIn,
         "and" => LuaTokenKind::TkAnd,
         "or" => LuaTokenKind::TkOr,
+        "else" => LuaTokenKind::TkDocElse,
         _ => LuaTokenKind::TkName,
     }
 }

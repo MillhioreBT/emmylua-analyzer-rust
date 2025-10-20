@@ -4,7 +4,7 @@ mod doc_name_token_provider;
 mod doc_tag_provider;
 mod doc_type_provider;
 mod env_provider;
-mod equality_comparison_provider;
+mod equality_provider;
 mod file_path_provider;
 mod function_provider;
 mod keywords_provider;
@@ -23,7 +23,7 @@ pub fn add_completions(builder: &mut CompletionBuilder) -> Option<()> {
     postfix_provider::add_completion(builder);
     // `function_provider`优先级必须高于`env_provider`
     function_provider::add_completion(builder);
-    equality_comparison_provider::add_completion(builder);
+    equality_provider::add_completion(builder);
     // 如果`table_field_provider`执行成功会中止补全, 同时优先级必须高于`env_provider`
     table_field_provider::add_completion(builder);
     env_provider::add_completion(builder);

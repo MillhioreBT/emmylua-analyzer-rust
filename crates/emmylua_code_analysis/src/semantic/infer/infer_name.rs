@@ -6,7 +6,10 @@ use crate::{
     SemanticDeclLevel, TypeOps,
     db_index::{DbIndex, LuaDeclOrMemberId},
     infer_node_semantic_decl,
-    semantic::infer::narrow::{VarRefId, infer_expr_narrow_type},
+    semantic::{
+        infer::narrow::{VarRefId, infer_expr_narrow_type},
+        semantic_info::resolve_global_decl_id,
+    },
 };
 
 pub fn infer_name_expr(
@@ -74,7 +77,7 @@ pub fn get_name_expr_var_ref_id(
                 return Some(VarRefId::VarRef(decl_id));
             }
 
-            let global_decl_id = db.get_global_index().resolve_global_decl_id(db, name)?;
+            let global_decl_id = resolve_global_decl_id(db, cache, name, Some(name_expr))?;
             Some(VarRefId::VarRef(global_decl_id))
         }
     }
@@ -373,8 +376,12 @@ pub fn infer_global_type(db: &DbIndex, name: &str) -> InferResult {
                     continue;
                 }
 
-                if typ.is_def() || typ.is_ref() || typ.is_function() {
+                if typ.is_def() || typ.is_ref() {
                     return Ok(typ.clone());
+                }
+
+                if typ.is_function() {
+                    valid_type = TypeOps::Union.apply(db, &valid_type, typ);
                 }
 
                 if type_cache.is_table() {
@@ -421,7 +428,7 @@ pub fn find_self_decl_or_member_id(
                 return Some(LuaDeclOrMemberId::Decl(decl.get_id()));
             }
 
-            let id = db.get_global_index().resolve_global_decl_id(db, &name)?;
+            let id = resolve_global_decl_id(db, cache, &name, Some(&prefix_name))?;
             Some(LuaDeclOrMemberId::Decl(id))
         }
         LuaExpr::IndexExpr(prefix_index) => {

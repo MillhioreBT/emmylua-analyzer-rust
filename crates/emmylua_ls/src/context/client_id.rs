@@ -5,6 +5,7 @@ pub enum ClientId {
     VSCode,
     Intellij,
     Neovim,
+    Zed,
     #[default]
     Other,
 }
@@ -23,6 +24,10 @@ impl ClientId {
         matches!(self, ClientId::Neovim)
     }
 
+    pub fn is_zed(&self) -> bool {
+        matches!(self, ClientId::Zed)
+    }
+
     pub fn is_other(&self) -> bool {
         matches!(self, ClientId::Other)
     }
@@ -35,6 +40,7 @@ pub fn get_client_id(client_info: &Option<ClientInfo>) -> ClientId {
             "Neovim" | "coc.nvim" => ClientId::Neovim,
             _ if check_vscode(info) => ClientId::VSCode,
             _ if check_lsp4ij(info) => ClientId::Intellij,
+            _ if check_zed(info) => ClientId::Zed,
             _ => ClientId::Other,
         },
         None => ClientId::Other,
@@ -66,4 +72,10 @@ fn check_lsp4ij(client_info: &ClientInfo) -> bool {
         || name.contains("Rider")
         || name.contains("Fleet")
         || name.contains("Android Studio")
+}
+
+fn check_zed(client_info: &ClientInfo) -> bool {
+    let name = &client_info.name;
+
+    name.contains("Zed")
 }

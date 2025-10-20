@@ -550,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "emmylua_check"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "ansi_term",
  "clap",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "emmylua_code_analysis"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "dirs",
  "emmy_lsp_types",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "emmylua_doc_cli"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "clap",
  "emmy_lsp_types",
@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "emmylua_ls"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "clap",
@@ -683,7 +683,7 @@ dependencies = [
 
 [[package]]
 name = "emmylua_parser"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "rowan",
  "rust-i18n",
@@ -692,7 +692,7 @@ dependencies = [
 
 [[package]]
 name = "emmylua_parser_desc"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "emmylua_parser",
  "googletest",
@@ -1304,9 +1304,9 @@ checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "lsp-server"
-version = "0.7.8"
+version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9462c4dc73e17f971ec1f171d44bfffb72e65a130117233388a0ebc7ec5656f9"
+checksum = "7d6ada348dbc2703cbe7637b2dda05cff84d3da2819c24abcb305dd613e0ba2e"
 dependencies = [
  "crossbeam-channel",
  "log",

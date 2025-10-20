@@ -192,16 +192,21 @@ impl WorkspaceManager {
                 return;
             }
 
-            let mut analysis = analysis.write().await;
+            // Perform reindex with minimal lock holding time
+            {
+                let mut analysis = analysis.write().await;
+                // 在重新索引之前清理不存在的文件
+                analysis.cleanup_nonexistent_files();
+                analysis.reindex();
+                // Release lock immediately after reindex
+            }
 
-            // 在重新索引之前清理不存在的文件
-            analysis.cleanup_nonexistent_files();
-
-            analysis.reindex();
+            // Cancel diagnostics and update status without holding analysis lock
             file_diagnostic.cancel_workspace_diagnostic().await;
             workspace_diagnostic_status
                 .store(WorkspaceDiagnosticLevel::Fast.to_u8(), Ordering::Release);
 
+            // Trigger diagnostics refresh
             if lsp_features.supports_workspace_diagnostic() {
                 client.refresh_workspace_diagnostics();
             } else {

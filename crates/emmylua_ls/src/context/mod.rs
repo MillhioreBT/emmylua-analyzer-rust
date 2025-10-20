@@ -23,6 +23,81 @@ pub use workspace_manager::*;
 
 use crate::context::snapshot::ServerContextInner;
 
+// ============================================================================
+// LOCK ORDERING GUIDELINES (CRITICAL - Must Follow to Avoid Deadlocks)
+// ============================================================================
+//
+// This module uses multiple locks (RwLock and Mutex) for concurrent access to shared state.
+// To prevent deadlocks, **ALL code must acquire locks in the following order**:
+//
+// ## Global Lock Order (Low to High Priority):
+// 1. **diagnostic_tokens** (Mutex) - File diagnostic task tokens
+// 2. **workspace_diagnostic_token** (Mutex) - Workspace diagnostic task token
+// 3. **update_token** (Mutex) - Reindex/config update token
+// 4. **analysis** (RwLock - READ) - Read-only access to EmmyLuaAnalysis
+// 5. **workspace_manager** (RwLock - READ) - Read-only access to WorkspaceManager
+// 6. **workspace_manager** (RwLock - WRITE) - Exclusive access to WorkspaceManager
+// 7. **analysis** (RwLock - WRITE) - Exclusive access to EmmyLuaAnalysis
+//
+// ## Lock Ordering Rules:
+// - **NEVER acquire a lower-priority lock while holding a higher-priority lock**
+// - **ALWAYS release locks in reverse order (LIFO) or use explicit scope blocks**
+// - **NEVER upgrade a read lock to a write lock (release read, then acquire write)**
+// - **Minimize lock scope**: only hold locks for the minimum necessary time
+// - **Avoid holding locks across `.await` points when possible**
+// - **NEVER call async methods that might acquire locks while holding a lock**
+//
+// ## Examples:
+//
+// ### ✅ CORRECT - Proper lock ordering:
+// ```rust
+// // Acquire workspace_manager read lock first, then release before analysis write
+// let should_process = {
+//     let workspace_manager = context.workspace_manager().read().await;
+//     workspace_manager.is_workspace_file(&uri)
+// };
+// if should_process {
+//     let mut analysis = context.analysis().write().await;
+//     analysis.update_file(&uri, text);
+// }
+// ```
+//
+// ### ❌ WRONG - ABBA deadlock risk:
+// ```rust
+// let mut analysis = context.analysis().write().await;  // Lock A
+// // ... operations ...
+// let workspace = context.workspace_manager().write().await;  // Lock B (while holding A!)
+// // DEADLOCK RISK: Another thread might hold B and wait for A
+// ```
+//
+// ### ✅ CORRECT - Release before calling async methods:
+// ```rust
+// let data = {
+//     let workspace = context.workspace_manager().read().await;
+//     workspace.get_config().clone()  // Clone data
+// }; // Lock released
+// init_analysis(data).await;  // Safe to call async method
+// ```
+//
+// ### ❌ WRONG - Holding lock while calling async method:
+// ```rust
+// let workspace = context.workspace_manager().write().await;
+// workspace.reload_workspace().await;  // May acquire analysis lock internally!
+// ```
+//
+// ## Atomic Operations (Lock-Free):
+// The following atomics can be accessed without lock ordering concerns:
+// - `workspace_initialized` (AtomicBool)
+// - `workspace_diagnostic_level` (AtomicU8)
+// - `workspace_version` (AtomicI64)
+//
+// ## Notes:
+// - Use `drop(lock_guard)` explicitly to release locks early when needed
+// - Use scope blocks `{ ... }` to limit lock lifetime
+// - When in doubt, release all locks before performing complex operations
+// - If you need to modify this ordering, update this documentation AND review all call sites
+// ============================================================================
+
 pub struct ServerContext {
     #[allow(unused)]
     conn: Connection,

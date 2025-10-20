@@ -529,4 +529,24 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_first_strtpl() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Fix
+                local Fix
+
+                ---@generic T
+                ---@param  name `T`
+                function Fix.ad<??>d(name)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction Fix.add(name: T)\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }

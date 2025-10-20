@@ -31,7 +31,7 @@ use member::{find_member_origin_owner, find_members};
 use reference::is_reference_to;
 use rowan::{NodeOrToken, TextRange};
 pub use semantic_info::SemanticInfo;
-pub(crate) use semantic_info::infer_node_semantic_decl;
+pub(crate) use semantic_info::{infer_node_semantic_decl, resolve_global_decl_id};
 use semantic_info::{
     infer_node_semantic_info, infer_token_semantic_decl, infer_token_semantic_info,
 };

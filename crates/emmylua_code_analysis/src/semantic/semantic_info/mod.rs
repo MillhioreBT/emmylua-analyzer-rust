@@ -1,4 +1,5 @@
 mod infer_expr_semantic_decl;
+mod resolve_global_decl;
 mod semantic_decl_level;
 mod semantic_guard;
 
@@ -11,6 +12,7 @@ use emmylua_parser::{
     LuaSyntaxKind, LuaSyntaxNode, LuaSyntaxToken, LuaTableField,
 };
 pub use infer_expr_semantic_decl::infer_expr_semantic_decl;
+pub use resolve_global_decl::resolve_global_decl_id;
 pub use semantic_decl_level::SemanticDeclLevel;
 pub use semantic_guard::SemanticDeclGuard;
 

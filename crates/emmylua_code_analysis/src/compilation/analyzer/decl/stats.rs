@@ -234,7 +234,7 @@ pub fn analyze_func_stat(analyzer: &mut DeclAnalyzer, stat: LuaFuncStat) -> Opti
             let position = name_token.get_position();
             let name = name_token.get_name_text();
             let range = name_token.get_range();
-            if analyzer.find_decl(name, position).is_none() {
+            if analyzer.find_decl(name, position).is_none() || analyzer.is_meta {
                 let decl = LuaDecl::new(
                     name,
                     file_id,

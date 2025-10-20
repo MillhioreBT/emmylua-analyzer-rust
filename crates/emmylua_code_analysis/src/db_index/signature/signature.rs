@@ -140,7 +140,8 @@ impl LuaSignature {
                     if let (LuaType::Ref(_) | LuaType::Def(_), _) = (owner_type, param_type)
                         && (param_type.is_any()
                             || param_type.is_table()
-                            || param_type.is_class_tpl())
+                            || param_type.is_class_tpl()
+                            || param_type.is_str_tpl_ref())
                     {
                         return false;
                     }

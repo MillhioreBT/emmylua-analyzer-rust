@@ -6,7 +6,7 @@ pub use global_id::GlobalId;
 
 use crate::FileId;
 
-use super::{DbIndex, LuaDeclId, LuaIndex};
+use super::{LuaDeclId, LuaIndex};
 
 #[derive(Debug)]
 pub struct LuaGlobalIndex {
@@ -48,34 +48,6 @@ impl LuaGlobalIndex {
     pub fn is_exist_global_decl(&self, name: &str) -> bool {
         let id = GlobalId::new(name);
         self.global_decl.contains_key(&id)
-    }
-
-    pub fn resolve_global_decl_id(&self, db: &DbIndex, name: &str) -> Option<LuaDeclId> {
-        let decl_ids = self.get_global_decl_ids(name)?;
-        if decl_ids.len() == 1 {
-            return Some(decl_ids[0]);
-        }
-
-        let mut last_valid_decl_id = None;
-        for decl_id in decl_ids {
-            let decl_type_cache = db.get_type_index().get_type_cache(&(*decl_id).into());
-            if let Some(type_cache) = decl_type_cache {
-                let typ = type_cache.as_type();
-                if typ.is_def() || typ.is_ref() || typ.is_function() {
-                    return Some(*decl_id);
-                }
-
-                if type_cache.is_table() {
-                    last_valid_decl_id = Some(decl_id)
-                }
-            }
-        }
-
-        if last_valid_decl_id.is_none() && !decl_ids.is_empty() {
-            return Some(decl_ids[0]);
-        }
-
-        last_valid_decl_id.cloned()
     }
 }
 
