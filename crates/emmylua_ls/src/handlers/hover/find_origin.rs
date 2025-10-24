@@ -264,6 +264,7 @@ fn resolve_table_field_through_type_inference(
         .and_then(|m| m.property_owner_id)
 }
 
+#[allow(unused)]
 pub fn replace_semantic_type(
     semantic_decls: &mut [(LuaSemanticDeclId, LuaType)],
     origin_type: &LuaType,

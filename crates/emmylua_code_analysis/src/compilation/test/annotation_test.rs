@@ -127,12 +127,17 @@ mod test {
 
     #[test]
     fn test_generic_type_extends() {
-        let mut ws = VirtualWorkspace::new();
-        let mut emmyrc = ws.get_emmyrc();
-        emmyrc.runtime.class_default_call.force_non_colon = true;
-        emmyrc.runtime.class_default_call.force_return_self = true;
-        emmyrc.runtime.class_default_call.function_name = "__init".to_string();
-        ws.update_emmyrc(emmyrc);
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        ws.def(
+            r#"
+            ---@generic T
+            ---@[constructor("__init")]
+            ---@param name `T`
+            ---@return T
+            function meta(name)
+            end
+        "#,
+        );
         ws.def(
             r#"
             ---@class State
@@ -141,7 +146,7 @@ mod test {
             ---@class StateMachine<T: State>
             ---@field aaa T
             ---@field new fun(self: self): self
-            StateMachine = {}
+            StateMachine = meta("StateMachine")
 
             ---@return self
             function StateMachine:abc()

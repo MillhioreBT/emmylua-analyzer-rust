@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use emmylua_parser::{
-    LuaAst, LuaAstNode, LuaDocBinaryType, LuaDocConditionalType, LuaDocDescriptionOwner,
-    LuaDocFuncType, LuaDocGenericDecl, LuaDocGenericType, LuaDocIndexAccessType, LuaDocInferType,
-    LuaDocMappedType, LuaDocMultiLineUnionType, LuaDocObjectFieldKey, LuaDocObjectType,
-    LuaDocStrTplType, LuaDocType, LuaDocUnaryType, LuaDocVariadicType, LuaLiteralToken,
-    LuaSyntaxKind, LuaTypeBinaryOperator, LuaTypeUnaryOperator, LuaVarExpr,
+    LuaAst, LuaAstNode, LuaDocAttributeType, LuaDocBinaryType, LuaDocConditionalType,
+    LuaDocDescriptionOwner, LuaDocFuncType, LuaDocGenericDecl, LuaDocGenericType,
+    LuaDocIndexAccessType, LuaDocInferType, LuaDocMappedType, LuaDocMultiLineUnionType,
+    LuaDocObjectFieldKey, LuaDocObjectType, LuaDocStrTplType, LuaDocType, LuaDocUnaryType,
+    LuaDocVariadicType, LuaLiteralToken, LuaSyntaxKind, LuaTypeBinaryOperator,
+    LuaTypeUnaryOperator, LuaVarExpr,
 };
 use internment::ArcIntern;
 use rowan::TextRange;
@@ -13,7 +14,8 @@ use smol_str::SmolStr;
 
 use crate::{
     AsyncState, DiagnosticCode, GenericParam, GenericTpl, InFiled, LuaAliasCallKind, LuaArrayLen,
-    LuaArrayType, LuaMultiLineUnion, LuaTupleStatus, LuaTypeDeclId, TypeOps, VariadicType,
+    LuaArrayType, LuaAttributeType, LuaMultiLineUnion, LuaTupleStatus, LuaTypeDeclId, TypeOps,
+    VariadicType,
     db_index::{
         AnalyzeError, LuaAliasCallType, LuaConditionalType, LuaFunctionType, LuaGenericType,
         LuaIndexAccessKey, LuaIntersectionType, LuaMappedType, LuaObjectType, LuaStringTplType,
@@ -110,6 +112,9 @@ pub fn infer_type(analyzer: &mut DocAnalyzer, node: LuaDocType) -> LuaType {
         }
         LuaDocType::MultiLineUnion(multi_union) => {
             return infer_multi_line_union_type(analyzer, multi_union);
+        }
+        LuaDocType::Attribute(attribute_type) => {
+            return infer_attribute_type(analyzer, attribute_type);
         }
         LuaDocType::Conditional(cond_type) => {
             return infer_conditional_type(analyzer, cond_type);
@@ -653,6 +658,38 @@ fn infer_multi_line_union_type(
     LuaType::MultiLineUnion(LuaMultiLineUnion::new(union_members).into())
 }
 
+fn infer_attribute_type(
+    analyzer: &mut DocAnalyzer,
+    attribute_type: &LuaDocAttributeType,
+) -> LuaType {
+    let mut params_result = Vec::new();
+    for param in attribute_type.get_params() {
+        let name = if let Some(param) = param.get_name_token() {
+            param.get_name_text().to_string()
+        } else if param.is_dots() {
+            "...".to_string()
+        } else {
+            continue;
+        };
+
+        let nullable = param.is_nullable();
+
+        let type_ref = if let Some(type_ref) = param.get_type() {
+            let mut typ = infer_type(analyzer, type_ref);
+            if nullable && !typ.is_nullable() {
+                typ = TypeOps::Union.apply(analyzer.db, &typ, &LuaType::Nil);
+            }
+            Some(typ)
+        } else {
+            None
+        };
+
+        params_result.push((name, type_ref));
+    }
+
+    LuaType::DocAttribute(LuaAttributeType::new(params_result).into())
+}
+
 fn infer_conditional_type(
     analyzer: &mut DocAnalyzer,
     cond_type: &LuaDocConditionalType,
@@ -692,7 +729,7 @@ fn collect_cond_infer_params(doc_type: &LuaDocType) -> Vec<GenericParam> {
     let doc_infer_types = doc_type.descendants::<LuaDocInferType>();
     for infer_type in doc_infer_types {
         if let Some(name) = infer_type.get_generic_decl_name_text() {
-            params.push(GenericParam::new(SmolStr::new(&name), None));
+            params.push(GenericParam::new(SmolStr::new(&name), None, None));
         }
     }
     params
@@ -710,7 +747,7 @@ fn infer_mapped_type(
     let constraint = generic_decl
         .get_type()
         .map(|constraint| infer_type(analyzer, constraint));
-    let param = GenericParam::new(SmolStr::new(name), constraint);
+    let param = GenericParam::new(SmolStr::new(name), constraint, None);
 
     analyzer.generic_index.add_generic_scope(
         vec![mapped_type.get_range()],

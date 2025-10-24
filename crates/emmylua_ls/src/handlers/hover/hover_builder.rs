@@ -1,11 +1,13 @@
 use emmylua_code_analysis::{
-    LuaCompilation, LuaFunctionType, LuaMember, LuaMemberOwner, LuaSemanticDeclId, LuaType,
-    RenderLevel, SemanticModel,
+    GenericTplId, LuaCompilation, LuaMember, LuaMemberOwner, LuaSemanticDeclId, LuaType,
+    RenderLevel, SemanticModel, TypeSubstitutor,
 };
-use emmylua_parser::{LuaAstNode, LuaCallExpr, LuaSyntaxToken};
+use emmylua_parser::{
+    LuaAstNode, LuaCallExpr, LuaExpr, LuaLocalName, LuaLocalStat, LuaSyntaxKind, LuaSyntaxToken,
+};
 use lsp_types::{Hover, HoverContents, MarkedString, MarkupContent};
 
-use crate::handlers::hover::hover_humanize::{
+use crate::handlers::hover::humanize_types::{
     DescriptionInfo, extract_description_from_property_owner,
 };
 
@@ -14,23 +16,26 @@ use super::build_hover::{add_signature_param_description, add_signature_ret_desc
 #[derive(Debug)]
 pub struct HoverBuilder<'a> {
     /// Type description, does not include overload
-    pub type_description: MarkedString,
+    pub primary: MarkedString,
     /// Full path of the class
     pub location_path: Option<MarkedString>,
     /// Function overload signatures, with the first being the primary overload
     pub signature_overload: Option<Vec<MarkedString>>,
     /// Annotation descriptions, including function parameters and return values
     pub annotation_description: Vec<MarkedString>,
-    /// Type expansion, often used for alias types
+    /// 一些类型的完整追加显示, 通常是 @alias
     pub type_expansion: Option<Vec<String>>,
     /// For `@see` and unknown tags tags
     tag_content: Option<Vec<(String, String)>>,
 
-    pub is_completion: bool,
     trigger_token: Option<LuaSyntaxToken>,
     pub semantic_model: &'a SemanticModel<'a>,
     pub compilation: &'a LuaCompilation,
     pub detail_render_level: RenderLevel,
+
+    pub is_completion: bool,
+    // 默认的泛型替换器
+    pub substitutor: Option<TypeSubstitutor>,
 }
 
 impl<'a> HoverBuilder<'a> {
@@ -47,10 +52,16 @@ impl<'a> HoverBuilder<'a> {
                 RenderLevel::Detailed
             };
 
+        let substitutor = if let Some(token) = token.clone() {
+            infer_substitutor_base_type(semantic_model, token)
+        } else {
+            None
+        };
+
         Self {
             compilation,
             semantic_model,
-            type_description: MarkedString::String("".to_string()),
+            primary: MarkedString::String("".to_string()),
             location_path: None,
             signature_overload: None,
             annotation_description: Vec::new(),
@@ -59,12 +70,12 @@ impl<'a> HoverBuilder<'a> {
             type_expansion: None,
             tag_content: None,
             detail_render_level,
+            substitutor,
         }
     }
 
     pub fn set_type_description(&mut self, type_description: String) {
-        self.type_description =
-            MarkedString::from_language_code("lua".to_string(), type_description);
+        self.primary = MarkedString::from_language_code("lua".to_string(), type_description);
     }
 
     pub fn set_location_path(&mut self, owner_member: Option<&LuaMember>) {
@@ -177,43 +188,10 @@ impl<'a> HoverBuilder<'a> {
         }
     }
 
-    pub fn get_call_function(&mut self) -> Option<LuaFunctionType> {
-        if self.is_completion {
-            return None;
-        }
-        // 根据当前输入的参数, 匹配完全匹配的签名
-        if let Some(token) = self.trigger_token.clone()
-            && let Some(call_expr) = token.parent()?.parent()
-            && LuaCallExpr::can_cast(call_expr.kind().into())
-        {
-            let call_expr = LuaCallExpr::cast(call_expr)?;
-            let func = self
-                .semantic_model
-                .infer_call_expr_func(call_expr.clone(), None);
-            if let Some(func) = func {
-                // TODO: 对比参数类型确定是否完全匹配
-                // 确定参数量是否与当前输入的参数数量一致, 因为`infer_call_expr_func`必然返回一个有效的类型, 即使不是完全匹配的
-                let call_expr_args_count = call_expr.get_args_count();
-                if let Some(mut call_expr_args_count) = call_expr_args_count {
-                    let func_params_count = func.get_params().len();
-                    if !func.is_colon_define() && call_expr.is_colon_call() {
-                        // 不是冒号定义的函数, 但是是冒号调用
-                        call_expr_args_count += 1;
-                    }
-                    if call_expr_args_count == func_params_count {
-                        return Some((*func).clone());
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
     pub fn build_hover_result(&self, range: Option<lsp_types::Range>) -> Option<Hover> {
         let header = {
             let mut header = String::new();
-            match &self.type_description {
+            match &self.primary {
                 MarkedString::String(s) => {
                     header.push_str(&format!("\n{}\n", s));
                 }
@@ -303,4 +281,67 @@ impl<'a> HoverBuilder<'a> {
     pub fn get_trigger_token(&self) -> Option<LuaSyntaxToken> {
         self.trigger_token.clone()
     }
+
+    pub fn get_call_expr(&self) -> Option<LuaCallExpr> {
+        if let Some(token) = self.trigger_token.clone()
+            && let Some(call_expr) = token.parent()?.parent()
+            && LuaCallExpr::can_cast(call_expr.kind().into())
+        {
+            return LuaCallExpr::cast(call_expr);
+        }
+        None
+    }
+}
+
+// 推断基础泛型替换器
+fn infer_substitutor_base_type(
+    semantic_model: &SemanticModel,
+    trigger_token: LuaSyntaxToken,
+) -> Option<TypeSubstitutor> {
+    let parent = trigger_token.parent()?;
+    match parent.kind().into() {
+        LuaSyntaxKind::LocalName => {
+            let target_local_name = LuaLocalName::cast(parent.clone())?;
+            let parent = parent.parent()?;
+            match parent.kind().into() {
+                LuaSyntaxKind::LocalStat => {
+                    let local_stat = LuaLocalStat::cast(parent.clone())?;
+                    let local_name_list = local_stat.get_local_name_list().collect::<Vec<_>>();
+                    let value_expr_list = local_stat.get_value_exprs().collect::<Vec<_>>();
+
+                    for (index, name) in local_name_list.iter().enumerate() {
+                        if target_local_name == *name {
+                            let value_expr = value_expr_list.get(index)?;
+                            return substitutor_form_expr(semantic_model, value_expr);
+                        }
+                    }
+                }
+                _ => return None,
+            }
+        }
+        _ => return None,
+    }
+
+    None
+}
+
+pub fn substitutor_form_expr(
+    semantic_model: &SemanticModel,
+    expr: &LuaExpr,
+) -> Option<TypeSubstitutor> {
+    if let LuaExpr::IndexExpr(index_expr) = expr {
+        let prefix_type = semantic_model
+            .infer_expr(index_expr.get_prefix_expr()?)
+            .ok()?;
+        let mut substitutor = TypeSubstitutor::new();
+        if let LuaType::Generic(generic) = prefix_type {
+            for (i, param) in generic.get_params().iter().enumerate() {
+                substitutor.insert_type(GenericTplId::Type(i as u32), param.clone());
+            }
+            return Some(substitutor);
+        } else {
+            return None;
+        }
+    }
+    None
 }

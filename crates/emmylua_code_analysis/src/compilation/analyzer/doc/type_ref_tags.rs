@@ -11,9 +11,6 @@ use super::{
     preprocess_description,
     tags::{find_owner_closure, get_owner_id_or_report},
 };
-use crate::compilation::analyzer::doc::tags::{
-    find_owner_closure_or_report, get_owner_id, report_orphan_tag,
-};
 use crate::{
     InFiled, InferFailReason, LuaOperatorMetaMethod, LuaTypeCache, LuaTypeOwner, OperatorFunction,
     SignatureReturnStatus, TypeOps,
@@ -21,6 +18,13 @@ use crate::{
     db_index::{
         LuaDeclId, LuaDocParamInfo, LuaDocReturnInfo, LuaMemberId, LuaOperator, LuaSemanticDeclId,
         LuaSignatureId, LuaType,
+    },
+};
+use crate::{
+    LuaAttributeUse,
+    compilation::analyzer::doc::{
+        attribute_tags::{find_attach_attribute, infer_attribute_uses},
+        tags::{find_owner_closure_or_report, get_owner_id, report_orphan_tag},
     },
 };
 
@@ -186,18 +190,31 @@ pub fn analyze_param(analyzer: &mut DocAnalyzer, tag: LuaDocTagParam) -> Option<
     // bind type ref to signature and param
     if let Some(closure) = find_owner_closure(analyzer) {
         let id = LuaSignatureId::from_closure(analyzer.file_id, &closure);
+        // 绑定`attribute`标记
+        let attributes =
+            find_attach_attribute(LuaAst::LuaDocTagParam(tag)).and_then(|tag_attribute_uses| {
+                let result: Vec<LuaAttributeUse> = tag_attribute_uses
+                    .into_iter()
+                    .filter_map(|tag_use| infer_attribute_uses(analyzer, tag_use))
+                    .flatten()
+                    .collect();
+                (!result.is_empty()).then_some(result)
+            });
+
         let signature = analyzer.db.get_signature_index_mut().get_or_create(id);
         let param_info = LuaDocParamInfo {
             name: name.clone(),
             type_ref: type_ref.clone(),
             nullable,
             description,
+            attributes,
         };
 
         let idx = signature.find_param_idx(&name)?;
 
         signature.param_docs.insert(idx, param_info);
     } else if let Some(LuaAst::LuaForRangeStat(for_range)) = analyzer.comment.get_owner() {
+        // for in 支持 @param 语法
         for it_name_token in for_range.get_var_name_list() {
             let it_name = it_name_token.get_name_text();
             if it_name == name {
@@ -224,7 +241,7 @@ pub fn analyze_return(analyzer: &mut DocAnalyzer, tag: LuaDocTagReturn) -> Optio
 
     if let Some(closure) = find_owner_closure_or_report(analyzer, &tag) {
         let signature_id = LuaSignatureId::from_closure(analyzer.file_id, &closure);
-        let returns = tag.get_type_and_name_list();
+        let returns = tag.get_info_list();
         for (doc_type, name_token) in returns {
             let name = name_token.map(|name| name.get_name_text().to_string());
 
@@ -233,6 +250,7 @@ pub fn analyze_return(analyzer: &mut DocAnalyzer, tag: LuaDocTagReturn) -> Optio
                 name,
                 type_ref,
                 description: description.clone(),
+                attributes: None,
             };
 
             let signature = analyzer
@@ -247,7 +265,7 @@ pub fn analyze_return(analyzer: &mut DocAnalyzer, tag: LuaDocTagReturn) -> Optio
 }
 
 pub fn analyze_return_cast(analyzer: &mut DocAnalyzer, tag: LuaDocTagReturnCast) -> Option<()> {
-    if let Some(LuaSemanticDeclId::Signature(signature_id)) = get_owner_id(analyzer) {
+    if let Some(LuaSemanticDeclId::Signature(signature_id)) = get_owner_id(analyzer, None, false) {
         let name_token = tag.get_name_token()?;
         let name = name_token.get_name_text();
 
@@ -415,7 +433,7 @@ pub fn analyze_see(analyzer: &mut DocAnalyzer, tag: LuaDocTagSee) -> Option<()> 
 }
 
 pub fn analyze_other(analyzer: &mut DocAnalyzer, other: LuaDocTagOther) -> Option<()> {
-    let owner = get_owner_id(analyzer)?;
+    let owner = get_owner_id(analyzer, None, false)?;
     let tag_name = other.get_tag_name()?;
     let description = if let Some(des) = other.get_description() {
         preprocess_description(&des.get_description_text(), None)

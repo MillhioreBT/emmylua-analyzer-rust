@@ -1,6 +1,7 @@
 use std::{collections::HashSet, ops::Deref, sync::Arc};
 
-use emmylua_parser::{LuaAstNode, LuaCallExpr, LuaDocTypeList, LuaExpr};
+use emmylua_parser::LuaDocTypeList;
+use emmylua_parser::{LuaCallExpr, LuaExpr};
 use internment::ArcIntern;
 
 use crate::{
@@ -66,7 +67,6 @@ pub fn instantiate_func_generic(
         db,
         cache,
         substitutor: &mut substitutor,
-        root: call_expr.get_root(),
         call_expr: Some(call_expr.clone()),
     };
     if !generic_tpls.is_empty() {

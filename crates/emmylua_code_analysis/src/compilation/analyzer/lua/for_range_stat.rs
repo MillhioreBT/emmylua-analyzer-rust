@@ -1,4 +1,4 @@
-use emmylua_parser::{LuaAstNode, LuaAstToken, LuaExpr, LuaForRangeStat};
+use emmylua_parser::{LuaAstToken, LuaExpr, LuaForRangeStat};
 
 use crate::{
     DbIndex, InferFailReason, LuaDeclId, LuaInferCache, LuaOperatorMetaMethod, LuaType,
@@ -79,7 +79,6 @@ pub fn infer_for_range_iter_expr_func(
     }
 
     let iter_func_expr = iter_exprs[0].clone();
-    let root = iter_func_expr.get_root();
     let first_expr_type = infer_expr(db, cache, iter_func_expr)?;
     let doc_function = match first_expr_type {
         LuaType::DocFunction(func) => func,
@@ -150,7 +149,6 @@ pub fn infer_for_range_iter_expr_func(
         db,
         cache,
         substitutor: &mut substitutor,
-        root,
         call_expr: None,
     };
     let params = doc_function

@@ -25,7 +25,6 @@ use super::RegisterCapabilities;
 use crate::context::ServerContextSnapshot;
 use crate::handlers::definition::goto_path::goto_path;
 use crate::util::find_ref_at;
-pub use goto_function::extract_semantic_decl_from_signature;
 
 pub async fn on_goto_definition_handler(
     context: ServerContextSnapshot,

@@ -11,11 +11,11 @@ use crate::{
     FileId,
     db_index::{LuaFunctionType, LuaType},
 };
-use crate::{SemanticModel, VariadicType};
+use crate::{LuaAttributeUse, SemanticModel, VariadicType, first_param_may_not_self};
 
 #[derive(Debug)]
 pub struct LuaSignature {
-    pub generic_params: Vec<(String, Option<LuaType>)>,
+    pub generic_params: Vec<Arc<LuaGenericParamInfo>>,
     pub overloads: Vec<Arc<LuaFunctionType>>,
     pub param_docs: HashMap<usize, LuaDocParamInfo>,
     pub params: Vec<String>,
@@ -137,11 +137,8 @@ impl LuaSignature {
             match owner_type {
                 Some(owner_type) => {
                     // 一些类型不应该被视为 method
-                    if let (LuaType::Ref(_) | LuaType::Def(_), _) = (owner_type, param_type)
-                        && (param_type.is_any()
-                            || param_type.is_table()
-                            || param_type.is_class_tpl()
-                            || param_type.is_str_tpl_ref())
+                    if matches!(owner_type, LuaType::Ref(_) | LuaType::Def(_))
+                        && first_param_may_not_self(param_type)
                     {
                         return false;
                     }
@@ -183,13 +180,24 @@ pub struct LuaDocParamInfo {
     pub type_ref: LuaType,
     pub nullable: bool,
     pub description: Option<String>,
+    pub attributes: Option<Vec<LuaAttributeUse>>,
 }
 
-#[derive(Debug)]
+impl LuaDocParamInfo {
+    pub fn get_attribute_by_name(&self, name: &str) -> Option<&LuaAttributeUse> {
+        self.attributes
+            .iter()
+            .flatten()
+            .find(|attr| attr.id.get_name() == name)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct LuaDocReturnInfo {
     pub name: Option<String>,
     pub type_ref: LuaType,
     pub description: Option<String>,
+    pub attributes: Option<Vec<LuaAttributeUse>>,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
@@ -279,4 +287,25 @@ pub enum SignatureReturnStatus {
     UnResolve,
     DocResolve,
     InferResolve,
+}
+
+#[derive(Debug, Clone)]
+pub struct LuaGenericParamInfo {
+    pub name: String,
+    pub type_constraint: Option<LuaType>,
+    pub attributes: Option<Vec<LuaAttributeUse>>,
+}
+
+impl LuaGenericParamInfo {
+    pub fn new(
+        name: String,
+        type_constraint: Option<LuaType>,
+        attributes: Option<Vec<LuaAttributeUse>>,
+    ) -> Self {
+        Self {
+            name,
+            type_constraint,
+            attributes,
+        }
+    }
 }

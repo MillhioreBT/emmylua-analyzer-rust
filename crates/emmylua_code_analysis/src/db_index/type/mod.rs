@@ -12,9 +12,7 @@ use crate::{DbIndex, FileId, InFiled};
 pub use generic_param::GenericParam;
 pub use humanize_type::{RenderLevel, format_union_type, humanize_type};
 use std::collections::{HashMap, HashSet};
-pub use type_decl::{
-    LuaDeclLocation, LuaDeclTypeKind, LuaTypeAttribute, LuaTypeDecl, LuaTypeDeclId,
-};
+pub use type_decl::{LuaDeclLocation, LuaDeclTypeKind, LuaTypeDecl, LuaTypeDeclId, LuaTypeFlag};
 pub use type_ops::TypeOps;
 pub use type_owner::{LuaTypeCache, LuaTypeOwner};
 pub use type_visit_trait::TypeVisitTrait;
@@ -300,4 +298,16 @@ fn get_real_type_with_depth<'a>(
         }
         _ => Some(typ),
     }
+}
+
+// 第一个参数是否不应该视为 self
+pub fn first_param_may_not_self(typ: &LuaType) -> bool {
+    if typ.is_table() || matches!(typ, LuaType::Ref(_) | LuaType::Def(_) | LuaType::Any) {
+        return false;
+    }
+    if let LuaType::Union(u) = typ {
+        return u.into_vec().iter().any(first_param_may_not_self);
+    }
+
+    true
 }

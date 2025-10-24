@@ -55,6 +55,16 @@ impl Checker for UnusedChecker {
                             ).to_string(),
                             None)
                     }
+                    UnusedCheckResult::UnusedSelf(range) => {
+                        context.add_diagnostic(
+                            DiagnosticCode::Unused,
+                            range,
+                            t!(
+                                "Implicit self is never used, if this is intentional, please use '.' instead of ':' to define the method",
+                            ).to_string(),
+                            None,
+                        );
+                    }
                 }
             }
         }
@@ -64,6 +74,7 @@ impl Checker for UnusedChecker {
 enum UnusedCheckResult {
     Unused(TextRange),
     AssignedButNotRead(TextRange),
+    UnusedSelf(TextRange),
 }
 
 fn get_unused_check_result(
@@ -73,9 +84,15 @@ fn get_unused_check_result(
 ) -> Result<(), UnusedCheckResult> {
     let decl_range = decl.get_range();
     let file_id = decl.get_file_id();
-    let decl_ref = ref_index
-        .get_decl_references(&file_id, &decl.get_id())
-        .ok_or(UnusedCheckResult::Unused(decl_range))?;
+    let decl_ref = match ref_index.get_decl_references(&file_id, &decl.get_id()) {
+        Some(decl_ref) => decl_ref,
+        None => {
+            if decl.is_implicit_self() {
+                return Err(UnusedCheckResult::UnusedSelf(decl_range));
+            }
+            return Err(UnusedCheckResult::Unused(decl_range));
+        }
+    };
 
     if decl_ref.cells.is_empty() {
         return Err(UnusedCheckResult::Unused(decl_range));

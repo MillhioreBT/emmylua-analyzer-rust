@@ -2869,6 +2869,74 @@ Syntax(Chunk)@0..137
     }
 
     #[test]
+    fn test_attribute_doc() {
+        let code = r#"
+        ---@attribute check_point(x: string, y: number)
+        ---@[Skip, check_point("a", 0)]
+        "#;
+        // print_ast(code);
+        // print_ast(r#"
+        // ---@alias a fun(x: string, y: number)
+        // check_point("a", 0)
+        // "#);
+        let result = r#"
+Syntax(Chunk)@0..105
+  Syntax(Block)@0..105
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..96
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagAttribute)@13..56
+        Token(TkTagAttribute)@13..22 "attribute"
+        Token(TkWhitespace)@22..23 " "
+        Token(TkName)@23..34 "check_point"
+        Syntax(TypeAttribute)@34..56
+          Token(TkLeftParen)@34..35 "("
+          Syntax(DocTypedParameter)@35..44
+            Token(TkName)@35..36 "x"
+            Token(TkColon)@36..37 ":"
+            Token(TkWhitespace)@37..38 " "
+            Syntax(TypeName)@38..44
+              Token(TkName)@38..44 "string"
+          Token(TkComma)@44..45 ","
+          Token(TkWhitespace)@45..46 " "
+          Syntax(DocTypedParameter)@46..55
+            Token(TkName)@46..47 "y"
+            Token(TkColon)@47..48 ":"
+            Token(TkWhitespace)@48..49 " "
+            Syntax(TypeName)@49..55
+              Token(TkName)@49..55 "number"
+          Token(TkRightParen)@55..56 ")"
+      Token(TkEndOfLine)@56..57 "\n"
+      Token(TkWhitespace)@57..65 "        "
+      Token(TkDocStart)@65..69 "---@"
+      Syntax(DocTagAttributeUse)@69..96
+        Token(TkDocAttributeUse)@69..70 "["
+        Syntax(DocAttributeUse)@70..74
+          Syntax(TypeName)@70..74
+            Token(TkName)@70..74 "Skip"
+        Token(TkComma)@74..75 ","
+        Token(TkWhitespace)@75..76 " "
+        Syntax(DocAttributeUse)@76..95
+          Syntax(TypeName)@76..87
+            Token(TkName)@76..87 "check_point"
+          Syntax(DocAttributeCallArgList)@87..95
+            Token(TkLeftParen)@87..88 "("
+            Syntax(LiteralExpr)@88..91
+              Token(TkString)@88..91 "\"a\""
+            Token(TkComma)@91..92 ","
+            Token(TkWhitespace)@92..93 " "
+            Syntax(LiteralExpr)@93..94
+              Token(TkInt)@93..94 "0"
+            Token(TkRightParen)@94..95 ")"
+        Token(TkRightBracket)@95..96 "]"
+    Token(TkEndOfLine)@96..97 "\n"
+    Token(TkWhitespace)@97..105 "        "
+        "#;
+        assert_ast_eq!(code, result);
+    }
+
+    #[test]
     fn test_infer_keyword() {
         // 只有在 extends 后的 infer 才能被视为关键词
         {

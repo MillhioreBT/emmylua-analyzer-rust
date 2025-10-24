@@ -1,14 +1,14 @@
 use crate::{
     BinaryOperator, LuaAstChildren, LuaAstToken, LuaAstTokenChildren, LuaBinaryOpToken,
-    LuaDocVersionNumberToken, LuaDocVisibilityToken, LuaExpr, LuaGeneralToken, LuaKind,
-    LuaNameToken, LuaNumberToken, LuaPathToken, LuaStringToken, LuaSyntaxNode, LuaTokenKind,
-    LuaVersionCondition,
+    LuaDocAttributeUse, LuaDocVersionNumberToken, LuaDocVisibilityToken, LuaExpr, LuaGeneralToken,
+    LuaKind, LuaNameToken, LuaNumberToken, LuaPathToken, LuaStringToken, LuaSyntaxNode,
+    LuaTokenKind, LuaVersionCondition,
     kind::LuaSyntaxKind,
     syntax::{LuaDocDescriptionOwner, traits::LuaAstNode},
 };
 
 use super::{
-    LuaDocAttribute, LuaDocGenericDeclList, LuaDocOpType, LuaDocType, LuaDocTypeList,
+    LuaDocGenericDeclList, LuaDocOpType, LuaDocType, LuaDocTypeFlag, LuaDocTypeList,
     description::LuaDocDetailOwner,
 };
 
@@ -17,6 +17,8 @@ pub enum LuaDocTag {
     Class(LuaDocTagClass),
     Enum(LuaDocTagEnum),
     Alias(LuaDocTagAlias),
+    Attribute(LuaDocTagAttribute),
+    AttributeUse(LuaDocTagAttributeUse),
     Type(LuaDocTagType),
     Param(LuaDocTagParam),
     Return(LuaDocTagReturn),
@@ -51,6 +53,7 @@ impl LuaAstNode for LuaDocTag {
             LuaDocTag::Class(it) => it.syntax(),
             LuaDocTag::Enum(it) => it.syntax(),
             LuaDocTag::Alias(it) => it.syntax(),
+            LuaDocTag::Attribute(it) => it.syntax(),
             LuaDocTag::Type(it) => it.syntax(),
             LuaDocTag::Param(it) => it.syntax(),
             LuaDocTag::Return(it) => it.syntax(),
@@ -77,6 +80,7 @@ impl LuaAstNode for LuaDocTag {
             LuaDocTag::ReturnCast(it) => it.syntax(),
             LuaDocTag::Export(it) => it.syntax(),
             LuaDocTag::Language(it) => it.syntax(),
+            LuaDocTag::AttributeUse(it) => it.syntax(),
         }
     }
 
@@ -88,6 +92,7 @@ impl LuaAstNode for LuaDocTag {
             || kind == LuaSyntaxKind::DocTagEnum
             || kind == LuaSyntaxKind::DocTagAlias
             || kind == LuaSyntaxKind::DocTagType
+            || kind == LuaSyntaxKind::DocTagAttribute
             || kind == LuaSyntaxKind::DocTagParam
             || kind == LuaSyntaxKind::DocTagReturn
             || kind == LuaSyntaxKind::DocTagOverload
@@ -113,6 +118,7 @@ impl LuaAstNode for LuaDocTag {
             || kind == LuaSyntaxKind::DocTagReturnCast
             || kind == LuaSyntaxKind::DocTagExport
             || kind == LuaSyntaxKind::DocTagLanguage
+            || kind == LuaSyntaxKind::DocTagAttributeUse
     }
 
     fn cast(syntax: LuaSyntaxNode) -> Option<Self>
@@ -129,6 +135,12 @@ impl LuaAstNode for LuaDocTag {
             LuaSyntaxKind::DocTagAlias => {
                 Some(LuaDocTag::Alias(LuaDocTagAlias::cast(syntax).unwrap()))
             }
+            LuaSyntaxKind::DocTagAttribute => Some(LuaDocTag::Attribute(
+                LuaDocTagAttribute::cast(syntax).unwrap(),
+            )),
+            LuaSyntaxKind::DocTagAttributeUse => Some(LuaDocTag::AttributeUse(
+                LuaDocTagAttributeUse::cast(syntax).unwrap(),
+            )),
             LuaSyntaxKind::DocTagType => {
                 Some(LuaDocTag::Type(LuaDocTagType::cast(syntax).unwrap()))
             }
@@ -252,7 +264,7 @@ impl LuaDocTagClass {
         self.child()
     }
 
-    pub fn get_attrib(&self) -> Option<LuaDocAttribute> {
+    pub fn get_type_flag(&self) -> Option<LuaDocTypeFlag> {
         self.child()
     }
 
@@ -325,7 +337,7 @@ impl LuaDocTagEnum {
         self.child()
     }
 
-    pub fn get_attrib(&self) -> Option<LuaDocAttribute> {
+    pub fn get_type_flag(&self) -> Option<LuaDocTypeFlag> {
         self.child()
     }
 }
@@ -542,7 +554,7 @@ impl LuaDocTagReturn {
         self.children()
     }
 
-    pub fn get_type_and_name_list(&self) -> Vec<(LuaDocType, Option<LuaNameToken>)> {
+    pub fn get_info_list(&self) -> Vec<(LuaDocType, Option<LuaNameToken>)> {
         let mut result = Vec::new();
         let mut current_type = None;
         let mut current_name = None;
@@ -561,7 +573,6 @@ impl LuaDocTagReturn {
                 k if LuaDocType::can_cast(k.into()) => {
                     current_type = Some(LuaDocType::cast(child.into_node().unwrap()).unwrap());
                 }
-
                 _ => {}
             }
         }
@@ -703,7 +714,7 @@ impl LuaDocTagField {
         self.token()
     }
 
-    pub fn get_attrib(&self) -> Option<LuaDocAttribute> {
+    pub fn get_type_flag(&self) -> Option<LuaDocTypeFlag> {
         self.child()
     }
 }
@@ -1567,5 +1578,74 @@ impl LuaDocDescriptionOwner for LuaDocTagLanguage {}
 impl LuaDocTagLanguage {
     pub fn get_name_token(&self) -> Option<LuaNameToken> {
         self.token()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LuaDocTagAttribute {
+    syntax: LuaSyntaxNode,
+}
+
+impl LuaAstNode for LuaDocTagAttribute {
+    fn syntax(&self) -> &LuaSyntaxNode {
+        &self.syntax
+    }
+
+    fn can_cast(kind: LuaSyntaxKind) -> bool {
+        kind == LuaSyntaxKind::DocTagAttribute
+    }
+
+    fn cast(syntax: LuaSyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind().into()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+}
+
+impl LuaDocDescriptionOwner for LuaDocTagAttribute {}
+
+impl LuaDocTagAttribute {
+    pub fn get_name_token(&self) -> Option<LuaNameToken> {
+        self.token()
+    }
+
+    pub fn get_type(&self) -> Option<LuaDocType> {
+        self.child()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LuaDocTagAttributeUse {
+    syntax: LuaSyntaxNode,
+}
+
+impl LuaAstNode for LuaDocTagAttributeUse {
+    fn syntax(&self) -> &LuaSyntaxNode {
+        &self.syntax
+    }
+
+    fn can_cast(kind: LuaSyntaxKind) -> bool {
+        kind == LuaSyntaxKind::DocTagAttributeUse
+    }
+
+    fn cast(syntax: LuaSyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind().into()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+}
+
+impl LuaDocTagAttributeUse {
+    pub fn get_name_token(&self) -> Option<LuaNameToken> {
+        self.token()
+    }
+
+    /// 获取所有使用的属性
+    pub fn get_attribute_uses(&self) -> LuaAstChildren<LuaDocAttributeUse> {
+        self.children()
     }
 }

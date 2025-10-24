@@ -1,5 +1,10 @@
-use emmylua_code_analysis::{InferGuard, LuaType, infer_table_field_value_should_be};
-use emmylua_parser::{BinaryOperator, LuaAst, LuaAstNode, LuaBlock, LuaLiteralExpr};
+use emmylua_code_analysis::{
+    DbIndex, InferGuard, LuaDeclId, LuaType, get_real_type, infer_table_field_value_should_be,
+    infer_table_should_be,
+};
+use emmylua_parser::{
+    BinaryOperator, LuaAst, LuaAstNode, LuaAstToken, LuaBlock, LuaLiteralExpr, LuaTokenKind,
+};
 
 use crate::handlers::completion::{
     completion_builder::CompletionBuilder, providers::function_provider::dispatch_type,
@@ -60,11 +65,64 @@ fn get_token_should_type(builder: &mut CompletionBuilder) -> Option<Vec<LuaType>
                 }
             }
         }
-        LuaAst::LuaLocalStat(_) => {
-            // let locals = local_stat.get_local_name_list().collect::<Vec<_>>();
-            // let values = local_stat.get_value_exprs().collect::<Vec<_>>();
+        LuaAst::LuaLocalStat(local_stat) => {
+            let locals = local_stat.get_local_name_list().collect::<Vec<_>>();
+            if locals.len() != 1 {
+                return None;
+            }
+
+            let position = builder.trigger_token.text_range().start();
+            let eq = local_stat.token_by_kind(LuaTokenKind::TkAssign)?;
+            if position < eq.get_position() {
+                return None;
+            }
+            let local = locals.first()?;
+            let decl_id =
+                LuaDeclId::new(builder.semantic_model.get_file_id(), local.get_position());
+            let decl_type = builder
+                .semantic_model
+                .get_db()
+                .get_type_index()
+                .get_type_cache(&decl_id.into())?;
+            let typ = decl_type.as_type().clone();
+            if contain_function_types(builder.semantic_model.get_db(), &typ).is_none() {
+                return Some(vec![typ]);
+            }
         }
-        LuaAst::LuaAssignStat(_) => {}
+        LuaAst::LuaAssignStat(assign_stat) => {
+            let (vars, _) = assign_stat.get_var_and_expr_list();
+
+            if vars.len() != 1 {
+                return None;
+            }
+
+            let position = builder.trigger_token.text_range().start();
+            let eq = assign_stat.token_by_kind(LuaTokenKind::TkAssign)?;
+            if position < eq.get_position() {
+                return None;
+            }
+
+            let var = vars.first()?;
+            let var_type = builder.semantic_model.infer_expr(var.to_expr());
+            if let Ok(typ) = var_type
+            // this is to avoid repeating function types in completion
+                && contain_function_types(builder.semantic_model.get_db(), &typ).is_none()
+            {
+                return Some(vec![typ]);
+            }
+        }
+        LuaAst::LuaTableExpr(table_expr) => {
+            let table_type = infer_table_should_be(
+                builder.semantic_model.get_db(),
+                &mut builder.semantic_model.get_cache().borrow_mut(),
+                table_expr,
+            );
+            if let Ok(typ) = table_type
+                && let LuaType::Array(array_type) = typ
+            {
+                return Some(vec![array_type.get_base().clone()]);
+            }
+        }
         LuaAst::LuaTableField(table_field) => {
             let typ = infer_table_field_value_should_be(
                 builder.semantic_model.get_db(),
@@ -78,4 +136,31 @@ fn get_token_should_type(builder: &mut CompletionBuilder) -> Option<Vec<LuaType>
     }
 
     None
+}
+
+pub fn contain_function_types(db: &DbIndex, typ: &LuaType) -> Option<()> {
+    match typ {
+        LuaType::Union(union_typ) => {
+            for member in union_typ.into_vec().iter() {
+                match member {
+                    _ if member.is_function() => {
+                        return Some(());
+                    }
+                    _ if member.is_custom_type() => {
+                        let real_type = get_real_type(db, member)?;
+                        if real_type.is_function() {
+                            return Some(());
+                        }
+                    }
+                    _ => {
+                        continue;
+                    }
+                }
+            }
+
+            None
+        }
+        _ if typ.is_function() => Some(()),
+        _ => None,
+    }
 }

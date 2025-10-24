@@ -133,7 +133,6 @@ mod tests {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_hover(
             r#"
-                ---@diagnostic disable: missing-return
                 ---@class Trigger
                 ---@class EventTypeA
 
@@ -151,17 +150,9 @@ mod tests {
                 ---@field event fun(self: self, event: "游戏-初始化"): Trigger
                 ---@field event fun(self: self, event: "游戏-追帧完成"): Trigger
                 ---@field event fun(self: self, event: "游戏-逻辑不同步"): Trigger
-                ---@field event fun(self: self, event: "游戏-地形预设加载完成"): Trigger
-                ---@field event fun(self: self, event: "游戏-结束"): Trigger
-                ---@field event fun(self: self, event: "游戏-暂停"): Trigger
-                ---@field event fun(self: self, event: "游戏-恢复"): Trigger
-                ---@field event fun(self: self, event: "游戏-昼夜变化"): Trigger
-                ---@field event fun(self: self, event: "区域-进入"): Trigger
-                ---@field event fun(self: self, event: "区域-离开"): Trigger
-                ---@field event fun(self: self, event: "游戏-http返回"): Trigger
             "#,
             VirtualHoverResult {
-                value: "```lua\n(method) GameA:event(event_type: EventTypeA, ...: any)\n  -> Trigger\n\n```\n\n---\n\n注册引擎事件\n\n---\n\n```lua\n(method) GameA:event(event: \"游戏-初始化\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-追帧完成\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-逻辑不同步\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-地形预设加载完成\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-结束\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-暂停\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-恢复\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-昼夜变化\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"区域-进入\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"区域-离开\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-http返回\") -> Trigger\n```".to_string(),
+                value: "```lua\n(method) GameA:event(event_type: EventTypeA, ...: any) -> Trigger\n```\n\n---\n\n注册引擎事件\n\n---\n\n```lua\n(method) GameA:event(event: \"游戏-初始化\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-追帧完成\") -> Trigger\n```\n\n```lua\n(method) GameA:event(event: \"游戏-逻辑不同步\") -> Trigger\n```".to_string(),
             },
         ));
         Ok(())
@@ -181,7 +172,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\nfunction ClosureTest.e(a: string, b: number)\n```\n\n---\n\n---\n\n```lua\n(field) ClosureTest.e(a: string, b: number)\n```".to_string(),
+                value: "```lua\n(field) ClosureTest.e(a: string, b: number)\n```".to_string(),
             },
         ));
         Ok(())
@@ -335,7 +326,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\nfunction Reactive.reactive(target: T)\n  -> T\n\n```".to_string(),
+                value: "```lua\nfunction Reactive.reactive(target: T) -> T\n```".to_string(),
             },
         ));
         Ok(())
@@ -431,7 +422,7 @@ mod tests {
                 end)
             "#,
             VirtualHoverResult {
-                value: "```lua\n(method) Observable:select(selector: fun(value: integer, index: integer?) -> R)\n```".to_string(),
+                value: "```lua\n(method) Observable:select(selector: fun(value: integer, index: integer?) -> any)\n```".to_string(),
             },
         ));
         Ok(())
@@ -545,6 +536,50 @@ mod tests {
             "#,
             VirtualHoverResult {
                 value: "```lua\nfunction Fix.add(name: T)\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_call_1() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class A
+                local A
+                ---@class B
+                local B
+
+                ---@generic T
+                ---@param x T
+                function A.add(x)
+                end
+
+                A.ad<??>d(B)
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction A.add(x: B)\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_fix_method_1() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+            ---@class ClassControl
+            local ClassControl = {}
+
+            ---@generic T
+            ---@param name `T`|T
+            function ClassControl.ne<??>w(name)
+            end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction ClassControl.new(name: T)\n```".to_string(),
             },
         ));
         Ok(())

@@ -5,7 +5,9 @@ use emmylua_code_analysis::{
 };
 
 use emmylua_code_analysis::humanize_type;
-use emmylua_parser::{LuaAstNode, LuaExpr, LuaIndexExpr, LuaStat, LuaSyntaxId, LuaSyntaxKind};
+use emmylua_parser::{
+    LuaAstNode, LuaExpr, LuaIndexExpr, LuaStat, LuaSyntaxId, LuaSyntaxKind, LuaTableExpr,
+};
 use rowan::TextRange;
 
 use super::hover_builder::HoverBuilder;
@@ -238,5 +240,25 @@ pub fn extract_owner_name_from_element(
         }
     }
 
+    None
+}
+
+pub fn extract_parent_type_from_element(
+    semantic_model: &SemanticModel,
+    element_id: &InFiled<TextRange>,
+) -> Option<LuaType> {
+    let root = semantic_model
+        .get_db()
+        .get_vfs()
+        .get_syntax_tree(&element_id.file_id)?
+        .get_red_root();
+
+    let node = LuaSyntaxId::to_node_at_range(&root, element_id.value)?;
+    let stat = LuaStat::cast(node.clone().parent()?)?;
+    if let LuaStat::LocalStat(_) = stat {
+        let table_expr = LuaTableExpr::cast(node)?;
+        let ty = semantic_model.infer_table_should_be(table_expr);
+        return ty;
+    }
     None
 }

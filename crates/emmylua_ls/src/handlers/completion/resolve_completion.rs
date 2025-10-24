@@ -61,7 +61,7 @@ pub fn update_function_signature_info(
                 }
             }
         }
-        if let MarkedString::LanguageString(s) = &mut hover_builder.type_description {
+        if let MarkedString::LanguageString(s) = &mut hover_builder.primary {
             s.value = format!("{} (+{} overloads)", s.value, overload_count);
         }
     }
@@ -78,7 +78,7 @@ fn build_vscode_completion_item(
                 .signature_overload
                 .and_then(|overloads| overloads.get(index).cloned())
         })
-        .unwrap_or_else(|| hover_builder.type_description.clone());
+        .unwrap_or_else(|| hover_builder.primary.clone());
 
     match type_description {
         MarkedString::String(s) => {
@@ -138,7 +138,7 @@ fn build_other_completion_item(
                 .signature_overload
                 .and_then(|overloads| overloads.get(index).cloned())
         })
-        .unwrap_or_else(|| hover_builder.type_description.clone());
+        .unwrap_or_else(|| hover_builder.primary.clone());
 
     match type_description {
         MarkedString::String(s) => {

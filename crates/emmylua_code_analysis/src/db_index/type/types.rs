@@ -12,6 +12,7 @@ use smol_str::SmolStr;
 use crate::{
     AsyncState, DbIndex, FileId, InFiled, SemanticModel,
     db_index::{LuaMemberKey, LuaSignatureId, r#type::type_visit_trait::TypeVisitTrait},
+    first_param_may_not_self,
 };
 
 use super::{GenericParam, TypeOps, type_decl::LuaTypeDeclId};
@@ -63,6 +64,7 @@ pub enum LuaType {
     ConstTplRef(Arc<GenericTpl>),
     Language(ArcIntern<SmolStr>),
     ModuleRef(FileId),
+    DocAttribute(Arc<LuaAttributeType>),
     Conditional(Arc<LuaConditionalType>),
     ConditionalInfer(ArcIntern<SmolStr>),
     Mapped(Arc<LuaMappedType>),
@@ -116,6 +118,7 @@ impl PartialEq for LuaType {
             (LuaType::ConstTplRef(a), LuaType::ConstTplRef(b)) => a == b,
             (LuaType::Language(a), LuaType::Language(b)) => a == b,
             (LuaType::ModuleRef(a), LuaType::ModuleRef(b)) => a == b,
+            (LuaType::DocAttribute(a), LuaType::DocAttribute(b)) => a == b,
             (LuaType::Conditional(a), LuaType::Conditional(b)) => a == b,
             (LuaType::ConditionalInfer(a), LuaType::ConditionalInfer(b)) => a == b,
             (LuaType::Mapped(a), LuaType::Mapped(b)) => a == b,
@@ -207,6 +210,7 @@ impl Hash for LuaType {
                 let ptr = Arc::as_ptr(a);
                 (51, ptr).hash(state)
             }
+            LuaType::DocAttribute(a) => (52, a).hash(state),
         }
     }
 }
@@ -704,8 +708,8 @@ impl LuaFunctionType {
                     match owner_type {
                         Some(owner_type) => {
                             // 一些类型不应该被视为 method
-                            if let (LuaType::Ref(_) | LuaType::Def(_), _) = (owner_type, t)
-                                && (t.is_any() || t.is_table() || t.is_class_tpl())
+                            if matches!(owner_type, LuaType::Ref(_) | LuaType::Def(_))
+                                && first_param_may_not_self(t)
                             {
                                 return false;
                             }
@@ -1469,6 +1473,34 @@ impl LuaArrayType {
 
     pub fn contain_tpl(&self) -> bool {
         self.base.contain_tpl()
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct LuaAttributeType {
+    params: Vec<(String, Option<LuaType>)>,
+}
+
+impl TypeVisitTrait for LuaAttributeType {
+    fn visit_type<F>(&self, f: &mut F)
+    where
+        F: FnMut(&LuaType),
+    {
+        for (_, t) in &self.params {
+            if let Some(t) = t {
+                t.visit_type(f);
+            }
+        }
+    }
+}
+
+impl LuaAttributeType {
+    pub fn new(params: Vec<(String, Option<LuaType>)>) -> Self {
+        Self { params }
+    }
+
+    pub fn get_params(&self) -> &[(String, Option<LuaType>)] {
+        &self.params
     }
 }
 

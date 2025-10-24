@@ -738,10 +738,6 @@ fn infer_generic_member(
     let generic_params = generic_type.get_params();
     let substitutor = TypeSubstitutor::from_type_array(generic_params.clone());
 
-    // TODO: this is just a hack to support inheritance from the generic objects
-    // like `---@class box<T>: T`. Should be rewritten: generic types should
-    // be passed to the called instantiate_type_generic() in some kind of a
-    // context.
     if let LuaType::Ref(base_type_decl_id) = &base_type {
         let result = infer_generic_members_from_super_generics(
             db,
