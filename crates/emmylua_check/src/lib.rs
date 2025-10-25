@@ -30,10 +30,24 @@ pub async fn run_check(cmd_args: CmdArgs) -> Result<(), Box<dyn Error + Sync + S
         .ok_or("Failed to load workspace")?
         .clone();
 
+    // Convert config paths to absolute paths, similar to workspace paths
+    let config_paths = cmd_args.config.map(|configs| {
+        configs
+            .into_iter()
+            .map(|config| {
+                if config.is_absolute() {
+                    config
+                } else {
+                    cwd.join(config)
+                }
+            })
+            .collect()
+    });
+
     let analysis = match init::load_workspace(
         main_path.clone(),
         workspaces.clone(),
-        cmd_args.config,
+        config_paths,
         cmd_args.ignore,
     ) {
         Some(analysis) => analysis,

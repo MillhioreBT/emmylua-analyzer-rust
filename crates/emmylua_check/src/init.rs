@@ -166,6 +166,18 @@ pub fn collect_files(
 /// File patterns for workspace scanning: (include_patterns, exclude_patterns, exclude_dirs)
 type FilePatterns = (Vec<String>, Vec<String>, Vec<PathBuf>);
 
+/// Normalize a path by removing Windows UNC prefix (\\?\) if present.
+/// This is needed because canonicalize() adds this prefix on Windows,
+/// but walkdir returns paths without it, causing path comparisons to fail.
+fn normalize_path(path: &Path) -> PathBuf {
+    let path_str = path.to_string_lossy();
+    if let Some(stripped) = path_str.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path.to_path_buf()
+    }
+}
+
 pub fn calculate_include_and_exclude(emmyrc: &Emmyrc, ignore: Option<Vec<String>>) -> FilePatterns {
     let mut include = vec!["**/*.lua".to_string(), "**/.editorconfig".to_string()];
     let mut exclude = Vec::new();
@@ -196,7 +208,10 @@ pub fn calculate_include_and_exclude(emmyrc: &Emmyrc, ignore: Option<Vec<String>
 
     for dir in &emmyrc.workspace.ignore_dir {
         log::info!("Adding ignore dir: {}", dir);
-        exclude_dirs.push(PathBuf::from(dir));
+        // Normalize path to remove Windows UNC prefix (\\?\) if present
+        // This ensures paths can be compared with walkdir paths
+        let normalized = normalize_path(&PathBuf::from(dir));
+        exclude_dirs.push(normalized);
     }
 
     // remove duplicate
