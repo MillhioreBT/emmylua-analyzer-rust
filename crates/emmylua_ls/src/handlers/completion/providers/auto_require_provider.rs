@@ -1,5 +1,5 @@
 use emmylua_code_analysis::{
-    EmmyrcFilenameConvention, LuaType, ModuleInfo, check_export_visibility,
+    EmmyrcFilenameConvention, LuaSemanticDeclId, LuaType, ModuleInfo, check_export_visibility,
 };
 use emmylua_parser::{LuaAstNode, LuaNameExpr};
 use lsp_types::{CompletionItem, Position};
@@ -144,6 +144,26 @@ fn try_add_member_completion_items(
                     match member_info.typ {
                         LuaType::Def(_) => {}
                         LuaType::Signature(_) => {}
+                        LuaType::DocFunction(_) => {}
+                        LuaType::Ref(_) => {
+                            let Some(LuaSemanticDeclId::Member(member_id)) =
+                                member_info.property_owner_id.as_ref()
+                            else {
+                                continue;
+                            };
+                            let Some(property) = builder
+                                .semantic_model
+                                .get_db()
+                                .get_property_index()
+                                .get_property(&LuaSemanticDeclId::Member(member_id.clone()))
+                            else {
+                                continue;
+                            };
+                            // 允许标记有 export 标记的引用成员被自动导入捕获
+                            if property.export().is_none() {
+                                continue;
+                            }
+                        }
                         _ => {
                             continue;
                         }
