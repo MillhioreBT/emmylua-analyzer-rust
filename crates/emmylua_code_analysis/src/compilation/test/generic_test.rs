@@ -552,4 +552,83 @@ mod test {
             assert_eq!(ws.expr_ty("K"), ws.ty("integer"));
         }
     }
+
+    #[test]
+    fn test_long_extends_1() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            ---@alias IsTypeGuard<T>
+            --- T extends "nil"
+            ---     and nil
+            ---     or T extends "number"
+            ---         and number
+            ---         or T
+
+            ---@param v number
+            function f(v)
+            end
+            "#,
+        );
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            ---@type IsTypeGuard<"number">
+            local a
+            f(a)
+            "#,
+        ));
+    }
+
+    #[test]
+    fn test_long_extends_2() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias std.type
+            ---| "nil"
+            ---| "number"
+            ---| "string"
+            ---| "boolean"
+            ---| "table"
+            ---| "function"
+            ---| "thread"
+            ---| "userdata"
+
+            ---@alias TypeGuard<T> boolean
+        "#,
+        );
+
+        ws.def(
+            r#"
+            ---@alias IsTypeGuard<T>
+            --- T extends "nil"
+            ---     and nil
+            ---     or T extends "number"
+            ---         and number
+            ---         or T
+
+            ---@param v number
+            function f(v)
+            end
+
+            ---@generic TP: std.type
+            ---@param obj any
+            ---@param tp std.ConstTpl<TP>
+            ---@return TypeGuard<IsTypeGuard<TP>>
+            function is_type(obj, tp)
+            end
+            "#,
+        );
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeNotMatch,
+            r#"
+            local a
+            if is_type(a, "number") then
+                f(a)
+            end
+            "#,
+        ));
+    }
 }

@@ -14,6 +14,7 @@ use crate::{
         LuaFunctionType, LuaGenericType, LuaIntersectionType, LuaObjectType, LuaTupleType, LuaType,
         LuaUnionType, VariadicType,
     },
+    semantic::type_check::{TypeCheckCheckLevel, check_type_compact_with_level},
 };
 
 use super::type_substitutor::{SubstitutorValue, TypeSubstitutor};
@@ -519,7 +520,15 @@ fn instantiate_conditional(
         {
             condition_result = Some(true);
         } else {
-            condition_result = Some(check_type_compact(db, &left, &right).is_ok());
+            condition_result = Some(
+                check_type_compact_with_level(
+                    db,
+                    &left,
+                    &right,
+                    TypeCheckCheckLevel::GenericConditional,
+                )
+                .is_ok(),
+            );
         }
     }
 
