@@ -1,10 +1,13 @@
 mod builder;
+mod comment;
 mod expr;
 mod stats;
 
+use std::collections::HashSet;
+
 use builder::{DocumentSymbolBuilder, LuaSymbol};
 use emmylua_code_analysis::SemanticModel;
-use emmylua_parser::{LuaAst, LuaAstNode, LuaChunk};
+use emmylua_parser::{LuaAst, LuaAstNode, LuaChunk, LuaExpr, LuaTableExpr};
 use expr::{build_closure_expr_symbol, build_table_symbol};
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
@@ -20,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use crate::context::ServerContextSnapshot;
 
 use super::RegisterCapabilities;
+use comment::build_doc_region_symbol;
 
 pub async fn on_document_symbol(
     context: ServerContextSnapshot,
@@ -59,12 +63,25 @@ fn build_child_document_symbols(
     builder: &mut DocumentSymbolBuilder,
     root: &LuaChunk,
 ) -> Option<()> {
+    let mut skip_table_exprs: HashSet<LuaTableExpr> = HashSet::new();
+
     for child in root.descendants::<LuaAst>() {
         match child {
             LuaAst::LuaLocalStat(local_stat) => {
+                for value_expr in local_stat.get_value_exprs() {
+                    if let LuaExpr::TableExpr(table_expr) = value_expr {
+                        skip_table_exprs.insert(table_expr);
+                    }
+                }
                 build_local_stat_symbol(builder, local_stat);
             }
             LuaAst::LuaAssignStat(assign_stat) => {
+                let (_, exprs) = assign_stat.get_var_and_expr_list();
+                for expr in exprs {
+                    if let LuaExpr::TableExpr(table_expr) = expr {
+                        skip_table_exprs.insert(table_expr);
+                    }
+                }
                 build_assign_stat_symbol(builder, assign_stat);
             }
             LuaAst::LuaForStat(for_stat) => {
@@ -83,7 +100,12 @@ fn build_child_document_symbols(
                 build_closure_expr_symbol(builder, closure);
             }
             LuaAst::LuaTableExpr(table) => {
-                build_table_symbol(builder, table);
+                if !skip_table_exprs.contains(&table) {
+                    build_table_symbol(builder, table);
+                }
+            }
+            LuaAst::LuaComment(comment) => {
+                build_doc_region_symbol(builder, comment);
             }
             LuaAst::LuaIfStat(if_stat) => {
                 build_if_stat_symbol(builder, if_stat);
