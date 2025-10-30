@@ -473,7 +473,7 @@ fn try_set_accessor_locations(
         .get_property_index()
         .get_property(&semantic_decl_id)?;
 
-    let attribute_use = property.find_attribute_use(LuaTypeDeclId::new("field_accessor"))?;
+    let attribute_use = property.find_attribute_use("field_accessor")?;
     let has_getter =
         if let Some(LuaType::DocStringConst(getter)) = attribute_use.get_param_by_name("getter") {
             try_add_accessor_location(

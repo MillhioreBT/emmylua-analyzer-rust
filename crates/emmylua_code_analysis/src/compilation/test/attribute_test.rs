@@ -36,9 +36,31 @@ mod test {
         ws.check_code_for(
             DiagnosticCode::AssignTypeMismatch,
             r#"
-        ---@[lsp_perf_optim("check_table_field")]
+        ---@[lsp_optimization("check_table_field")]
         local config = {}
         "#,
         );
+    }
+
+    #[test]
+    fn test_delayed_definition() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+
+        ws.def(
+            r#"
+        ---@[lsp_optimization("delayed_definition")]
+        local config
+
+        function func()
+            A = config
+        end
+
+        config = 1
+        "#,
+        );
+
+        let ty = ws.expr_ty("A");
+        let ty_desc = ws.humanize_type(ty);
+        assert_eq!(ty_desc, "integer");
     }
 }
