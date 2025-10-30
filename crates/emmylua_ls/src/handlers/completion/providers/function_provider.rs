@@ -111,6 +111,9 @@ pub fn dispatch_type(
         LuaType::ConstTplRef(tpl) => {
             add_const_tpl_ref_completion(builder, &tpl.get_tpl_id(), infer_guard);
         }
+        LuaType::TplRef(tpl) => {
+            add_tpl_ref_completion(builder, &tpl.get_tpl_id(), infer_guard);
+        }
         LuaType::Call(special_call) => {
             add_special_call_completion(builder, &special_call);
         }
@@ -185,7 +188,11 @@ fn add_union_member_completion(
     union_typ: &LuaUnionType,
     infer_guard: &InferGuardRef,
 ) -> Option<()> {
-    for union_sub_typ in union_typ.into_vec() {
+    // 如果存在 strtplref, 那么将其移动到最后面
+    let mut union_types = union_typ.into_vec();
+    union_types.sort_by_key(|typ| matches!(typ, LuaType::StrTplRef(_)));
+
+    for union_sub_typ in union_types {
         let name = match union_sub_typ {
             LuaType::DocStringConst(s) => to_enum_label(builder, s.as_str()),
             LuaType::DocIntegerConst(i) => i.to_string(),
@@ -840,4 +847,14 @@ pub fn get_function_remove_nil(db: &DbIndex, typ: &LuaType) -> Option<LuaType> {
         _ if typ.is_function() => Some(typ.clone()),
         _ => None,
     }
+}
+
+fn add_tpl_ref_completion(
+    builder: &mut CompletionBuilder,
+    tpl_id: &GenericTplId,
+    infer_guard: &InferGuardRef,
+) -> Option<()> {
+    let extend_type = get_tpl_ref_extend_type(builder, tpl_id)?;
+    dispatch_type(builder, extend_type, infer_guard);
+    Some(())
 }

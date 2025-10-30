@@ -1,10 +1,10 @@
 use emmylua_parser::{
     BinaryOperator, LuaAssignStat, LuaAstNode, LuaExpr, LuaFuncStat, LuaIndexExpr,
-    LuaLocalFuncStat, LuaLocalStat, LuaTableField, LuaVarExpr, PathTrait,
+    LuaLocalFuncStat, LuaLocalStat, LuaNameExpr, LuaTableField, LuaVarExpr, PathTrait,
 };
 
 use crate::{
-    InFiled, InferFailReason, LuaTypeCache, LuaTypeOwner,
+    InFiled, InferFailReason, LuaSemanticDeclId, LuaTypeCache, LuaTypeOwner,
     compilation::analyzer::{
         common::{add_member, bind_type},
         unresolve::{UnResolveDecl, UnResolveMember},
@@ -23,6 +23,10 @@ pub fn analyze_local_stat(analyzer: &mut LuaAnalyzer, local_stat: LuaLocalStat) 
         for local_name in name_list {
             let position = local_name.get_position();
             let decl_id = LuaDeclId::new(analyzer.file_id, position);
+            // 标记了延迟定义属性, 此时将跳过绑定类型, 等待第一次赋值时再绑定类型
+            if has_delayed_definition_attribute(analyzer, decl_id) {
+                return Some(());
+            }
             analyzer
                 .db
                 .get_type_index_mut()
@@ -304,6 +308,17 @@ pub fn analyze_assign_stat(analyzer: &mut LuaAnalyzer, assign_stat: LuaAssignSta
                 continue;
             }
         };
+
+        // 如果具有延迟定义属性, 则先绑定最初的定义
+        if let LuaVarExpr::NameExpr(name_expr) = var {
+            if let Some(decl_id) = get_delayed_definition_decl_id(analyzer, name_expr) {
+                bind_type(
+                    analyzer.db,
+                    decl_id.into(),
+                    LuaTypeCache::InferType(expr_type.clone()),
+                );
+            }
+        }
         assign_merge_type_owner_and_expr_type(analyzer, type_owner, &expr_type, 0);
     }
 
@@ -499,4 +514,38 @@ fn special_assign_pattern(
     }
 
     Some(())
+}
+
+fn has_delayed_definition_attribute(analyzer: &LuaAnalyzer, decl_id: LuaDeclId) -> bool {
+    if let Some(property) = analyzer
+        .db
+        .get_property_index()
+        .get_property(&LuaSemanticDeclId::LuaDecl(decl_id))
+    {
+        if let Some(lsp_optimization) = property.find_attribute_use("lsp_optimization") {
+            if let Some(LuaType::DocStringConst(code)) = lsp_optimization.get_param_by_name("code")
+            {
+                if code.as_ref() == "delayed_definition" {
+                    return true;
+                }
+            };
+        }
+    }
+    false
+}
+
+// 获取延迟定义的声明id
+fn get_delayed_definition_decl_id(
+    analyzer: &LuaAnalyzer,
+    name_expr: &LuaNameExpr,
+) -> Option<LuaDeclId> {
+    let file_id = analyzer.file_id;
+    let references_index = analyzer.db.get_reference_index();
+    let range = name_expr.get_range();
+    let file_ref = references_index.get_local_reference(&file_id)?;
+    let decl_id = file_ref.get_decl_id(&range)?;
+    if !has_delayed_definition_attribute(analyzer, decl_id) {
+        return None;
+    }
+    Some(decl_id)
 }

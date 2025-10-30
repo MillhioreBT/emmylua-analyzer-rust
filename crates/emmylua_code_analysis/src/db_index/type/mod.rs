@@ -302,12 +302,17 @@ fn get_real_type_with_depth<'a>(
 
 // 第一个参数是否不应该视为 self
 pub fn first_param_may_not_self(typ: &LuaType) -> bool {
-    if typ.is_table() || matches!(typ, LuaType::Ref(_) | LuaType::Def(_) | LuaType::Any) {
-        return false;
+    if typ.is_table()
+        || matches!(
+            typ,
+            LuaType::TplRef(_) | LuaType::StrTplRef(_) | LuaType::Any
+        )
+    {
+        return true;
     }
+
     if let LuaType::Union(u) = typ {
         return u.into_vec().iter().any(first_param_may_not_self);
     }
-
-    true
+    false
 }
