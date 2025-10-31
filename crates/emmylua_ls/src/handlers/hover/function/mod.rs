@@ -313,6 +313,12 @@ fn hover_doc_function_type(
                         builder.semantic_model,
                         Some(&LuaType::Ref(type_decl_id.clone())),
                     );
+                    if is_method {
+                        type_label = "(method) ";
+                        name.push(':');
+                    } else {
+                        name.push('.');
+                    }
                 }
                 LuaMemberOwner::Element(element_id) => {
                     if let Some(LuaType::Ref(type_decl_id) | LuaType::Def(type_decl_id)) =
@@ -326,22 +332,23 @@ fn hover_doc_function_type(
                             builder.semantic_model,
                             Some(&LuaType::Ref(type_decl_id.clone())),
                         );
+                        if is_method {
+                            type_label = "(method) ";
+                            name.push(':');
+                        } else {
+                            name.push('.');
+                        }
                     } else if let Some(owner_name) =
                         extract_owner_name_from_element(builder.semantic_model, element_id)
                     {
                         name.push_str(&owner_name);
+                        name.push('.');
                     }
                 }
                 _ => {}
             }
         }
 
-        if is_method {
-            type_label = "(method) ";
-            name.push(':');
-        } else {
-            name.push('.');
-        }
         if let LuaMemberKey::Name(n) = owner_member.get_key() {
             name.push_str(n.as_str());
         }

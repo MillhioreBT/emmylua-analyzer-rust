@@ -584,4 +584,40 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_fix_global_index_function_1() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+            M = {}
+            function M.te<??>st()
+            end
+
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction M.test()\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_fix_global_index_function_2() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        // TODO: 构建完整的访问路径
+        check!(ws.check_hover(
+            r#"
+            M = {
+                K = {}
+            }
+            M.K.Val<??>ue = function()
+            end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction Value()\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
