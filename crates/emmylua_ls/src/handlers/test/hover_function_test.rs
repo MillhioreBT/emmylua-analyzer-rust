@@ -611,11 +611,35 @@ mod tests {
             M = {
                 K = {}
             }
-            M.K.Val<??>ue = function()
+            M.K.<??>Value = function()
             end
             "#,
             VirtualHoverResult {
                 value: "```lua\nfunction Value()\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_fix_ref() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@class Player
+            ---@field name string
+
+            ---@param player Player
+            function CreatePlayer(player)
+            end
+        "#,
+        );
+        check!(ws.check_hover(
+            r#"
+            Creat<??>ePlayer({name = "John"})
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction CreatePlayer(player: Player)\n```".to_string(),
             },
         ));
         Ok(())
