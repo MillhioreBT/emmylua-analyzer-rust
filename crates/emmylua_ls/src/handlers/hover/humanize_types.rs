@@ -7,6 +7,7 @@ use emmylua_code_analysis::{
 use emmylua_code_analysis::humanize_type;
 use emmylua_parser::{
     LuaAstNode, LuaExpr, LuaIndexExpr, LuaStat, LuaSyntaxId, LuaSyntaxKind, LuaTableExpr,
+    LuaVarExpr,
 };
 use rowan::TextRange;
 
@@ -232,14 +233,34 @@ pub fn extract_owner_name_from_element(
     // 通过 TextRange 找到对应的 AST 节点
     let node = LuaSyntaxId::to_node_at_range(&root, element_id.value)?;
     let stat = LuaStat::cast(node.clone().parent()?)?;
-    if let LuaStat::LocalStat(local_stat) = stat {
-        let value = LuaExpr::cast(node)?;
-        let local_name = local_stat.get_local_name_by_value(value);
-        if let Some(local_name) = local_name {
-            return Some(local_name.get_name_token()?.get_name_text().to_string());
+    match stat {
+        LuaStat::LocalStat(local_stat) => {
+            let value = LuaExpr::cast(node)?;
+            let local_name = local_stat.get_local_name_by_value(value);
+            if let Some(local_name) = local_name {
+                return Some(local_name.get_name_token()?.get_name_text().to_string());
+            }
         }
+        LuaStat::AssignStat(assign_stat) => {
+            let value = LuaExpr::cast(node)?;
+            let (vars, values) = assign_stat.get_var_and_expr_list();
+            let idx = values
+                .iter()
+                .position(|v| v.get_syntax_id() == value.get_syntax_id())?;
+            let var = vars.get(idx)?;
+            match var {
+                LuaVarExpr::NameExpr(name_expr) => {
+                    return Some(name_expr.get_name_token()?.get_name_text().to_string());
+                }
+                LuaVarExpr::IndexExpr(index_expr) => {
+                    if let Some(index_key) = index_expr.get_index_key() {
+                        return Some(index_key.get_path_part());
+                    }
+                }
+            }
+        }
+        _ => {}
     }
-
     None
 }
 
