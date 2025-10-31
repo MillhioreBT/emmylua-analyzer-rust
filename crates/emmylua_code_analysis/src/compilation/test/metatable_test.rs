@@ -22,21 +22,21 @@ mod test {
         );
 
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             cmd(1)
         "#
         ));
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             cmd("hello)
         "#
         ));
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             cmd({ "hello", "world" })
         "#

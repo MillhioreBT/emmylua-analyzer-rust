@@ -30,7 +30,7 @@ mod test {
         let mut ws = VirtualWorkspace::new_with_init_std_lib();
 
         assert!(ws.check_code_for(
-            crate::DiagnosticCode::ParamTypeNotMatch,
+            crate::DiagnosticCode::ParamTypeMismatch,
             r#"
         ---Converts hex to char
         ---@param hex string

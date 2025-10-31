@@ -13,7 +13,7 @@ pub struct ParamTypeCheckChecker;
 
 impl Checker for ParamTypeCheckChecker {
     const CODES: &[DiagnosticCode] = &[
-        DiagnosticCode::ParamTypeNotMatch,
+        DiagnosticCode::ParamTypeMismatch,
         DiagnosticCode::AssignTypeMismatch,
     ];
 
@@ -196,7 +196,7 @@ fn add_type_check_diagnostic(
                 TypeCheckFailReason::TypeRecursion => "type recursion".to_string(),
             };
             context.add_diagnostic(
-                DiagnosticCode::ParamTypeNotMatch,
+                DiagnosticCode::ParamTypeMismatch,
                 range,
                 t!(
                     "expected `%{source}` but found `%{found}`. %{reason}",

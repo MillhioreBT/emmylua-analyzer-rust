@@ -189,7 +189,7 @@
         {
           "description": "Param Type not match",
           "type": "string",
-          "const": "param-type-not-match"
+          "const": "param-type-mismatch"
         },
         {
           "description": "Missing parameter",

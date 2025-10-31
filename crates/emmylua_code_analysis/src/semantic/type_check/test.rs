@@ -156,7 +156,7 @@ mod test {
         let mut ws = VirtualWorkspace::new();
 
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             --- @class A
             --- @field a integer
@@ -191,7 +191,7 @@ mod test {
         );
 
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type Holder<string>, NumberHolder
             local a, b
@@ -200,7 +200,7 @@ mod test {
         ));
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type Holder<string>, StringHolderWith<table>
             local a, b
