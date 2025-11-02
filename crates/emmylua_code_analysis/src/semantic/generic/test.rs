@@ -210,7 +210,7 @@ result = {
         );
 
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type Warp<number>, Warp<string>
             local a, b
@@ -219,7 +219,7 @@ result = {
         ));
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type Warp<number>, Warp<string>
             local a, b

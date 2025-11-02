@@ -169,9 +169,9 @@ mod test {
             pred = function() end
             "#,
         );
-        assert!(ws.check_code_for(DiagnosticCode::ParamTypeNotMatch, r#"pred('hello', 1, {})"#));
+        assert!(ws.check_code_for(DiagnosticCode::ParamTypeMismatch, r#"pred('hello', 1, {})"#));
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"pred('hello',"1", {})"#
         ));
     }
@@ -189,7 +189,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type A01<number>
             local a
@@ -211,7 +211,7 @@ mod test {
             "#,
         );
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type A02<number>
             local a
@@ -233,7 +233,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type A02<fun(v0: number, v1: number)>
             local a
@@ -255,7 +255,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type A01<number>
             local a
@@ -279,7 +279,7 @@ mod test {
             "#,
         );
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type fun(name: string, age: number)
             local greet
@@ -288,7 +288,7 @@ mod test {
         ));
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type fun(name: string, age: number)
             local greet
@@ -312,7 +312,7 @@ mod test {
             "#,
         );
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type A01<fun(a: A02, b: string)>
             local a
@@ -341,7 +341,7 @@ mod test {
             "#,
         );
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type fun(): number
             local greet
@@ -351,7 +351,7 @@ mod test {
         ));
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type fun(): string
             local greet
@@ -375,7 +375,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type Pick<{name: string, age: number, email: string}, "name" | "age">
             local m
@@ -398,7 +398,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type Partial<{name: string, age: number}>
             local m
@@ -424,7 +424,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type Wrapper<int>, Wrapper<int>, Wrapper<string>
             local a, b, c
@@ -452,7 +452,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@class A
             ---@overload fun(name: string, age: number)
@@ -464,7 +464,7 @@ mod test {
             "#,
         ));
         assert!(!ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             f("A", "b", "1")
             "#,
@@ -484,7 +484,7 @@ mod test {
             "#,
             );
             assert!(ws.check_code_for(
-                DiagnosticCode::ParamTypeNotMatch,
+                DiagnosticCode::ParamTypeMismatch,
                 r#"
               A, B, C =  f1(1, "2", true)
             "#,
@@ -503,7 +503,7 @@ mod test {
             "#,
             );
             assert!(ws.check_code_for(
-                DiagnosticCode::ParamTypeNotMatch,
+                DiagnosticCode::ParamTypeMismatch,
                 r#"
               D, E, F =  f2(1, "2", true)
             "#,
@@ -523,7 +523,7 @@ mod test {
             "#,
             );
             assert!(!ws.check_code_for(
-                DiagnosticCode::ParamTypeNotMatch,
+                DiagnosticCode::ParamTypeMismatch,
                 r#"
               G, H =  f3(1, "2")
             "#,
@@ -542,7 +542,7 @@ mod test {
             "#,
             );
             assert!(!ws.check_code_for(
-                DiagnosticCode::ParamTypeNotMatch,
+                DiagnosticCode::ParamTypeMismatch,
                 r#"
               I, J, K =  f4(1, "2")
             "#,
@@ -572,7 +572,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             ---@type IsTypeGuard<"number">
             local a
@@ -622,7 +622,7 @@ mod test {
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             local a
             if is_type(a, "number") then
