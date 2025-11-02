@@ -2118,4 +2118,44 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_generic_extends_completion() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "std.lua",
+            r#"
+                ---@alias std.type
+                ---| "nil"
+                ---| "number"
+            "#,
+        );
+        ws.def(
+            r#"
+                ---@generic TP: std.type | table
+                ---@param tp `TP`|TP
+                function is_type(tp)
+                end
+            "#,
+        );
+        check!(ws.check_completion_with_kind(
+            r#"
+                is_type(<??>)
+            "#,
+            vec![
+                VirtualCompletionItem {
+                    label: "\"nil\"".to_string(),
+                    kind: CompletionItemKind::ENUM_MEMBER,
+                    ..Default::default()
+                },
+                VirtualCompletionItem {
+                    label: "\"number\"".to_string(),
+                    kind: CompletionItemKind::ENUM_MEMBER,
+                    ..Default::default()
+                },
+            ],
+            CompletionTriggerKind::TRIGGER_CHARACTER,
+        ));
+        Ok(())
+    }
 }

@@ -23,7 +23,7 @@ mod test {
         let mut ws = VirtualWorkspace::new();
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
         --- @alias Dir -1|1
 

@@ -1,5 +1,5 @@
 use emmylua_code_analysis::{
-    DbIndex, LuaMemberInfo, LuaMemberKey, LuaSemanticDeclId, LuaType, LuaTypeDeclId, SemanticModel,
+    DbIndex, LuaMemberInfo, LuaMemberKey, LuaSemanticDeclId, LuaType, SemanticModel,
     try_extract_signature_id_from_field,
 };
 use emmylua_parser::{
@@ -360,7 +360,7 @@ pub fn get_index_alias_name(
     };
 
     let alias_label = common_property
-        .find_attribute_use(LuaTypeDeclId::new("index_alias"))?
+        .find_attribute_use("index_alias")?
         .args
         .first()
         .and_then(|(_, typ)| typ.as_ref())
