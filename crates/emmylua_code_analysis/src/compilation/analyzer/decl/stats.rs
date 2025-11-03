@@ -150,9 +150,8 @@ fn analyze_maybe_global_index_expr(
         let name_token_text = name_token.get_name_text();
         if name_token_text == "_G" || name_token_text == "_ENV" {
             let position = index_expr.get_position();
-            let name = name_token.get_name_text();
             let range = index_expr.get_range();
-            if let Some(decl) = analyzer.find_decl(name, position) {
+            if let Some(decl) = analyzer.find_decl(&index_name, position) {
                 let decl_id = decl.get_id();
                 analyzer
                     .db
