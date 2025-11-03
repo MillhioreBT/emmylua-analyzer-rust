@@ -1,15 +1,17 @@
+mod intersect_type;
 mod remove_type;
 mod test;
 mod union_type;
 
-use crate::DbIndex;
-
 use super::LuaType;
+use crate::DbIndex;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TypeOps {
     /// Add a type to the source type
     Union,
+    /// Intersect a type with the source type
+    Intersect,
     /// Remove a type from the source type
     Remove,
 }
@@ -18,6 +20,9 @@ impl TypeOps {
     pub fn apply(&self, db: &DbIndex, source: &LuaType, target: &LuaType) -> LuaType {
         match self {
             TypeOps::Union => union_type::union_type(db, source.clone(), target.clone()),
+            TypeOps::Intersect => {
+                intersect_type::intersect_type(db, source.clone(), target.clone())
+            }
             TypeOps::Remove => {
                 let result = remove_type::remove_type(db, source.clone(), target.clone());
                 if let Some(result) = result {

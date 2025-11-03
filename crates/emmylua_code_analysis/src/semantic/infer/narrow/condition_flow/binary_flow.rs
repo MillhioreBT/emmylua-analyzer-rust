@@ -362,6 +362,9 @@ fn maybe_var_eq_narrow(
                 return Ok(ResultTypeOrContinue::Continue);
             }
 
+            let antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
+            let left_type =
+                get_type_at_flow(db, tree, cache, root, var_ref_id, antecedent_flow_id)?;
             let right_expr_type = infer_expr(db, cache, right_expr)?;
 
             let result_type = match condition_flow {
@@ -370,14 +373,18 @@ fn maybe_var_eq_narrow(
                     if var_ref_id.is_self_ref() && !right_expr_type.is_nil() {
                         TypeOps::Remove.apply(db, &right_expr_type, &LuaType::Nil)
                     } else {
-                        right_expr_type
+                        let left_maybe_type =
+                            TypeOps::Intersect.apply(db, &left_type, &right_expr_type);
+
+                        if left_maybe_type.is_never() {
+                            left_type
+                        } else {
+                            left_maybe_type
+                        }
                     }
                 }
                 InferConditionFlow::FalseCondition => {
-                    let antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
-                    let antecedent_type =
-                        get_type_at_flow(db, tree, cache, root, var_ref_id, antecedent_flow_id)?;
-                    TypeOps::Remove.apply(db, &antecedent_type, &right_expr_type)
+                    TypeOps::Remove.apply(db, &left_type, &right_expr_type)
                 }
             };
             Ok(ResultTypeOrContinue::Result(result_type))
