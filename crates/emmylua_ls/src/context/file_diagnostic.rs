@@ -218,9 +218,6 @@ impl FileDiagnostic {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Option<(Vec<Diagnostic>, Uri)>>(100);
         let valid_file_count = main_workspace_file_ids.len();
-        if valid_file_count == 0 {
-            return result;
-        }
 
         let analysis = self.analysis.clone();
         for file_id in main_workspace_file_ids {
