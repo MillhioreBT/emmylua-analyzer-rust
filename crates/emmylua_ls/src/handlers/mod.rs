@@ -15,6 +15,7 @@ mod document_selection_range;
 mod document_symbol;
 mod document_type_format;
 mod emmy_annotator;
+mod emmy_gutter;
 mod fold_range;
 mod hover;
 mod implementation;
