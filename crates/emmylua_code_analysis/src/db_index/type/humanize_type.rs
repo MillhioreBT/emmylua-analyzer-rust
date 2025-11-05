@@ -305,7 +305,8 @@ fn humanize_multi_line_union_type(
         if let Some(description) = description {
             text.push_str(&format!(
                 "    | {} -- {}\n",
-                type_humanize_text, description
+                type_humanize_text,
+                description.replace('\n', " ")
             ));
         } else {
             text.push_str(&format!("    | {}\n", type_humanize_text));
