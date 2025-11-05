@@ -8,7 +8,7 @@ use crate::{
 };
 pub use emmy_gutter_request::*;
 use emmylua_code_analysis::SemanticModel;
-use emmylua_parser::{LuaAstNode, LuaDocTag};
+use emmylua_parser::{LuaAstNode, LuaAstToken, LuaDocTag};
 use lsp_types::Uri;
 use tokio_util::sync::CancellationToken;
 
@@ -32,7 +32,7 @@ fn build_gutter_infos(semantic_model: &SemanticModel) -> Option<Vec<GutterInfo>>
     for tag in root.descendants::<LuaDocTag>() {
         match tag {
             LuaDocTag::Alias(alias) => {
-                let range = alias.get_range();
+                let range = alias.get_name_token()?.get_range();
                 let lsp_range = document.to_lsp_range(range)?;
                 gutters.push(GutterInfo {
                     range: lsp_range,
@@ -41,7 +41,7 @@ fn build_gutter_infos(semantic_model: &SemanticModel) -> Option<Vec<GutterInfo>>
                 });
             }
             LuaDocTag::Class(class) => {
-                let range = class.get_range();
+                let range = class.get_name_token()?.get_range();
                 let lsp_range = document.to_lsp_range(range)?;
                 gutters.push(GutterInfo {
                     range: lsp_range,
@@ -50,7 +50,7 @@ fn build_gutter_infos(semantic_model: &SemanticModel) -> Option<Vec<GutterInfo>>
                 });
             }
             LuaDocTag::Enum(enm) => {
-                let range = enm.get_range();
+                let range = enm.get_name_token()?.get_range();
                 let lsp_range = document.to_lsp_range(range)?;
                 gutters.push(GutterInfo {
                     range: lsp_range,
