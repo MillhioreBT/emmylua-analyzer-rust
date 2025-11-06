@@ -15,20 +15,12 @@ pub struct EmmyGutterParams {
     pub uri: String,
 }
 
-// /**
-//  * Gutter information returned from LSP
-//  */
-// data class GutterInfo(
-//     val range: Range,
-//     val kind: GutterKind,
-//     val detail: String?
-// )
-
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
 pub struct GutterInfo {
     pub range: Range,
     pub kind: GutterKind,
     pub detail: Option<String>,
+    pub data: Option<String>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
@@ -39,6 +31,7 @@ pub enum GutterKind {
     Alias = 2,
     Method = 3,
     Module = 4,
+    Override = 5,
 }
 
 impl From<GutterKind> for u8 {
@@ -55,6 +48,7 @@ impl From<u8> for GutterKind {
             2 => GutterKind::Alias,
             3 => GutterKind::Method,
             4 => GutterKind::Module,
+            5 => GutterKind::Override,
             _ => GutterKind::Class, // default case
         }
     }

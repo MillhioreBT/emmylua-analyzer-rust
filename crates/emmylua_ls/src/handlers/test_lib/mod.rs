@@ -408,7 +408,7 @@ impl ProviderVirtualWorkspace {
         expected: Vec<VirtualInlayHint>,
     ) -> Result<()> {
         let file_id = self.def(block_str);
-        let result = inlay_hint(&self.analysis, file_id)
+        let result = inlay_hint(&self.analysis, file_id, ClientId::VSCode)
             .ok_or("failed to get inlay hints")
             .or_fail()?;
 

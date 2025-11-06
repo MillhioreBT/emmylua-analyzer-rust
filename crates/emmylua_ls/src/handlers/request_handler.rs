@@ -19,7 +19,10 @@ use crate::{
     handlers::{
         diagnostic::{on_pull_document_diagnostic, on_pull_workspace_diagnostic},
         document_type_format::on_type_formatting_handler,
-        emmy_gutter::{EmmyGutterRequest, on_emmy_gutter_handler},
+        emmy_gutter::{
+            EmmyGutterDetailRequest, EmmyGutterRequest, on_emmy_gutter_detail_handler,
+            on_emmy_gutter_handler,
+        },
         emmy_syntax_tree::{EmmySyntaxTreeRequest, on_emmy_syntax_tree_handler},
     },
 };
@@ -97,6 +100,7 @@ pub async fn on_request_handler(
         DocumentLinkResolve => on_document_link_resolve_handler,
         EmmyAnnotatorRequest => on_emmy_annotator_handler,
         EmmyGutterRequest => on_emmy_gutter_handler,
+        EmmyGutterDetailRequest => on_emmy_gutter_detail_handler,
         EmmySyntaxTreeRequest => on_emmy_syntax_tree_handler,
         SelectionRangeRequest => on_document_selection_range_handle,
         Completion => on_completion_handler,
