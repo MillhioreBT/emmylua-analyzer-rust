@@ -3,7 +3,7 @@
 *All notable changes to the EmmyLua Analyzer Rust project will be documented in this file.*
 
 ---
-## [0.17.0] - Unreleased
+## [0.17.0] - 2025-11-7
 ### 🔧 Changed
 - **Refactor IndexAliasName**: Removed the original index alias implementation (`-- [IndexAliasName]`), now use `---@[index_alias("name")]`.
 - **Refactor ClassDefaultCall**: Removed the configuration item `runtime.class_default_call`, now use `---@[constructor("<constructor_method_name>")]`.
