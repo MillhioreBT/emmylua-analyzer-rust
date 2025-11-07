@@ -17,6 +17,7 @@ pub fn render_const(typ: &LuaType) -> Option<String> {
         LuaType::StringConst(s) | LuaType::DocStringConst(s) => {
             Some(format!("{:?}", s.to_string()))
         }
+        LuaType::BooleanConst(b) => Some(b.to_string()),
         _ => None,
     }
 }

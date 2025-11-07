@@ -34,6 +34,8 @@ fn parse_docs(p: &mut LuaDocParser) {
             }
             LuaTokenKind::TkNormalStart => {
                 p.set_lexer_state(LuaDocLexerState::NormalDescription);
+                let mut m = p.mark(LuaSyntaxKind::DocDescription);
+
                 p.bump();
 
                 if_token_bump(p, LuaTokenKind::TkWhitespace);
@@ -42,10 +44,21 @@ fn parse_docs(p: &mut LuaDocParser) {
                     p.current_token(),
                     LuaTokenKind::TkDocRegion | LuaTokenKind::TkDocEndRegion
                 ) {
+                    m.undo(p);
+                    p.bump();
+                    m = p.mark(LuaSyntaxKind::DocDescription);
+                }
+
+                while let LuaTokenKind::TkDocDetail
+                | LuaTokenKind::TkEndOfLine
+                | LuaTokenKind::TkWhitespace
+                | LuaTokenKind::TkDocContinue
+                | LuaTokenKind::TkNormalStart = p.current_token()
+                {
                     p.bump();
                 }
 
-                parse_normal_description(p);
+                m.complete(p);
             }
             LuaTokenKind::TkLongCommentStart => {
                 p.set_lexer_state(LuaDocLexerState::LongDescription);
@@ -114,19 +127,4 @@ fn if_token_bump(p: &mut LuaDocParser, token: LuaTokenKind) -> bool {
     } else {
         false
     }
-}
-
-fn parse_normal_description(p: &mut LuaDocParser) {
-    let m = p.mark(LuaSyntaxKind::DocDescription);
-
-    while let LuaTokenKind::TkDocDetail
-    | LuaTokenKind::TkEndOfLine
-    | LuaTokenKind::TkWhitespace
-    | LuaTokenKind::TkDocContinue
-    | LuaTokenKind::TkNormalStart = p.current_token()
-    {
-        p.bump();
-    }
-
-    m.complete(p);
 }

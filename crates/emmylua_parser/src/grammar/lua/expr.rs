@@ -21,7 +21,7 @@ fn parse_sub_expr(p: &mut LuaParser, limit: i32) -> ParseResult {
         p.bump();
         match parse_sub_expr(p, UNARY_PRIORITY) {
             Ok(_) => {}
-            Err(err) => {
+            Err(_) => {
                 p.push_error(LuaParseError::syntax_error_from(
                     &t!(
                         "unary operator '%{op}' is not followed by an expression",
@@ -29,9 +29,8 @@ fn parse_sub_expr(p: &mut LuaParser, limit: i32) -> ParseResult {
                     ),
                     op_range,
                 ));
-                return Err(err);
             }
-        }
+        };
         m.complete(p)
     } else {
         parse_simple_expr(p)?

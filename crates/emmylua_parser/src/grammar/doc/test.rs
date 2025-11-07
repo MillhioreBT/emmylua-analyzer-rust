@@ -32,17 +32,17 @@ Syntax(Chunk)@0..83
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..19
-      Token(TkNormalStart)@9..11 "--"
-      Token(TkWhitespace)@11..12 " "
-      Syntax(DocDescription)@12..19
+      Syntax(DocDescription)@9..19
+        Token(TkNormalStart)@9..11 "--"
+        Token(TkWhitespace)@11..12 " "
         Token(TkDocDetail)@12..19 "comment"
     Token(TkEndOfLine)@19..20 "\n"
     Token(TkEndOfLine)@20..21 "\n"
     Token(TkWhitespace)@21..29 "        "
     Syntax(Comment)@29..74
-      Token(TkNormalStart)@29..31 "--"
-      Token(TkWhitespace)@31..32 " "
-      Syntax(DocDescription)@32..74
+      Syntax(DocDescription)@29..74
+        Token(TkNormalStart)@29..31 "--"
+        Token(TkWhitespace)@31..32 " "
         Token(TkDocDetail)@32..38 "hihihi"
         Token(TkEndOfLine)@38..39 "\n"
         Token(TkWhitespace)@39..47 "        "
@@ -76,8 +76,8 @@ Syntax(Chunk)@0..163
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..120
-      Token(TkNormalStart)@9..15 "---   "
-      Syntax(DocDescription)@15..22
+      Syntax(DocDescription)@9..22
+        Token(TkNormalStart)@9..15 "---   "
         Token(TkDocDetail)@15..22 "hiihihi"
       Token(TkEndOfLine)@22..23 "\n"
       Token(TkWhitespace)@23..31 "        "
@@ -1682,14 +1682,14 @@ Syntax(Chunk)@0..63
         Token(TkInt)@19..22 "123"
     Token(TkWhitespace)@22..23 " "
     Syntax(Comment)@23..34
-      Token(TkNormalStart)@23..25 "--"
-      Syntax(DocDescription)@25..34
+      Syntax(DocDescription)@23..34
+        Token(TkNormalStart)@23..25 "--"
         Token(TkDocDetail)@25..34 "comment 1"
     Token(TkEndOfLine)@34..35 "\n"
     Token(TkWhitespace)@35..43 "        "
     Syntax(Comment)@43..54
-      Token(TkNormalStart)@43..45 "--"
-      Syntax(DocDescription)@45..54
+      Syntax(DocDescription)@43..54
+        Token(TkNormalStart)@43..45 "--"
         Token(TkDocDetail)@45..54 "comment 2"
     Token(TkEndOfLine)@54..55 "\n"
     Token(TkWhitespace)@55..63 "        "
@@ -2009,37 +2009,32 @@ Syntax(Chunk)@0..90
     #[test]
     fn test_region_with_comment() {
         let code = r#"
-        -----------
         --region hhhh
         --comment
         --endregion
         "#;
 
         let result = r#"
-Syntax(Chunk)@0..89
-  Syntax(Block)@0..89
+Syntax(Chunk)@0..69
+  Syntax(Block)@0..69
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
-    Syntax(Comment)@9..80
-      Token(TkNormalStart)@9..12 "---"
-      Syntax(DocDescription)@12..31
-        Token(TkDocDetail)@12..20 "--------"
-        Token(TkEndOfLine)@20..21 "\n"
-        Token(TkWhitespace)@21..29 "        "
-        Token(TkNormalStart)@29..31 "--"
-      Token(TkDocTrivia)@31..37 "region"
-      Token(TkDocTrivia)@37..42 " hhhh"
-      Token(TkEndOfLine)@42..43 "\n"
-      Token(TkWhitespace)@43..51 "        "
-      Token(TkNormalStart)@51..53 "--"
-      Syntax(DocDescription)@53..71
-        Token(TkDocDetail)@53..60 "comment"
-        Token(TkEndOfLine)@60..61 "\n"
-        Token(TkWhitespace)@61..69 "        "
-        Token(TkNormalStart)@69..71 "--"
-      Token(TkDocEndRegion)@71..80 "endregion"
-    Token(TkEndOfLine)@80..81 "\n"
-    Token(TkWhitespace)@81..89 "        "
+    Syntax(Comment)@9..60
+      Token(TkNormalStart)@9..11 "--"
+      Token(TkDocRegion)@11..17 "region"
+      Token(TkWhitespace)@17..18 " "
+      Syntax(DocDescription)@18..51
+        Token(TkDocDetail)@18..22 "hhhh"
+        Token(TkEndOfLine)@22..23 "\n"
+        Token(TkWhitespace)@23..31 "        "
+        Token(TkNormalStart)@31..33 "--"
+        Token(TkDocDetail)@33..40 "comment"
+        Token(TkEndOfLine)@40..41 "\n"
+        Token(TkWhitespace)@41..49 "        "
+        Token(TkNormalStart)@49..51 "--"
+      Token(TkDocEndRegion)@51..60 "endregion"
+    Token(TkEndOfLine)@60..61 "\n"
+    Token(TkWhitespace)@61..69 "        "
         "#;
 
         assert_ast_eq!(code, result);
@@ -2489,8 +2484,8 @@ Syntax(Chunk)@0..118
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..93
-      Token(TkNormalStart)@9..13 "--- "
-      Syntax(DocDescription)@13..93
+      Syntax(DocDescription)@9..93
+        Token(TkNormalStart)@9..13 "--- "
         Token(TkDocDetail)@13..27 "Note: ajfioiof"
         Token(TkEndOfLine)@27..28 "\n"
         Token(TkWhitespace)@28..36 "        "
@@ -2514,7 +2509,6 @@ Syntax(Chunk)@0..118
     Token(TkEndOfLine)@109..110 "\n"
     Token(TkWhitespace)@110..118 "        "
         "#;
-
         assert_ast_eq!(code, result);
     }
 
@@ -2691,8 +2685,8 @@ Syntax(Chunk)@0..263
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..90
-      Token(TkNormalStart)@9..13 "--- "
-      Syntax(DocDescription)@13..19
+      Syntax(DocDescription)@9..19
+        Token(TkNormalStart)@9..13 "--- "
         Token(TkDocDetail)@13..19 "hihiih"
       Token(TkEndOfLine)@19..20 "\n"
       Token(TkWhitespace)@20..28 "        "

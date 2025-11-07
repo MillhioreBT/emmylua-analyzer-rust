@@ -109,34 +109,27 @@ pub fn preprocess_description(mut description: &str, owner: Option<&LuaSemanticD
 
     let mut result = String::new();
     let lines = description.lines();
-    let mut in_code_block = false;
-    let mut indent = 0;
-    for line in lines {
-        let trimmed_line = line.trim_start();
-        if trimmed_line.starts_with("```") {
-            in_code_block = !in_code_block;
-            result.push_str(trimmed_line);
+    let mut start_with_one_space = None;
+    for mut line in lines {
+        let indent_count = line.chars().take_while(|c| c.is_whitespace()).count();
+
+        if indent_count == line.len() {
+            // empty line
             result.push('\n');
-            if in_code_block {
-                indent = trimmed_line.len() - trimmed_line.trim_start().len();
-            }
             continue;
         }
 
-        if in_code_block {
-            if indent > 0 && line.len() >= indent {
-                let actual_indent = line
-                    .chars()
-                    .take(indent)
-                    .filter(|c| c.is_whitespace())
-                    .count();
-                result.push_str(&line[actual_indent..]);
-            } else {
-                result.push_str(line);
-            }
-        } else {
-            result.push_str(trimmed_line);
+        if start_with_one_space.is_none() {
+            start_with_one_space = Some(indent_count == 1);
         }
+
+        if let Some(true) = start_with_one_space {
+            if indent_count > 0 {
+                line = &line[1..];
+            }
+        }
+
+        result.push_str(line);
         result.push('\n');
     }
 
