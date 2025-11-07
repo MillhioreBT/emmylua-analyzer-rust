@@ -23,17 +23,17 @@ fn parse_docs(p: &mut LuaDocParser) {
     while p.current_token() != LuaTokenKind::TkEof {
         match p.current_token() {
             LuaTokenKind::TkDocStart => {
-                p.set_state(LuaDocLexerState::Tag);
+                p.set_lexer_state(LuaDocLexerState::Tag);
                 p.bump();
                 parse_tag(p);
             }
             LuaTokenKind::TkDocLongStart => {
-                p.set_state(LuaDocLexerState::Tag);
+                p.set_lexer_state(LuaDocLexerState::Tag);
                 p.bump();
                 parse_long_tag(p);
             }
             LuaTokenKind::TkNormalStart => {
-                p.set_state(LuaDocLexerState::NormalDescription);
+                p.set_lexer_state(LuaDocLexerState::NormalDescription);
                 let mut m = p.mark(LuaSyntaxKind::DocDescription);
 
                 p.bump();
@@ -61,7 +61,7 @@ fn parse_docs(p: &mut LuaDocParser) {
                 m.complete(p);
             }
             LuaTokenKind::TkLongCommentStart => {
-                p.set_state(LuaDocLexerState::LongDescription);
+                p.set_lexer_state(LuaDocLexerState::LongDescription);
                 p.bump();
 
                 parse_description(p);
@@ -85,7 +85,7 @@ fn parse_docs(p: &mut LuaDocParser) {
             continue;
         }
 
-        p.set_state(LuaDocLexerState::Init);
+        p.set_lexer_state(LuaDocLexerState::Init);
     }
 }
 
