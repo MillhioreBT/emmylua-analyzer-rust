@@ -837,12 +837,28 @@ fn instantiate_mapped_type(
         }
 
         if !fields.is_empty() || !index_access.is_empty() {
+            // key 从 0 开始递增才被视为元组
             if constraint.is_tuple() {
-                let types = fields.into_iter().map(|(_, ty)| ty).collect();
-                // return LuaType::Variadic(VariadicType::Multi(types).into());
-                return LuaType::Tuple(
-                    LuaTupleType::new(types, LuaTupleStatus::InferResolve).into(),
-                );
+                let mut index = 0;
+                let mut is_tuple = true;
+                for (key, _) in &fields {
+                    if let LuaMemberKey::Integer(i) = key {
+                        if *i != index {
+                            is_tuple = false;
+                            break;
+                        }
+                        index += 1;
+                    } else {
+                        is_tuple = false;
+                        break;
+                    }
+                }
+                if is_tuple {
+                    let types = fields.into_iter().map(|(_, ty)| ty).collect();
+                    return LuaType::Tuple(
+                        LuaTupleType::new(types, LuaTupleStatus::InferResolve).into(),
+                    );
+                }
             }
             let field_map: HashMap<LuaMemberKey, LuaType> = fields.into_iter().collect();
             return LuaType::Object(LuaObjectType::new_with_fields(field_map, index_access).into());
