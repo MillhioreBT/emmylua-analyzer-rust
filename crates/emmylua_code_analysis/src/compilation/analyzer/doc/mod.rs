@@ -112,7 +112,6 @@ pub fn preprocess_description(mut description: &str, owner: Option<&LuaSemanticD
     let mut start_with_one_space = None;
     for mut line in lines {
         let indent_count = line.chars().take_while(|c| c.is_whitespace()).count();
-
         if indent_count == line.len() {
             // empty line
             result.push('\n');
@@ -124,8 +123,12 @@ pub fn preprocess_description(mut description: &str, owner: Option<&LuaSemanticD
         }
 
         if let Some(true) = start_with_one_space {
-            if indent_count > 0 {
-                line = &line[1..];
+            let mut chars = line.chars();
+            let first_char = chars.next();
+            if let Some(c) = first_char
+                && c.is_whitespace()
+            {
+                line = chars.as_str();
             }
         }
 
