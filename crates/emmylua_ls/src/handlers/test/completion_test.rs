@@ -2158,4 +2158,38 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_generic_partial() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+        ---@alias Partial<T> { [P in keyof T]?: T[P]; }
+        "#,
+        );
+        check!(ws.check_completion(
+            r#"
+            ---@class AA
+            ---@field a string
+            ---@field b number
+
+            ---@type Partial<AA>
+            local a = {}
+            a.<??>
+            "#,
+            vec![
+                VirtualCompletionItem {
+                    label: "a".to_string(),
+                    kind: CompletionItemKind::VARIABLE,
+                    ..Default::default()
+                },
+                VirtualCompletionItem {
+                    label: "b".to_string(),
+                    kind: CompletionItemKind::VARIABLE,
+                    ..Default::default()
+                }
+            ],
+        ));
+        Ok(())
+    }
 }
