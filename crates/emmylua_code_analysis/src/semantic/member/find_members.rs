@@ -404,11 +404,17 @@ fn find_generic_members(
     infer_guard: &InferGuardRef,
     filter: &FindMemberFilter,
 ) -> FindMembersResult {
-    let base_type = generic_type.get_base_type();
-    let mut members = find_members_guard(db, &base_type, infer_guard, filter)?;
-
+    let base_ref_id = generic_type.get_base_type_id_ref();
     let generic_params = generic_type.get_params();
     let substitutor = TypeSubstitutor::from_type_array(generic_params.clone());
+    let type_decl = db.get_type_index().get_type_decl(&base_ref_id)?;
+    if let Some(origin) = type_decl.get_alias_origin(db, Some(&substitutor)) {
+        return find_members_guard(db, &origin, infer_guard, filter);
+    }
+
+    let mut members =
+        find_members_guard(db, &LuaType::Ref(base_ref_id.clone()), infer_guard, filter)?;
+
     for info in members.iter_mut() {
         info.typ = instantiate_type_generic(db, &info.typ, &substitutor);
     }
@@ -417,15 +423,14 @@ fn find_generic_members(
     // like `---@class box<T>: T`. Should be rewritten: generic types should
     // be passed to the called instantiate_type_generic() in some kind of a
     // context.
-    if let LuaType::Ref(base_type_decl_id) = base_type {
-        members.extend(find_generic_members_from_super_generics(
-            db,
-            &base_type_decl_id,
-            &substitutor,
-            infer_guard,
-            filter,
-        ))
-    };
+
+    members.extend(find_generic_members_from_super_generics(
+        db,
+        &base_ref_id,
+        &substitutor,
+        infer_guard,
+        filter,
+    ));
 
     Some(members)
 }
