@@ -2981,7 +2981,7 @@ Syntax(Chunk)@0..69
             Token(TkDocExtends)@37..44 "extends"
             Token(TkWhitespace)@44..45 " "
             Syntax(TypeInfer)@45..52
-              Token(TkName)@45..50 "infer"
+              Token(TkDocInfer)@45..50 "infer"
               Token(TkWhitespace)@50..51 " "
               Syntax(DocGenericParameter)@51..52
                 Token(TkName)@51..52 "P"
@@ -3039,7 +3039,7 @@ Syntax(Chunk)@0..106
                 Token(TkColon)@64..65 ":"
                 Token(TkWhitespace)@65..66 " "
                 Syntax(TypeInfer)@66..73
-                  Token(TkName)@66..71 "infer"
+                  Token(TkDocInfer)@66..71 "infer"
                   Token(TkWhitespace)@71..72 " "
                   Syntax(DocGenericParameter)@72..73
                     Token(TkName)@72..73 "P"
@@ -3251,7 +3251,7 @@ Syntax(Chunk)@0..106
                 Token(TkColon)@66..67 ":"
                 Token(TkWhitespace)@67..68 " "
                 Syntax(TypeInfer)@68..75
-                  Token(TkName)@68..73 "infer"
+                  Token(TkDocInfer)@68..73 "infer"
                   Token(TkWhitespace)@73..74 " "
                   Syntax(DocGenericParameter)@74..75
                     Token(TkName)@74..75 "P"

@@ -297,6 +297,10 @@ impl<'b> LuaDocParser<'_, 'b> {
     pub fn set_parser_state(&mut self, state: LuaDocParserState) {
         self.state = state;
     }
+
+    pub fn set_current_token_kind(&mut self, kind: LuaTokenKind) {
+        self.current_token = kind;
+    }
 }
 
 fn is_invalid_kind(kind: LuaTokenKind) -> bool {

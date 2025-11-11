@@ -484,6 +484,7 @@ fn parse_name_type(p: &mut LuaDocParser) -> DocParseResult {
 
 fn parse_infer_type(p: &mut LuaDocParser) -> DocParseResult {
     let m = p.mark(LuaSyntaxKind::TypeInfer);
+    p.set_current_token_kind(LuaTokenKind::TkDocInfer);
     p.bump();
     let param = p.mark(LuaSyntaxKind::DocGenericParameter);
     expect_token(p, LuaTokenKind::TkName)?;

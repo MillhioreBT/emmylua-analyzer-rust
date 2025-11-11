@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use itertools::Itertools;
 
 use crate::{
-    AsyncState, DbIndex, GenericTpl, LuaAliasCallType, LuaFunctionType, LuaGenericType,
-    LuaInstanceType, LuaIntersectionType, LuaMemberKey, LuaMemberOwner, LuaObjectType,
-    LuaSignatureId, LuaStringTplType, LuaTupleType, LuaType, LuaTypeDeclId, LuaUnionType,
-    TypeSubstitutor, VariadicType,
+    AsyncState, DbIndex, GenericTpl, LuaAliasCallType, LuaConditionalType, LuaFunctionType,
+    LuaGenericType, LuaInstanceType, LuaIntersectionType, LuaMemberKey, LuaMemberOwner,
+    LuaObjectType, LuaSignatureId, LuaStringTplType, LuaTupleType, LuaType, LuaTypeDeclId,
+    LuaUnionType, TypeSubstitutor, VariadicType,
 };
 
 use super::{LuaAliasCallKind, LuaMultiLineUnion};
@@ -107,6 +107,9 @@ pub fn humanize_type(db: &DbIndex, ty: &LuaType, level: RenderLevel) -> String {
         }
         LuaType::ConstTplRef(const_tpl) => humanize_const_tpl_ref_type(const_tpl),
         LuaType::Language(s) => s.to_string(),
+        LuaType::Conditional(c) => humanize_conditional_type(db, c, level),
+        LuaType::ConditionalInfer(s) => s.to_string(),
+        LuaType::Never => "never".to_string(),
         _ => "unknown".to_string(),
     }
 }
@@ -631,6 +634,18 @@ fn humanize_tpl_ref_type(tpl: &GenericTpl) -> String {
 
 fn humanize_const_tpl_ref_type(const_tpl: &GenericTpl) -> String {
     const_tpl.get_name().to_string()
+}
+
+fn humanize_conditional_type(
+    db: &DbIndex,
+    conditional: &LuaConditionalType,
+    level: RenderLevel,
+) -> String {
+    let check_type = humanize_type(db, conditional.get_condition(), level.next_level());
+    let true_type = humanize_type(db, conditional.get_true_type(), level.next_level());
+    let false_type = humanize_type(db, conditional.get_false_type(), level.next_level());
+
+    format!("{} and {} or {}", check_type, true_type, false_type)
 }
 
 fn humanize_str_tpl_ref_type(str_tpl: &LuaStringTplType) -> String {
