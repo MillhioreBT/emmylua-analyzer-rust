@@ -702,6 +702,18 @@ fn collect_infer_assignments(
                 false
             }
         }
+        LuaType::Array(array) => {
+            if let LuaType::Array(source_array) = source {
+                collect_infer_assignments(
+                    db,
+                    source_array.get_base(),
+                    array.get_base(),
+                    assignments,
+                )
+            } else {
+                false
+            }
+        }
         _ => {
             if contains_conditional_infer(pattern) {
                 false
