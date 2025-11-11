@@ -506,16 +506,16 @@ fn humanize_generic_type(db: &DbIndex, generic: &LuaGenericType, level: RenderLe
         .join(",");
 
     let generic_base = format!("{}<{}>", full_name, generic_inst_params);
-    if (level == RenderLevel::Detailed || level == RenderLevel::Documentation)
-        && type_decl.is_alias()
+    if matches!(
+        level,
+        RenderLevel::Documentation | RenderLevel::CustomDetailed(_) | RenderLevel::Detailed
+    ) && type_decl.is_alias()
     {
         let substituor = TypeSubstitutor::from_type_array(generic.get_params().clone());
         if let Some(origin_type) = type_decl.get_alias_origin(db, Some(&substituor)) {
             // prevent infinite recursion
-            if origin_type.is_function() {
-                let origin_type_str = humanize_type(db, &origin_type, level);
-                return format!("{} = {}", generic_base, origin_type_str);
-            }
+            let origin_type_str = humanize_type(db, &origin_type, level.next_level());
+            return format!("{} = {}", generic_base, origin_type_str);
         }
     }
 
