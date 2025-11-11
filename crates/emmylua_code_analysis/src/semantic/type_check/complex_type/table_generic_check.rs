@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub fn check_table_generic_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_generic_param: &Vec<LuaType>,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -113,7 +113,7 @@ pub fn check_table_generic_type_compact(
 }
 
 fn check_table_generic_compact_member_owner(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_generic_params: &[LuaType],
     member_owner: LuaMemberOwner,
     check_guard: TypeCheckGuard,

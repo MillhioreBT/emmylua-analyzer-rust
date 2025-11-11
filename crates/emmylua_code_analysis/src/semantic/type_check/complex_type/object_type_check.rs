@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub fn check_object_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_object: &LuaObjectType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -64,7 +64,7 @@ pub fn check_object_type_compact(
 }
 
 fn check_object_type_compact_object_type(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_object: &LuaObjectType,
     compact_object: &LuaObjectType,
     check_guard: TypeCheckGuard,
@@ -95,7 +95,7 @@ fn check_object_type_compact_object_type(
 }
 
 fn check_object_type_compact_member_owner(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_object: &LuaObjectType,
     member_owner: LuaMemberOwner,
     check_guard: TypeCheckGuard,
@@ -150,7 +150,7 @@ fn check_object_type_compact_member_owner(
 }
 
 fn check_object_type_compact_tuple(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_object: &LuaObjectType,
     tuple_type: &LuaTupleType,
     check_guard: TypeCheckGuard,
@@ -196,7 +196,7 @@ fn check_object_type_compact_tuple(
 }
 
 fn check_object_type_compact_array(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_object: &LuaObjectType,
     array: &LuaType,
     check_guard: TypeCheckGuard,

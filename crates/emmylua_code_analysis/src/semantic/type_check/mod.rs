@@ -30,8 +30,8 @@ pub fn check_type_compact(
     source: &LuaType,
     compact_type: &LuaType,
 ) -> TypeCheckResult {
-    let context = TypeCheckContext::new(db, false, TypeCheckCheckLevel::Normal);
-    check_general_type_compact(&context, source, compact_type, TypeCheckGuard::new())
+    let mut context = TypeCheckContext::new(db, false, TypeCheckCheckLevel::Normal);
+    check_general_type_compact(&mut context, source, compact_type, TypeCheckGuard::new())
 }
 
 #[allow(unused)]
@@ -41,8 +41,8 @@ pub fn check_type_compact_detail(
     compact_type: &LuaType,
 ) -> TypeCheckResult {
     let guard = TypeCheckGuard::new();
-    let context = TypeCheckContext::new(db, true, TypeCheckCheckLevel::Normal);
-    check_general_type_compact(&context, source, compact_type, guard)
+    let mut context = TypeCheckContext::new(db, true, TypeCheckCheckLevel::Normal);
+    check_general_type_compact(&mut context, source, compact_type, guard)
 }
 
 pub fn check_type_compact_with_level(
@@ -51,12 +51,12 @@ pub fn check_type_compact_with_level(
     compact_type: &LuaType,
     level: TypeCheckCheckLevel,
 ) -> TypeCheckResult {
-    let context = TypeCheckContext::new(db, false, level);
-    check_general_type_compact(&context, source, compact_type, TypeCheckGuard::new())
+    let mut context = TypeCheckContext::new(db, false, level);
+    check_general_type_compact(&mut context, source, compact_type, TypeCheckGuard::new())
 }
 
 fn check_general_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,

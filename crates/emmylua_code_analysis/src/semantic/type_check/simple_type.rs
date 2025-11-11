@@ -14,7 +14,7 @@ use super::{
 };
 
 pub fn check_simple_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -334,7 +334,7 @@ fn get_alias_real_type<'a>(
 
 /// 检查基础类型是否匹配自定义类型
 fn check_base_type_for_ref_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -382,7 +382,7 @@ fn check_base_type_for_ref_compact(
 
 /// 检查`enum`的所有字段是否匹配`source`
 fn check_enum_fields_match_source(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     enum_type_decl_id: &LuaTypeDeclId,
     check_guard: TypeCheckGuard,
@@ -400,7 +400,7 @@ fn check_enum_fields_match_source(
 }
 
 fn check_variadic_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_type: &VariadicType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,

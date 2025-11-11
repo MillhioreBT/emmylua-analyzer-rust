@@ -12,7 +12,7 @@ use super::{
 };
 
 pub fn check_ref_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_id: &LuaTypeDeclId,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -55,7 +55,7 @@ pub fn check_ref_type_compact(
 }
 
 fn check_ref_enum(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_id: &LuaTypeDeclId,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -123,7 +123,7 @@ fn check_ref_enum(
 }
 
 fn check_ref_class(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_id: &LuaTypeDeclId,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -219,7 +219,7 @@ fn check_ref_class(
 }
 
 fn check_ref_type_compact_table(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_type_id: &LuaTypeDeclId,
     table_owner: LuaMemberOwner,
     check_guard: TypeCheckGuard,
@@ -249,6 +249,10 @@ fn check_ref_type_compact_table(
             .unwrap_or(&LuaTypeCache::InferType(LuaType::Any))
             .as_type();
         let key = source_member.get_key();
+
+        if context.is_key_checked(key) {
+            continue;
+        }
 
         match table_member_map.get(key) {
             Some(table_member_id) => {
@@ -296,6 +300,8 @@ fn check_ref_type_compact_table(
             }
             _ => {} // Optional member not found, continue
         }
+
+        context.mark_key_checked(key.clone());
     }
 
     // 检查超类型
@@ -320,7 +326,7 @@ fn check_ref_type_compact_table(
 }
 
 fn check_ref_type_compact_object(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     object_type: &LuaObjectType,
     source_type_id: &LuaTypeDeclId,
     check_guard: TypeCheckGuard,
@@ -334,6 +340,9 @@ fn check_ref_type_compact_object(
     for source_member in source_type_members {
         let source_member_type = source_member.typ;
         let key = source_member.key;
+        if context.is_key_checked(&key) {
+            continue;
+        }
 
         match get_object_field_type(object_type, &key) {
             Some(field_type) => {
@@ -370,6 +379,8 @@ fn check_ref_type_compact_object(
             }
             _ => {} // Optional member not found, continue
         }
+
+        context.mark_key_checked(key);
     }
 
     Ok(())
@@ -392,7 +403,7 @@ fn get_object_field_type<'a>(
 }
 
 fn check_ref_type_compact_tuple(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     tuple_type: &LuaTupleType,
     source_type_id: &LuaTypeDeclId,
     check_guard: TypeCheckGuard,
@@ -404,13 +415,18 @@ fn check_ref_type_compact_tuple(
 
     let tuple_types = tuple_type.get_types();
     for member in source_type_members {
-        if let LuaMemberKey::Integer(index) = member.key {
+        let key = member.key;
+        if context.is_key_checked(&key) {
+            continue;
+        }
+
+        if let LuaMemberKey::Integer(index) = &key {
             // 在 lua 中数组索引从 1 开始, 当数组被解析为元组时也必然从 1 开始
-            if index <= 0 {
+            if *index <= 0 {
                 return Err(TypeCheckFailReason::TypeNotMatch);
             }
 
-            let Some(tuple_type) = tuple_types.get(index as usize - 1) else {
+            let Some(tuple_type) = tuple_types.get(*index as usize - 1) else {
                 return Err(TypeCheckFailReason::TypeNotMatch);
             };
 
@@ -423,6 +439,8 @@ fn check_ref_type_compact_tuple(
         } else {
             return Err(TypeCheckFailReason::TypeNotMatch);
         }
+
+        context.mark_key_checked(key);
     }
 
     Ok(())

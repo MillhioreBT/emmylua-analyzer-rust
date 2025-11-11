@@ -1334,4 +1334,25 @@ mod test {
         "#
         ));
     }
+
+    #[test]
+    fn test_issue_841() {
+        let mut ws = VirtualWorkspace::new();
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeMismatch,
+            r#"
+        --- @class B
+        --- @field cmd string
+
+        --- @class A: B
+        --- @field cmd? string
+
+        --- @param x A
+        local function foo(x)
+        end
+
+        foo({})
+        "#,
+        ));
+    }
 }

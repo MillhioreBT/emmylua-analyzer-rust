@@ -9,7 +9,7 @@ use super::{
 };
 
 pub fn check_doc_func_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_func: &LuaFunctionType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -48,7 +48,7 @@ pub fn check_doc_func_type_compact(
 }
 
 fn check_doc_func_type_compact_for_params(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_func: &LuaFunctionType,
     compact_func: &LuaFunctionType,
     check_guard: TypeCheckGuard,
@@ -116,7 +116,7 @@ fn check_doc_func_type_compact_for_params(
 }
 
 fn check_doc_func_type_compact_for_varargs(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     varargs: &Option<LuaType>,
     compact_params: &[(String, Option<LuaType>)],
     check_guard: TypeCheckGuard,
@@ -139,7 +139,7 @@ fn check_doc_func_type_compact_for_varargs(
 }
 
 fn check_doc_func_type_compact_for_signature(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_func: &LuaFunctionType,
     signature_id: &LuaSignatureId,
     check_guard: TypeCheckGuard,
@@ -187,7 +187,7 @@ fn check_doc_func_type_compact_for_signature(
 
 // check type is callable
 fn check_doc_func_type_compact_for_custom_type(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_func: &LuaFunctionType,
     custom_type_id: &LuaTypeDeclId,
     check_guard: TypeCheckGuard,
@@ -251,7 +251,7 @@ fn check_doc_func_type_compact_for_custom_type(
 }
 
 pub fn check_sig_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     sig_id: &LuaSignatureId,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,

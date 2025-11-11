@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub fn check_tuple_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     tuple: &LuaTupleType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -62,7 +62,7 @@ pub fn check_tuple_type_compact(
 }
 
 fn check_tuple_type_compact_tuple(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_tuple: &LuaTupleType,
     compact_tuple: &LuaTupleType,
     check_guard: TypeCheckGuard,
@@ -80,7 +80,7 @@ fn check_tuple_type_compact_tuple(
 }
 
 fn check_tuple_types_compact_tuple_types(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_start: usize,
     sources: &[LuaType],
     compacts: &[LuaType],
@@ -179,7 +179,7 @@ fn check_tuple_types_compact_tuple_types(
 }
 
 fn check_tuple_type_compact_table(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_tuple: &LuaTupleType,
     table_owner: LuaMemberOwner,
     check_guard: TypeCheckGuard,
@@ -231,7 +231,7 @@ fn check_tuple_type_compact_table(
 }
 
 fn check_tuple_type_compact_object_type(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_tuple: &LuaTupleType,
     object_type: &LuaObjectType,
     check_guard: TypeCheckGuard,
