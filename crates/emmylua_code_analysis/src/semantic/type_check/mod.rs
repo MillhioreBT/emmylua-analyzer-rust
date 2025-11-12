@@ -167,6 +167,7 @@ fn check_general_type_compact(
             }
             Err(TypeCheckFailReason::TypeNotMatch)
         }
+        LuaType::ModuleRef(_) => Ok(()),
         _ => Err(TypeCheckFailReason::TypeNotMatch),
     }
 }
@@ -222,6 +223,12 @@ fn escape_type(db: &DbIndex, typ: &LuaType) -> Option<LuaType> {
             return Some(union);
         }
         LuaType::TypeGuard(_) => return Some(LuaType::Boolean),
+        LuaType::ModuleRef(file_id) => {
+            let module_info = db.get_module_index().get_module(*file_id)?;
+            if let Some(export_type) = &module_info.export_type {
+                return Some(export_type.clone());
+            }
+        }
         _ => {}
     }
 

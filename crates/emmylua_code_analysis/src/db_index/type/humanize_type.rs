@@ -110,6 +110,17 @@ pub fn humanize_type(db: &DbIndex, ty: &LuaType, level: RenderLevel) -> String {
         LuaType::Conditional(c) => humanize_conditional_type(db, c, level),
         LuaType::ConditionalInfer(s) => s.to_string(),
         LuaType::Never => "never".to_string(),
+        LuaType::ModuleRef(file_id) => {
+            if let Some(module_info) = db.get_module_index().get_module(*file_id) {
+                humanize_type(
+                    db,
+                    &module_info.export_type.clone().unwrap_or(LuaType::Any),
+                    level,
+                )
+            } else {
+                "module 'unknown'".to_string()
+            }
+        }
         _ => "unknown".to_string(),
     }
 }

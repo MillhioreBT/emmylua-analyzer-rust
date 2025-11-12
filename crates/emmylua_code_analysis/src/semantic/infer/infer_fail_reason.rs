@@ -1,6 +1,6 @@
 use emmylua_parser::LuaExpr;
 
-use crate::{InFiled, LuaDeclId, LuaMemberId, LuaSignatureId};
+use crate::{FileId, InFiled, LuaDeclId, LuaMemberId, LuaSignatureId};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum InferFailReason {
@@ -12,6 +12,7 @@ pub enum InferFailReason {
     UnResolveDeclType(LuaDeclId),
     UnResolveMemberType(LuaMemberId),
     UnResolveOperatorCall,
+    UnResolveModuleExport(FileId),
 }
 
 impl InferFailReason {
@@ -24,6 +25,7 @@ impl InferFailReason {
                 | InferFailReason::UnResolveDeclType(_)
                 | InferFailReason::UnResolveMemberType(_)
                 | InferFailReason::UnResolveOperatorCall
+                | InferFailReason::UnResolveModuleExport(_)
         )
     }
 }

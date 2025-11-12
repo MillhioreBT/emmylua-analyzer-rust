@@ -493,6 +493,10 @@ impl LuaType {
             }
         }
     }
+
+    pub fn is_module_ref(&self) -> bool {
+        matches!(self, LuaType::ModuleRef(_))
+    }
 }
 
 impl TypeVisitTrait for LuaType {

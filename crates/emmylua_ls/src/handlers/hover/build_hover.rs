@@ -249,8 +249,12 @@ fn build_member_hover(
         } else {
             let member_hover_type =
                 get_hover_type(builder, builder.semantic_model).unwrap_or(typ.clone());
-            let type_humanize_text =
-                hover_humanize_type(builder, &member_hover_type, Some(RenderLevel::Simple));
+            let level = if member_hover_type.is_module_ref() {
+                builder.detail_render_level
+            } else {
+                RenderLevel::Simple
+            };
+            let type_humanize_text = hover_humanize_type(builder, &member_hover_type, Some(level));
             builder
                 .set_type_description(format!("(field) {}: {}", member_name, type_humanize_text));
             builder.set_location_path(Some(member));

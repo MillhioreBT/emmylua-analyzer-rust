@@ -34,7 +34,6 @@ impl AnalysisPipeline for DocAnalysisPipeline {
                     &mut generic_index,
                     comment,
                     root.syntax().clone(),
-                    context,
                 );
                 analyze_comment(&mut analyzer);
             }
@@ -71,7 +70,6 @@ pub struct DocAnalyzer<'a> {
     comment: LuaComment,
     root: LuaSyntaxNode,
     is_meta: bool,
-    context: &'a mut AnalyzeContext,
 }
 
 impl<'a> DocAnalyzer<'a> {
@@ -81,7 +79,6 @@ impl<'a> DocAnalyzer<'a> {
         generic_index: &'a mut FileGenericIndex,
         comment: LuaComment,
         root: LuaSyntaxNode,
-        context: &'a mut AnalyzeContext,
     ) -> DocAnalyzer<'a> {
         let is_meta = db.get_module_index().is_meta_file(&file_id);
         DocAnalyzer {
@@ -92,7 +89,6 @@ impl<'a> DocAnalyzer<'a> {
             comment,
             root,
             is_meta,
-            context,
         }
     }
 }

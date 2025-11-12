@@ -12,9 +12,9 @@ use super::{
     tags::{find_owner_closure, get_owner_id_or_report},
 };
 use crate::{
-    InFiled, InferFailReason, LuaOperatorMetaMethod, LuaTypeCache, LuaTypeOwner, OperatorFunction,
+    InFiled, LuaOperatorMetaMethod, LuaTypeCache, LuaTypeOwner, OperatorFunction,
     SignatureReturnStatus, TypeOps,
-    compilation::analyzer::{common::bind_type, unresolve::UnResolveModuleRef},
+    compilation::analyzer::common::bind_type,
     db_index::{
         LuaDeclId, LuaDocParamInfo, LuaDocReturnInfo, LuaMemberId, LuaOperator, LuaSemanticDeclId,
         LuaSignatureId, LuaType,
@@ -335,34 +335,23 @@ pub fn analyze_overload(analyzer: &mut DocAnalyzer, tag: LuaDocTagOverload) -> O
 pub fn analyze_module(analyzer: &mut DocAnalyzer, tag: LuaDocTagModule) -> Option<()> {
     let module_path = tag.get_string_token()?.get_value();
     let module_info = analyzer.db.get_module_index().find_module(&module_path)?;
-    let export_type = module_info.export_type.clone();
     let module_file_id = module_info.file_id;
     let owner_id = get_owner_id_or_report(analyzer, &tag)?;
-    if let Some(export_type) = export_type {
-        match &owner_id {
-            LuaSemanticDeclId::LuaDecl(decl_id) => {
-                analyzer.db.get_type_index_mut().bind_type(
-                    (*decl_id).into(),
-                    LuaTypeCache::DocType(export_type.clone()),
-                );
-            }
-            LuaSemanticDeclId::Member(member_id) => {
-                analyzer.db.get_type_index_mut().bind_type(
-                    (*member_id).into(),
-                    LuaTypeCache::DocType(export_type.clone()),
-                );
-            }
-            _ => {}
+    let module_ref = LuaType::ModuleRef(module_file_id);
+    match &owner_id {
+        LuaSemanticDeclId::LuaDecl(decl_id) => {
+            analyzer
+                .db
+                .get_type_index_mut()
+                .bind_type((*decl_id).into(), LuaTypeCache::DocType(module_ref));
         }
-    } else {
-        let unresolve = UnResolveModuleRef {
-            module_file_id,
-            owner_id,
-        };
-
-        analyzer
-            .context
-            .add_unresolve(unresolve.into(), InferFailReason::None);
+        LuaSemanticDeclId::Member(member_id) => {
+            analyzer
+                .db
+                .get_type_index_mut()
+                .bind_type((*member_id).into(), LuaTypeCache::DocType(module_ref));
+        }
+        _ => {}
     }
 
     Some(())

@@ -95,6 +95,16 @@ fn find_members_guard(
         LuaType::Global => find_global_members(db, filter),
         LuaType::Instance(inst) => find_instance_members(db, inst, infer_guard, filter),
         LuaType::Namespace(ns) => find_namespace_members(db, ns, filter),
+        LuaType::ModuleRef(file_id) => {
+            let module_info = db.get_module_index().get_module(*file_id);
+            if let Some(module_info) = module_info
+                && let Some(export_type) = &module_info.export_type
+            {
+                return find_members_guard(db, export_type, infer_guard, filter);
+            }
+
+            None
+        }
         _ => None,
     }
 }

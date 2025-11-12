@@ -283,6 +283,20 @@ fn infer_member_semantic_decl_by_member_key(
             semantic_guard.next_level()?,
         ),
         LuaType::Global => infer_global_member_semantic_decl_by_member_key(db, cache, member_key),
+        LuaType::ModuleRef(file_id) => {
+            let module_info = db.get_module_index().get_module(*file_id)?;
+            if let Some(export_type) = &module_info.export_type {
+                infer_member_semantic_decl_by_member_key(
+                    db,
+                    cache,
+                    export_type,
+                    member_key,
+                    semantic_guard.next_level()?,
+                )
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
