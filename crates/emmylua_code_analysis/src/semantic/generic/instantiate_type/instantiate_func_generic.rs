@@ -160,7 +160,6 @@ fn infer_generic_types_from_call(
         }
 
         let arg_type = infer_expr(db, context.cache, call_arg_expr.clone())?;
-
         match (func_param_type, &arg_type) {
             (LuaType::Variadic(variadic), _) => {
                 let mut arg_types = vec![];
