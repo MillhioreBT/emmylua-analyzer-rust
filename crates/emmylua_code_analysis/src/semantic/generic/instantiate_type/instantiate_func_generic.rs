@@ -76,6 +76,7 @@ pub fn instantiate_func_generic(
         if let Some(type_list) = call_expr.get_call_generic_type_list() {
             apply_call_generic_type_list(db, file_id, &mut context, &type_list);
         } else {
+            // 没有指定泛型, 从调用参数中推断
             infer_generic_types_from_call(
                 db,
                 &mut context,
