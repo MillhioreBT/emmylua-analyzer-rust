@@ -660,4 +660,22 @@ mod test {
         let result_ty = ws.expr_ty("result");
         assert_eq!(ws.humanize_type(result_ty), "(number,number)");
     }
+
+    #[test]
+    fn test_overload() {
+        let mut ws = VirtualWorkspace::new();
+
+        assert!(ws.check_code_for(
+            DiagnosticCode::ParamTypeMismatch,
+            r#"
+            ---@class Expect
+            ---@overload fun<T>(actual: T): T
+            local expect = {}
+
+            result = expect("")
+            "#,
+        ));
+        let result_ty = ws.expr_ty("result");
+        assert_eq!(ws.humanize_type(result_ty), "string");
+    }
 }
