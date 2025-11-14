@@ -74,13 +74,6 @@ fn instantiate_tuple(db: &DbIndex, tuple: &LuaTupleType, substitutor: &TypeSubst
             match inner.deref() {
                 VariadicType::Base(base) => {
                     if let LuaType::TplRef(tpl) = base {
-                        // if tpl.is_variadic() {
-                        //     if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
-                        //         new_types.extend_from_slice(&generics);
-                        //     }
-                        //     break;
-                        // }
-
                         if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
                             match value {
                                 SubstitutorValue::None => {}
