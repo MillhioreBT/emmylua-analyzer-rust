@@ -23,6 +23,7 @@ use crate::SemanticDeclLevel;
 use crate::TypeOps;
 use crate::infer_node_semantic_decl;
 use crate::semantic::semantic_info::infer_token_semantic_decl;
+pub use instantiate_type::get_keyof_members;
 
 pub fn get_tpl_ref_extend_type(
     db: &DbIndex,

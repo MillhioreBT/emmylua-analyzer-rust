@@ -2243,4 +2243,27 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_keyof_enum() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_completion(
+            r#"
+            ---@enum A
+            local styles = {
+                reset = 1
+            }
+
+            ---@type table<keyof A, string>
+            local t
+            t.<??>
+            "#,
+            vec![VirtualCompletionItem {
+                label: "reset".to_string(),
+                kind: CompletionItemKind::VARIABLE,
+                ..Default::default()
+            },],
+        ));
+        Ok(())
+    }
 }
