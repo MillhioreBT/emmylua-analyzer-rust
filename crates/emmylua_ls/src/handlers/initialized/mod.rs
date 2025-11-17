@@ -77,15 +77,6 @@ pub async fn initialized_handler(
     // init std lib
     init_std_lib(context.analysis(), &cmd_args, emmyrc.clone()).await;
 
-    init_analysis(
-        context.analysis(),
-        context.status_bar(),
-        context.file_diagnostic(),
-        context.lsp_features(),
-        workspace_folders,
-        emmyrc.clone(),
-    )
-    .await;
     {
         let mut workspace_manager = context.workspace_manager().write().await;
         workspace_manager.client_config = client_config.clone();
@@ -95,6 +86,17 @@ pub async fn initialized_handler(
         workspace_manager.set_workspace_initialized();
         log::info!("workspace manager initialized");
     }
+
+    init_analysis(
+        context.analysis(),
+        context.status_bar(),
+        context.file_diagnostic(),
+        context.lsp_features(),
+        workspace_folders,
+        emmyrc.clone(),
+    )
+    .await;
+
     register_files_watch(context.clone(), &params.capabilities).await;
     Some(())
 }
