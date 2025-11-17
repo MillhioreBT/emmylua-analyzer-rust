@@ -42,7 +42,6 @@ pub fn instantiate_alias_call(
             if operands.len() != 1 {
                 return LuaType::Unknown;
             }
-            // let is_tuple = operands.len() == 1 && operands[0].is_tuple();
 
             let members = get_keyof_members(db, &operands[0]).unwrap_or_default();
             let member_key_types = members
@@ -54,13 +53,6 @@ pub fn instantiate_alias_call(
                 })
                 .collect::<Vec<_>>();
             LuaType::Tuple(LuaTupleType::new(member_key_types, LuaTupleStatus::InferResolve).into())
-            // if is_tuple {
-            //     LuaType::Tuple(
-            //         LuaTupleType::new(member_key_types, LuaTupleStatus::InferResolve).into(),
-            //     )
-            // } else {
-            //     LuaType::from_vec(member_key_types)
-            // }
         }
         // 条件类型不在此处理
         LuaAliasCallKind::Extends => {
@@ -285,7 +277,7 @@ fn instantiate_index_call(db: &DbIndex, owner: &LuaType, key: &LuaType) -> LuaTy
     }
 }
 
-fn get_keyof_members(db: &DbIndex, prefix_type: &LuaType) -> Option<Vec<LuaMemberInfo>> {
+pub fn get_keyof_members(db: &DbIndex, prefix_type: &LuaType) -> Option<Vec<LuaMemberInfo>> {
     match prefix_type {
         LuaType::Variadic(variadic) => match variadic.deref() {
             VariadicType::Base(base) => Some(vec![LuaMemberInfo {
