@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rowan::{TextRange, TextSize};
 
-use crate::{GenericParam, GenericTplId};
+use crate::{GenericParam, GenericTplId, LuaType};
 
 #[derive(Debug, Clone)]
 pub struct FileGenericIndex {
@@ -107,19 +107,24 @@ impl FileGenericIndex {
     }
 
     /// Find generic parameter by position and name.
-    /// return (GenericTplId, is_variadic)
-    pub fn find_generic(&self, position: TextSize, name: &str) -> Option<GenericTplId> {
+    /// return (GenericTplId, constraint)
+    pub fn find_generic(
+        &self,
+        position: TextSize,
+        name: &str,
+    ) -> Option<(GenericTplId, Option<LuaType>)> {
         let params_ids = self.find_generic_params(position)?;
 
         for params_id in params_ids.iter().rev() {
             if let Some(params) = self.generic_params.get(*params_id)
-                && let Some(id) = params.params.get(name)
+                && let Some((id, param)) = params.params.get(name)
             {
-                if params.is_func {
-                    return Some(GenericTplId::Func(*id as u32));
+                let tpl_id = if params.is_func {
+                    GenericTplId::Func(*id as u32)
                 } else {
-                    return Some(GenericTplId::Type(*id as u32));
-                }
+                    GenericTplId::Type(*id as u32)
+                };
+                return Some((tpl_id, param.type_constraint.clone()));
             }
         }
 
@@ -193,7 +198,7 @@ impl GenericEffectId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagGenericParams {
-    params: HashMap<String, usize>,
+    params: HashMap<String, (usize, GenericParam)>,
     is_func: bool,
 }
 
@@ -201,7 +206,7 @@ impl TagGenericParams {
     pub fn new(generic_params: Vec<GenericParam>, is_func: bool, start: usize) -> Self {
         let mut params = HashMap::new();
         for (i, param) in generic_params.into_iter().enumerate() {
-            params.insert(param.name.to_string(), start + i);
+            params.insert(param.name.to_string(), (start + i, param));
         }
         Self { params, is_func }
     }

@@ -317,7 +317,12 @@ fn instantiate_table_generic(
 fn instantiate_tpl_ref(_: &DbIndex, tpl: &GenericTpl, substitutor: &TypeSubstitutor) -> LuaType {
     if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
         match value {
-            SubstitutorValue::None => {}
+            SubstitutorValue::None => {
+                // 如果存在泛型约束, 那么返回约束
+                if let Some(constraint) = tpl.get_constraint() {
+                    return constraint.clone();
+                }
+            }
             SubstitutorValue::Type(ty) => return ty.clone(),
             SubstitutorValue::MultiTypes(types) => {
                 return LuaType::Variadic(VariadicType::Multi(types.clone()).into());
@@ -374,18 +379,6 @@ fn instantiate_variadic_type(
     match variadic {
         VariadicType::Base(base) => match base {
             LuaType::TplRef(tpl) => {
-                // if tpl.is_variadic() {
-                //     if let Some(generics) = substitutor.get_variadic(tpl.get_tpl_id()) {
-                //         if generics.len() == 1 {
-                //             return generics[0].clone();
-                //         } else {
-                //             return LuaType::Variadic(VariadicType::Multi(generics.clone()).into());
-                //         }
-                //     } else {
-                //         return LuaType::Never;
-                //     }
-                // }
-
                 if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
                     match value {
                         SubstitutorValue::None => {

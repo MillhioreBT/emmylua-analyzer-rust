@@ -141,12 +141,14 @@ fn check_param_type(
     // 应该先通过泛型体操约束到唯一类型再进行检查
     match param_type {
         LuaType::StrTplRef(str_tpl_ref) => {
-            let extend_type = get_extend_type(
-                semantic_model,
-                call_expr,
-                str_tpl_ref.get_tpl_id(),
-                signature,
-            );
+            let extend_type = str_tpl_ref.get_constraint().cloned().or_else(|| {
+                get_extend_type(
+                    semantic_model,
+                    call_expr,
+                    str_tpl_ref.get_tpl_id(),
+                    signature,
+                )
+            });
             let arg_expr = call_expr.get_args_list()?.get_args().nth(param_index)?;
             let arg_type = semantic_model.infer_expr(arg_expr.clone()).ok()?;
 
@@ -164,8 +166,9 @@ fn check_param_type(
             );
         }
         LuaType::TplRef(tpl_ref) | LuaType::ConstTplRef(tpl_ref) => {
-            let extend_type =
-                get_extend_type(semantic_model, call_expr, tpl_ref.get_tpl_id(), signature);
+            let extend_type = tpl_ref.get_constraint().cloned().or_else(|| {
+                get_extend_type(semantic_model, call_expr, tpl_ref.get_tpl_id(), signature)
+            });
             check_tpl_ref(
                 context,
                 semantic_model,

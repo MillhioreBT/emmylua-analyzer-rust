@@ -33,7 +33,10 @@ pub fn get_tpl_ref_extend_type(
     depth: usize,
 ) -> Option<LuaType> {
     match arg_type {
-        LuaType::TplRef(tpl_ref) => {
+        LuaType::TplRef(tpl_ref) | LuaType::ConstTplRef(tpl_ref) => {
+            if let Some(extend) = tpl_ref.get_constraint().cloned() {
+                return Some(extend);
+            }
             let node_or_token = arg_expr.syntax().clone().into();
             let semantic_decl = match node_or_token {
                 NodeOrToken::Node(node) => {
@@ -91,6 +94,7 @@ pub fn get_tpl_ref_extend_type(
                 }
             }
         }
+        LuaType::StrTplRef(str_tpl) => str_tpl.get_constraint().cloned(),
         LuaType::Union(union_type) => {
             if depth > 1 {
                 return None;

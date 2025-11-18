@@ -209,6 +209,7 @@ pub fn build_self_type(db: &DbIndex, self_type: &LuaType) -> LuaType {
                         params.push(LuaType::TplRef(Arc::new(GenericTpl::new(
                             GenericTplId::Type(i as u32),
                             ArcIntern::new(generic_param.name.clone()),
+                            None,
                         ))));
                     }
                 }

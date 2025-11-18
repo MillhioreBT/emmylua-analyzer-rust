@@ -511,7 +511,13 @@ fn infer_str_tpl(
             let prefix = prefix.unwrap_or_default();
             let suffix = suffix.unwrap_or_default();
             if tpl_id.is_func() {
-                let str_tpl_type = LuaStringTplType::new(&prefix, tpl.get_name(), tpl_id, &suffix);
+                let str_tpl_type = LuaStringTplType::new(
+                    &prefix,
+                    tpl.get_name(),
+                    tpl_id,
+                    &suffix,
+                    tpl.get_constraint().cloned(),
+                );
                 return LuaType::StrTplRef(str_tpl_type.into());
             }
         }

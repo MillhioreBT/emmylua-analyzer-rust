@@ -100,6 +100,10 @@
 
 ---@class void
 
+---@class unknown
+
+---@class never
+
 ---@class self
 
 ---@alias int integer

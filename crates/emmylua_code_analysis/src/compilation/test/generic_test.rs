@@ -678,4 +678,45 @@ mod test {
         let result_ty = ws.expr_ty("result");
         assert_eq!(ws.humanize_type(result_ty), "string");
     }
+
+    #[test]
+    fn test_generic_default_constraint_used() {
+        let mut ws = VirtualWorkspace::new();
+        {
+            ws.def(
+                r#"
+            ---@generic T: number
+            ---@return T
+            local function use()
+            end
+
+            result = use()
+            "#,
+            );
+
+            let result_ty = ws.expr_ty("result");
+            assert_eq!(result_ty, ws.ty("number"));
+        }
+        // 类的默认泛型约束暂时不支持
+        // {
+        //     ws.def(
+        //         r#"
+        //     ---@class A<T: number>
+        //     local A = {}
+
+        //     ---@return T
+        //     function A:use()
+        //     end
+
+        //     ---@type A<number>
+        //     local a
+
+        //     resultA = a:use()
+        //     "#,
+        //     );
+
+        //     let result_ty = ws.expr_ty("resultA");
+        //     assert_eq!(result_ty, ws.ty("number"));
+        // }
+    }
 }
