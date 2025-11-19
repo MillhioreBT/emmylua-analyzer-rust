@@ -134,15 +134,6 @@ fn get_part(semantic_model: &SemanticModel, typ: &LuaType) -> Option<InlayHintLa
             location: get_type_location(semantic_model, typ, 0),
             ..Default::default()
         }),
-        LuaType::Ref(id) | LuaType::Def(id) => {
-            let value = id.get_simple_name();
-            let location = get_type_location(semantic_model, typ, 0);
-            Some(InlayHintLabelPart {
-                value: value.to_string(),
-                location,
-                ..Default::default()
-            })
-        }
         _ => {
             let value = hint_humanize_type(semantic_model, typ, RenderLevel::Simple);
             let location = get_type_location(semantic_model, typ, 0);
@@ -206,24 +197,7 @@ fn get_base_type_location(semantic_model: &SemanticModel, name: &str) -> Option<
 
 fn hint_humanize_type(semantic_model: &SemanticModel, typ: &LuaType, level: RenderLevel) -> String {
     match typ {
-        LuaType::Ref(id) | LuaType::Def(id) => {
-            let namespace = semantic_model
-                .get_db()
-                .get_type_index()
-                .get_file_namespace(&semantic_model.get_file_id());
-            if let Some(namespace) = namespace {
-                // 如果 id 最前面是 namespace, 那么移除
-                let id_name = id.get_name();
-                let namespace_prefix = format!("{}.", namespace);
-                if id_name.starts_with(&namespace_prefix) {
-                    id_name[namespace_prefix.len()..].to_string()
-                } else {
-                    id_name.to_string()
-                }
-            } else {
-                id.get_name().to_string()
-            }
-        }
+        LuaType::Ref(id) | LuaType::Def(id) => id.get_simple_name().to_string(),
         LuaType::Generic(generic) => {
             let base_type_id = generic.get_base_type_id();
             let base_type_name =
