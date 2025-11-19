@@ -77,6 +77,15 @@ pub async fn initialized_handler(
     // init std lib
     init_std_lib(context.analysis(), &cmd_args, emmyrc.clone()).await;
 
+    {
+        let mut workspace_manager = context.workspace_manager().write().await;
+        workspace_manager.client_config = client_config.clone();
+        let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
+        workspace_manager.match_file_pattern =
+            WorkspaceFileMatcher::new(include, exclude, exclude_dir);
+        log::info!("workspace manager updated with client config and watch file patterns")
+    }
+
     init_analysis(
         context.analysis(),
         context.status_bar(),
@@ -86,15 +95,7 @@ pub async fn initialized_handler(
         emmyrc.clone(),
     )
     .await;
-    {
-        let mut workspace_manager = context.workspace_manager().write().await;
-        workspace_manager.client_config = client_config.clone();
-        let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
-        workspace_manager.match_file_pattern =
-            WorkspaceFileMatcher::new(include, exclude, exclude_dir);
-        workspace_manager.set_workspace_initialized();
-        log::info!("workspace manager initialized");
-    }
+
     register_files_watch(context.clone(), &params.capabilities).await;
     Some(())
 }

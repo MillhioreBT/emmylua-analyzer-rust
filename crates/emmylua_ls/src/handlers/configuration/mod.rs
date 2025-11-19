@@ -12,17 +12,12 @@ pub async fn on_did_change_configuration(
     log::info!("on_did_change_configuration: {}", pretty_json);
 
     // Check initialization status and get client config
-    let (is_initialized, client_id, supports_config_request) = {
+    let (client_id, supports_config_request) = {
         let workspace_manager = context.workspace_manager().read().await;
-        let is_initialized = workspace_manager.is_workspace_initialized();
         let client_id = workspace_manager.client_config.client_id;
         let supports_config_request = context.lsp_features().supports_config_request();
-        (is_initialized, client_id, supports_config_request)
+        (client_id, supports_config_request)
     };
-
-    if !is_initialized {
-        return Some(());
-    }
 
     if client_id.is_vscode() {
         return Some(());

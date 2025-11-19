@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use super::{ClientProxy, FileDiagnostic, StatusBar};
@@ -26,7 +26,6 @@ pub struct WorkspaceManager {
     pub watcher: Option<notify::RecommendedWatcher>,
     pub current_open_files: HashSet<Uri>,
     pub match_file_pattern: WorkspaceFileMatcher,
-    pub workspace_initialized: Arc<AtomicBool>,
     workspace_diagnostic_level: Arc<AtomicU8>,
     workspace_version: Arc<AtomicI64>,
 }
@@ -51,22 +50,11 @@ impl WorkspaceManager {
             watcher: None,
             current_open_files: HashSet::new(),
             match_file_pattern: WorkspaceFileMatcher::default(),
-            workspace_initialized: Arc::new(AtomicBool::new(false)),
             workspace_diagnostic_level: Arc::new(AtomicU8::new(
                 WorkspaceDiagnosticLevel::Fast.to_u8(),
             )),
             workspace_version: Arc::new(AtomicI64::new(0)),
         }
-    }
-
-    pub fn is_workspace_initialized(&self) -> bool {
-        self.workspace_initialized
-            .load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    pub fn set_workspace_initialized(&self) {
-        self.workspace_initialized
-            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn get_workspace_diagnostic_level(&self) -> WorkspaceDiagnosticLevel {

@@ -30,10 +30,7 @@ impl ServerMessageProcessor {
             Message::Response(_) => true,
             // Allow specific notifications
             Message::Notification(notify) => {
-                matches!(
-                    notify.method.as_str(),
-                    "workspace/didChangeConfiguration" | "$/cancelRequest" | "initialized"
-                )
+                matches!(notify.method.as_str(), "$/cancelRequest" | "initialized")
             }
             // Don't process other requests during initialization
             Message::Request(_) => false,
