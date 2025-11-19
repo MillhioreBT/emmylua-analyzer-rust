@@ -83,8 +83,7 @@ pub async fn initialized_handler(
         let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
         workspace_manager.match_file_pattern =
             WorkspaceFileMatcher::new(include, exclude, exclude_dir);
-        workspace_manager.set_workspace_initialized();
-        log::info!("workspace manager initialized");
+        log::info!("workspace manager updated with client config and watch file patterns")
     }
 
     init_analysis(
