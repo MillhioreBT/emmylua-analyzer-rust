@@ -634,10 +634,10 @@ fn collect_infer_assignments(
                                 };
                                 let mut rest_types = Vec::with_capacity(rest.len());
                                 for (_, source_param) in rest {
-                                    let Some(source_ty) = source_param.as_ref() else {
-                                        return false;
-                                    };
-                                    rest_types.push(source_ty.clone());
+                                    // 如果来源没有类型, 那么将其设为 Any 而不是 Never
+                                    rest_types.push(
+                                        source_param.as_ref().unwrap_or(&LuaType::Any).clone(),
+                                    );
                                 }
                                 let ty = match rest_types.len() {
                                     0 => LuaType::Never,
