@@ -134,6 +134,15 @@ fn get_part(semantic_model: &SemanticModel, typ: &LuaType) -> Option<InlayHintLa
             location: get_type_location(semantic_model, typ, 0),
             ..Default::default()
         }),
+        LuaType::Ref(id) | LuaType::Def(id) => {
+            let value = id.get_simple_name();
+            let location = get_type_location(semantic_model, typ, 0);
+            Some(InlayHintLabelPart {
+                value: value.to_string(),
+                location,
+                ..Default::default()
+            })
+        }
         _ => {
             let value = hint_humanize_type(semantic_model, typ, RenderLevel::Simple);
             let location = get_type_location(semantic_model, typ, 0);
