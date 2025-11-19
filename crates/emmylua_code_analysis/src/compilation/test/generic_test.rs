@@ -719,4 +719,36 @@ mod test {
         //     assert_eq!(result_ty, ws.ty("number"));
         // }
     }
+
+    #[test]
+    fn test_generic_extends_function_params() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
+            ---@alias Parameters<T extends function> T extends (fun(...: infer P): any) and P or never
+
+            ---@alias Procedure fun(...: any[]): any
+
+            ---@alias MockParameters<T> T extends table and ConstructorParameters<T> or T extends Procedure and Parameters<T> or never
+
+            ---@class Mock<T>
+            ---@field calls MockParameters<T>[]
+            "#,
+        );
+        ws.def(
+            r#"
+                ---@generic T: Procedure
+                ---@param a T?
+                ---@return Mock<T>
+                local function fn(a)
+                end
+
+                result = fn().calls
+            "#,
+        );
+
+        let result_ty = ws.expr_ty("result");
+        assert_eq!(ws.humanize_type(result_ty), "any[][]");
+    }
 }

@@ -639,17 +639,16 @@ fn collect_infer_assignments(
                                     };
                                     rest_types.push(source_ty.clone());
                                 }
+                                let ty = match rest_types.len() {
+                                    0 => LuaType::Never,
+                                    1 => rest_types[0].clone(),
+                                    _ => LuaType::Tuple(
+                                        LuaTupleType::new(rest_types, LuaTupleStatus::InferResolve)
+                                            .into(),
+                                    ),
+                                };
 
-                                let tuple_ty = LuaType::Tuple(
-                                    LuaTupleType::new(rest_types, LuaTupleStatus::InferResolve)
-                                        .into(),
-                                );
-                                if !collect_infer_assignments(
-                                    db,
-                                    &tuple_ty,
-                                    pattern_ty,
-                                    assignments,
-                                ) {
+                                if !collect_infer_assignments(db, &ty, pattern_ty, assignments) {
                                     return false;
                                 }
                             }
@@ -682,6 +681,16 @@ fn collect_infer_assignments(
                     } else {
                         false
                     }
+                }
+                LuaType::Ref(type_decl_id) => {
+                    if let Some(type_decl) = db.get_type_index().get_type_decl(type_decl_id) {
+                        if type_decl.is_alias()
+                            && let Some(origin) = type_decl.get_alias_origin(db, None)
+                        {
+                            return collect_infer_assignments(db, &origin, &pattern, assignments);
+                        }
+                    }
+                    false
                 }
                 _ => false,
             }
