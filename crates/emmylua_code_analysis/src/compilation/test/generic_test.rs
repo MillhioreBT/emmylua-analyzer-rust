@@ -726,18 +726,48 @@ mod test {
         ws.def(
             r#"
             ---@alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
+
             ---@alias Parameters<T extends function> T extends (fun(...: infer P): any) and P or never
+
+            ---@alias ReturnType<T extends function> T extends (fun(...: any): infer R) and R or any
 
             ---@alias Procedure fun(...: any[]): any
 
-            ---@alias MockParameters<T> T extends table and ConstructorParameters<T> or T extends Procedure and Parameters<T> or never
+            ---@alias MockParameters<T> T extends Procedure and Parameters<T> or never
+
+            ---@alias MockReturnType<T> T extends Procedure and ReturnType<T> or never
 
             ---@class Mock<T>
             ---@field calls MockParameters<T>[]
+            ---@overload fun(...: MockParameters<T>...): MockReturnType<T>
             "#,
         );
-        ws.def(
-            r#"
+        {
+            ws.def(
+                r#"
+                ---@generic T: Procedure
+                ---@param a T
+                ---@return Mock<T>
+                local function fn(a)
+                end
+
+                local sum = fn(function(a, b)
+                    return a + b
+                end)
+                A = sum
+            "#,
+            );
+
+            let result_ty = ws.expr_ty("A");
+            assert_eq!(
+                ws.humanize_type_detailed(result_ty),
+                "Mock<fun(a, b) -> any>"
+            );
+        }
+
+        {
+            ws.def(
+                r#"
                 ---@generic T: Procedure
                 ---@param a T?
                 ---@return Mock<T>
@@ -746,9 +776,10 @@ mod test {
 
                 result = fn().calls
             "#,
-        );
+            );
 
-        let result_ty = ws.expr_ty("result");
-        assert_eq!(ws.humanize_type(result_ty), "any[][]");
+            let result_ty = ws.expr_ty("result");
+            assert_eq!(ws.humanize_type(result_ty), "any[][]");
+        }
     }
 }
