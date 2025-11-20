@@ -1,9 +1,13 @@
+mod call_constraint;
 mod instantiate_type;
 mod test;
 mod tpl_context;
 mod tpl_pattern;
 mod type_substitutor;
 
+pub use call_constraint::{
+    CallConstraintContext, build_call_constraint_context, normalize_constraint_type,
+};
 use emmylua_parser::LuaAstNode;
 use emmylua_parser::LuaExpr;
 pub use instantiate_type::*;
