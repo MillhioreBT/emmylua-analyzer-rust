@@ -29,7 +29,7 @@ pub fn build_call_constraint_context(
             DocTypeInferContext::new(semantic_model.get_db(), semantic_model.get_file_id());
         for (idx, doc_type) in type_list.get_types().enumerate() {
             let ty = infer_doc_type(doc_ctx, &doc_type);
-            substitutor.insert_type(GenericTplId::Func(idx as u32), ty);
+            substitutor.insert_type(GenericTplId::Func(idx as u32), ty, true);
         }
     }
 
@@ -88,11 +88,14 @@ fn record_generic_assignment(
     substitutor: &mut TypeSubstitutor,
 ) {
     match param_type {
-        LuaType::TplRef(tpl_ref) | LuaType::ConstTplRef(tpl_ref) => {
-            substitutor.insert_type(tpl_ref.get_tpl_id(), arg_type.clone());
+        LuaType::TplRef(tpl_ref) => {
+            substitutor.insert_type(tpl_ref.get_tpl_id(), arg_type.clone(), true);
+        }
+        LuaType::ConstTplRef(tpl_ref) => {
+            substitutor.insert_type(tpl_ref.get_tpl_id(), arg_type.clone(), false);
         }
         LuaType::StrTplRef(str_tpl_ref) => {
-            substitutor.insert_type(str_tpl_ref.get_tpl_id(), arg_type.clone());
+            substitutor.insert_type(str_tpl_ref.get_tpl_id(), arg_type.clone(), true);
         }
         LuaType::Variadic(variadic) => {
             if let Some(inner) = variadic.get_type(0) {

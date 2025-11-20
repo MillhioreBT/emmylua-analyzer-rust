@@ -782,4 +782,38 @@ mod test {
             assert_eq!(ws.humanize_type(result_ty), "any[][]");
         }
     }
+
+    #[test]
+    fn test_constant_decay() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias std.RawGet<T, K> unknown
+
+            ---@alias std.ConstTpl<T> unknown
+
+            ---@generic T, K extends keyof T
+            ---@param object T
+            ---@param key K
+            ---@return std.RawGet<T, K>
+            function pick(object, key)
+            end
+
+            ---@class Person
+            ---@field age integer
+        "#,
+        );
+
+        ws.def(
+            r#"
+            ---@type Person
+            local person
+
+            result = pick(person, "age")
+        "#,
+        );
+
+        let result_ty = ws.expr_ty("result");
+        assert_eq!(ws.humanize_type(result_ty), "integer");
+    }
 }

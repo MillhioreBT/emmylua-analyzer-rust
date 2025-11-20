@@ -88,7 +88,7 @@ fn instantiate_tuple(db: &DbIndex, tuple: &LuaTupleType, substitutor: &TypeSubst
                                         new_types.push(ty.clone().unwrap_or(LuaType::Unknown));
                                     }
                                 }
-                                SubstitutorValue::Type(ty) => new_types.push(ty.clone()),
+                                SubstitutorValue::Type(ty) => new_types.push(ty.default().clone()),
                                 SubstitutorValue::MultiBase(base) => new_types.push(base.clone()),
                             }
                         }
@@ -131,9 +131,10 @@ pub fn instantiate_doc_function(
                         if let Some(value) = substitutor.get(tpl.get_tpl_id()) {
                             match value {
                                 SubstitutorValue::Type(ty) => {
+                                    let resolved_type = ty.default();
                                     // 如果参数是 `...: T...` 且类型是 tuple, 那么我们将展开 tuple
                                     if origin_param.0 == "..."
-                                        && let LuaType::Tuple(tuple) = ty
+                                        && let LuaType::Tuple(tuple) = resolved_type
                                     {
                                         for (i, typ) in tuple.get_types().iter().enumerate() {
                                             let param_name = format!("var{}", i);
@@ -195,10 +196,7 @@ pub fn instantiate_doc_function(
         }
     }
 
-    // 将 substitutor 中存储的类型的 def 转为 ref
-    let mut modified_substitutor = substitutor.clone();
-    modified_substitutor.convert_def_to_ref();
-    let mut inst_ret_type = instantiate_type_generic(db, tpl_ret, &modified_substitutor);
+    let mut inst_ret_type = instantiate_type_generic(db, tpl_ret, substitutor);
     // 对于可变返回值, 如果实例化是 tuple, 那么我们将展开 tuple
     if let LuaType::Variadic(_) = &&tpl_ret
         && let LuaType::Tuple(tuple) = &inst_ret_type
@@ -323,7 +321,7 @@ fn instantiate_tpl_ref(_: &DbIndex, tpl: &GenericTpl, substitutor: &TypeSubstitu
                     return constraint.clone();
                 }
             }
-            SubstitutorValue::Type(ty) => return ty.clone(),
+            SubstitutorValue::Type(ty) => return ty.default().clone(),
             SubstitutorValue::MultiTypes(types) => {
                 return LuaType::Variadic(VariadicType::Multi(types.clone()).into());
             }
@@ -385,13 +383,16 @@ fn instantiate_variadic_type(
                             return LuaType::Never;
                         }
                         SubstitutorValue::Type(ty) => {
+                            let resolved_type = ty.default();
                             if matches!(
-                                ty,
+                                resolved_type,
                                 LuaType::Nil | LuaType::Any | LuaType::Unknown | LuaType::Never
                             ) {
-                                return ty.clone();
+                                return resolved_type.clone();
                             }
-                            return LuaType::Variadic(VariadicType::Base(ty.clone()).into());
+                            return LuaType::Variadic(
+                                VariadicType::Base(resolved_type.clone()).into(),
+                            );
                         }
                         SubstitutorValue::MultiTypes(types) => {
                             return LuaType::Variadic(VariadicType::Multi(types.clone()).into());
@@ -456,7 +457,14 @@ fn instantiate_conditional(
         && alias_call.get_call_kind() == LuaAliasCallKind::Extends
         && alias_call.get_operands().len() == 2
     {
-        let mut left = instantiate_type_generic(db, &alias_call.get_operands()[0], substitutor);
+        let left_operand = &alias_call.get_operands()[0];
+        let mut left = instantiate_type_generic(db, left_operand, substitutor);
+        // 如果左侧是泛型, 那么我们取字面量类型
+        if let LuaType::TplRef(tpl_ref) | LuaType::ConstTplRef(tpl_ref) = left_operand {
+            if let Some(raw) = substitutor.get_raw_type(tpl_ref.get_tpl_id()) {
+                left = raw.clone();
+            }
+        }
         let right_origin = &alias_call.get_operands()[1];
         let right = instantiate_type_generic(db, right_origin, substitutor);
         // 如果存在 new 标记与左侧为类定义, 那么我们需要的是他的构造函数签名
@@ -506,7 +514,7 @@ fn instantiate_conditional(
                     let tpl_id_map = resolve_infer_tpl_ids(conditional, substitutor, &infer_names);
                     for (name, ty) in infer_assignments.iter() {
                         if let Some(tpl_id) = tpl_id_map.get(name.as_str()) {
-                            true_substitutor.insert_type(*tpl_id, ty.clone());
+                            true_substitutor.insert_type(*tpl_id, ty.clone(), true);
                         }
                     }
                 }
@@ -881,7 +889,7 @@ fn instantiate_mapped_value(
     replacement: &LuaType,
 ) -> LuaType {
     let mut local_substitutor = substitutor.clone();
-    local_substitutor.insert_type(tpl_id, replacement.clone());
+    local_substitutor.insert_type(tpl_id, replacement.clone(), true);
     let mut result = instantiate_type_generic(db, &mapped.value, &local_substitutor);
     // 根据 readonly 和 optional 属性进行处理
     if mapped.is_optional {

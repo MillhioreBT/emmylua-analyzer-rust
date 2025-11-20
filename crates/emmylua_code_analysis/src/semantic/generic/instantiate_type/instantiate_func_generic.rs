@@ -15,7 +15,7 @@ use crate::{
             instantiate_type::instantiate_doc_function,
             tpl_context::TplContext,
             tpl_pattern::{
-                constant_decay, multi_param_tpl_pattern_match_multi_return, tpl_pattern_match,
+                multi_param_tpl_pattern_match_multi_return, tpl_pattern_match,
                 variadic_tpl_pattern_match,
             },
         },
@@ -110,7 +110,7 @@ fn apply_call_generic_type_list(
         let typ = infer_doc_type(doc_ctx, &doc_type);
         context
             .substitutor
-            .insert_type(GenericTplId::Func(i as u32), typ);
+            .insert_type(GenericTplId::Func(i as u32), typ, true);
     }
 }
 
@@ -166,7 +166,7 @@ fn infer_generic_types_from_call(
                 let mut arg_types = vec![];
                 for arg_expr in &arg_exprs[i..] {
                     let arg_type = infer_expr(db, context.cache, arg_expr.clone())?;
-                    arg_types.push(constant_decay(arg_type));
+                    arg_types.push(arg_type);
                 }
                 variadic_tpl_pattern_match(context, variadic, &arg_types)?;
                 break;

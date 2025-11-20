@@ -17,8 +17,8 @@ pub fn instantiate_alias_call(
     alias_call: &LuaAliasCallType,
     substitutor: &TypeSubstitutor,
 ) -> LuaType {
-    let operands = alias_call
-        .get_operands()
+    let operand_exprs = alias_call.get_operands();
+    let operands = operand_exprs
         .iter()
         .map(|it| instantiate_type_generic(db, it, substitutor))
         .collect::<Vec<_>>();
@@ -76,15 +76,33 @@ pub fn instantiate_alias_call(
                 return LuaType::Unknown;
             }
 
-            instantiate_rawget_call(db, &operands[0], &operands[1])
+            let key = resolve_literal_operand(operand_exprs.get(1), substitutor)
+                .unwrap_or_else(|| operands[1].clone());
+
+            instantiate_rawget_call(db, &operands[0], &key)
         }
         LuaAliasCallKind::Index => {
             if operands.len() != 2 {
                 return LuaType::Unknown;
             }
 
-            instantiate_index_call(db, &operands[0], &operands[1])
+            let key = resolve_literal_operand(operand_exprs.get(1), substitutor)
+                .unwrap_or_else(|| operands[1].clone());
+
+            instantiate_index_call(db, &operands[0], &key)
         }
+    }
+}
+
+fn resolve_literal_operand(
+    operand: Option<&LuaType>,
+    substitutor: &TypeSubstitutor,
+) -> Option<LuaType> {
+    match operand {
+        Some(LuaType::TplRef(tpl_ref)) | Some(LuaType::ConstTplRef(tpl_ref)) => {
+            substitutor.get_raw_type(tpl_ref.get_tpl_id()).cloned()
+        }
+        _ => None,
     }
 }
 
