@@ -263,7 +263,7 @@ fn export_signature(
             .map(|generic_param| TypeVar {
                 name: generic_param.name.to_string(),
                 base: generic_param
-                    .type_constraint
+                    .constraint
                     .as_ref()
                     .map(|typ| render_typ(db, typ, RenderLevel::Simple)),
             })

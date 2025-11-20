@@ -61,7 +61,7 @@ pub fn get_tpl_ref_extend_type(
                                 if let Some(generic_param) =
                                     signature.generic_params.get(tpl_id as usize)
                                 {
-                                    return generic_param.type_constraint.clone();
+                                    return generic_param.constraint.clone();
                                 }
                             }
                             _ => return None,
