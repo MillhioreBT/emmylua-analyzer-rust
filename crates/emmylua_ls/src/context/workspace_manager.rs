@@ -127,7 +127,7 @@ impl WorkspaceManager {
         update_code_style(&parent_dir, &file_normalized);
     }
 
-    pub async fn reload_workspace(&self) -> Option<()> {
+    pub fn add_reload_workspace_task(&self) -> Option<()> {
         let config_root: Option<PathBuf> = self.workspace_folders.first().map(PathBuf::from);
 
         let emmyrc = load_emmy_config(config_root, self.client_config.clone());
@@ -136,15 +136,34 @@ impl WorkspaceManager {
         let status_bar = self.status_bar.clone();
         let file_diagnostic = self.file_diagnostic.clone();
         let lsp_features = self.lsp_features.clone();
-        init_analysis(
-            &analysis,
-            &status_bar,
-            &file_diagnostic,
-            &lsp_features,
-            workspace_folders,
-            emmyrc,
-        )
-        .await;
+        let client = self.client.clone();
+        let workspace_diagnostic_status = self.workspace_diagnostic_level.clone();
+        tokio::spawn(async move {
+            // Perform reindex with minimal lock holding time
+            init_analysis(
+                &analysis,
+                &status_bar,
+                &file_diagnostic,
+                &lsp_features,
+                workspace_folders,
+                emmyrc,
+            )
+            .await;
+
+            // Cancel diagnostics and update status without holding analysis lock
+            file_diagnostic.cancel_workspace_diagnostic().await;
+            workspace_diagnostic_status
+                .store(WorkspaceDiagnosticLevel::Fast.to_u8(), Ordering::Release);
+
+            // Trigger diagnostics refresh
+            if lsp_features.supports_workspace_diagnostic() {
+                client.refresh_workspace_diagnostics();
+            } else {
+                file_diagnostic
+                    .add_workspace_diagnostic_task(500, true)
+                    .await;
+            }
+        });
 
         Some(())
     }
