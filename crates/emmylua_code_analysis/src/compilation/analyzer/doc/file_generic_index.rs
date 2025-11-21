@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rowan::{TextRange, TextSize};
 
-use crate::{GenericParam, GenericTplId};
+use crate::{GenericParam, GenericTplId, LuaType};
 
 #[derive(Debug, Clone)]
 pub struct FileGenericIndex {
@@ -20,18 +20,12 @@ impl FileGenericIndex {
         }
     }
 
-    pub fn add_generic_scope(
-        &mut self,
-        ranges: Vec<TextRange>,
-        params: Vec<GenericParam>,
-        is_func: bool,
-    ) {
-        let params_id = self.generic_params.len();
-        // 由于我们允许 infer 推断出一个虚拟泛型, 因此需要计算已声明的泛型数量确定其位置
+    pub fn add_generic_scope(&mut self, ranges: Vec<TextRange>, is_func: bool) -> GenericParamId {
+        let params_index = self.generic_params.len();
         let start = self.get_start(&ranges).unwrap_or(0);
         self.generic_params
-            .push(TagGenericParams::new(params, is_func, start));
-        let params_id = GenericParamId::new(params_id);
+            .push(TagGenericParams::new(is_func, start));
+        let params_id = GenericParamId::new(params_index);
         let root_node_ids: Vec<_> = self.root_node_ids.clone();
         for range in ranges {
             let mut added = false;
@@ -52,6 +46,33 @@ impl FileGenericIndex {
                 self.effect_nodes.push(child_node);
                 self.root_node_ids.push(GenericEffectId::new(child_node_id));
             }
+        }
+
+        params_id
+    }
+
+    pub fn append_generic_param(&mut self, scope_id: GenericParamId, param: GenericParam) {
+        if let Some(scope) = self.generic_params.get_mut(scope_id.id) {
+            scope.insert_param(param);
+        }
+    }
+
+    pub fn append_generic_params(&mut self, scope_id: GenericParamId, params: Vec<GenericParam>) {
+        for param in params {
+            self.append_generic_param(scope_id, param);
+        }
+    }
+
+    pub fn set_param_constraint(
+        &mut self,
+        scope_id: GenericParamId,
+        name: &str,
+        constraint: Option<LuaType>,
+    ) {
+        if let Some(scope) = self.generic_params.get_mut(scope_id.id)
+            && let Some((_idx, stored_param)) = scope.params.get_mut(name)
+        {
+            stored_param.type_constraint = constraint;
         }
     }
 
@@ -107,19 +128,24 @@ impl FileGenericIndex {
     }
 
     /// Find generic parameter by position and name.
-    /// return (GenericTplId, is_variadic)
-    pub fn find_generic(&self, position: TextSize, name: &str) -> Option<GenericTplId> {
+    /// return (GenericTplId, constraint)
+    pub fn find_generic(
+        &self,
+        position: TextSize,
+        name: &str,
+    ) -> Option<(GenericTplId, Option<LuaType>)> {
         let params_ids = self.find_generic_params(position)?;
 
         for params_id in params_ids.iter().rev() {
             if let Some(params) = self.generic_params.get(*params_id)
-                && let Some(id) = params.params.get(name)
+                && let Some((id, param)) = params.params.get(name)
             {
-                if params.is_func {
-                    return Some(GenericTplId::Func(*id as u32));
+                let tpl_id = if params.is_func {
+                    GenericTplId::Func(*id as u32)
                 } else {
-                    return Some(GenericTplId::Type(*id as u32));
-                }
+                    GenericTplId::Type(*id as u32)
+                };
+                return Some((tpl_id, param.type_constraint.clone()));
             }
         }
 
@@ -193,16 +219,24 @@ impl GenericEffectId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagGenericParams {
-    params: HashMap<String, usize>,
+    params: HashMap<String, (usize, GenericParam)>,
     is_func: bool,
+    next_index: usize,
 }
 
 impl TagGenericParams {
-    pub fn new(generic_params: Vec<GenericParam>, is_func: bool, start: usize) -> Self {
-        let mut params = HashMap::new();
-        for (i, param) in generic_params.into_iter().enumerate() {
-            params.insert(param.name.to_string(), start + i);
+    pub fn new(is_func: bool, start: usize) -> Self {
+        Self {
+            params: HashMap::new(),
+            is_func,
+            next_index: start,
         }
-        Self { params, is_func }
+    }
+
+    fn insert_param(&mut self, param: GenericParam) {
+        let current_index = self.next_index;
+        self.next_index += 1;
+        self.params
+            .insert(param.name.to_string(), (current_index, param));
     }
 }

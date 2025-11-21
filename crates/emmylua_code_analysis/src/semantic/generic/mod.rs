@@ -1,9 +1,13 @@
+mod call_constraint;
 mod instantiate_type;
 mod test;
 mod tpl_context;
 mod tpl_pattern;
 mod type_substitutor;
 
+pub use call_constraint::{
+    CallConstraintContext, build_call_constraint_context, normalize_constraint_type,
+};
 use emmylua_parser::LuaAstNode;
 use emmylua_parser::LuaExpr;
 pub use instantiate_type::*;
@@ -33,7 +37,10 @@ pub fn get_tpl_ref_extend_type(
     depth: usize,
 ) -> Option<LuaType> {
     match arg_type {
-        LuaType::TplRef(tpl_ref) => {
+        LuaType::TplRef(tpl_ref) | LuaType::ConstTplRef(tpl_ref) => {
+            if let Some(extend) = tpl_ref.get_constraint().cloned() {
+                return Some(extend);
+            }
             let node_or_token = arg_expr.syntax().clone().into();
             let semantic_decl = match node_or_token {
                 NodeOrToken::Node(node) => {
@@ -54,7 +61,7 @@ pub fn get_tpl_ref_extend_type(
                                 if let Some(generic_param) =
                                     signature.generic_params.get(tpl_id as usize)
                                 {
-                                    return generic_param.type_constraint.clone();
+                                    return generic_param.constraint.clone();
                                 }
                             }
                             _ => return None,
@@ -91,6 +98,7 @@ pub fn get_tpl_ref_extend_type(
                 }
             }
         }
+        LuaType::StrTplRef(str_tpl) => str_tpl.get_constraint().cloned(),
         LuaType::Union(union_type) => {
             if depth > 1 {
                 return None;

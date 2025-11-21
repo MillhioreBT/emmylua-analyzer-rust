@@ -20,6 +20,7 @@ use crate::{
     },
 };
 use std::sync::Arc;
+use std::vec;
 
 pub fn analyze_class(analyzer: &mut DocAnalyzer, tag: LuaDocTagClass) -> Option<()> {
     let file_id = analyzer.file_id;
@@ -149,9 +150,10 @@ pub fn analyze_alias(analyzer: &mut DocAnalyzer, tag: LuaDocTagAlias) -> Option<
             .get_type_index_mut()
             .add_generic_params(alias_decl_id.clone(), generic_params.clone());
         let range = analyzer.comment.get_range();
+        let scope_id = analyzer.generic_index.add_generic_scope(vec![range], false);
         analyzer
             .generic_index
-            .add_generic_scope(vec![range], generic_params, false);
+            .append_generic_params(scope_id, generic_params);
     }
 
     let origin_type = infer_type(analyzer, tag.get_type()?);
@@ -240,9 +242,10 @@ fn add_generic_index(
         }
     }
 
+    let scope_id = analyzer.generic_index.add_generic_scope(ranges, false);
     analyzer
         .generic_index
-        .add_generic_scope(ranges, generic_params, false);
+        .append_generic_params(scope_id, generic_params);
 }
 
 fn get_local_stat_reference_ranges(
@@ -334,36 +337,39 @@ pub fn analyze_func_generic(analyzer: &mut DocAnalyzer, tag: LuaDocTagGeneric) -
         report_orphan_tag(analyzer, &tag);
         return None;
     };
-    let mut params_result = vec![];
+
+    let scope_id = analyzer.generic_index.add_generic_scope(
+        vec![analyzer.comment.get_range(), comment_owner.get_range()],
+        true,
+    );
+
     let mut param_info = Vec::new();
     if let Some(params_list) = tag.get_generic_decl_list() {
         for param in params_list.get_generic_decl() {
-            let name = if let Some(param) = param.get_name_token() {
-                param.get_name_text().to_string()
-            } else {
+            let Some(name_token) = param.get_name_token() else {
                 continue;
             };
+            let name_text = name_token.get_name_text().to_string();
+            let smol_name = SmolStr::new(name_text.as_str());
+            analyzer
+                .generic_index
+                .append_generic_param(scope_id, GenericParam::new(smol_name.clone(), None, None));
+
             let type_ref = param
                 .get_type()
                 .map(|type_ref| infer_type(analyzer, type_ref));
 
-            params_result.push(GenericParam::new(
-                SmolStr::new(name.as_str()),
+            analyzer.generic_index.set_param_constraint(
+                scope_id,
+                name_text.as_str(),
                 type_ref.clone(),
-                None,
-            ));
-            param_info.push(Arc::new(LuaGenericParamInfo::new(name, type_ref, None)));
+            );
+
+            param_info.push(Arc::new(LuaGenericParamInfo::new(
+                name_text, type_ref, None,
+            )));
         }
     }
-
-    let mut ranges = Vec::new();
-    let range = analyzer.comment.get_range();
-    ranges.push(range);
-    let range = comment_owner.get_range();
-    ranges.push(range);
-    analyzer
-        .generic_index
-        .add_generic_scope(ranges, params_result, true);
 
     let closure = find_owner_closure(analyzer)?;
     let signature_id = LuaSignatureId::from_closure(analyzer.file_id, &closure);

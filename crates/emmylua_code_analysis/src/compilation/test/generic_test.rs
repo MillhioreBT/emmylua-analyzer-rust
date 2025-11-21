@@ -678,4 +678,142 @@ mod test {
         let result_ty = ws.expr_ty("result");
         assert_eq!(ws.humanize_type(result_ty), "string");
     }
+
+    #[test]
+    fn test_generic_default_constraint_used() {
+        let mut ws = VirtualWorkspace::new();
+        {
+            ws.def(
+                r#"
+            ---@generic T: number
+            ---@return T
+            local function use()
+            end
+
+            result = use()
+            "#,
+            );
+
+            let result_ty = ws.expr_ty("result");
+            assert_eq!(result_ty, ws.ty("number"));
+        }
+        // 类的默认泛型约束暂时不支持
+        // {
+        //     ws.def(
+        //         r#"
+        //     ---@class A<T: number>
+        //     local A = {}
+
+        //     ---@return T
+        //     function A:use()
+        //     end
+
+        //     ---@type A<number>
+        //     local a
+
+        //     resultA = a:use()
+        //     "#,
+        //     );
+
+        //     let result_ty = ws.expr_ty("resultA");
+        //     assert_eq!(result_ty, ws.ty("number"));
+        // }
+    }
+
+    #[test]
+    fn test_generic_extends_function_params() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
+
+            ---@alias Parameters<T extends function> T extends (fun(...: infer P): any) and P or never
+
+            ---@alias ReturnType<T extends function> T extends (fun(...: any): infer R) and R or any
+
+            ---@alias Procedure fun(...: any[]): any
+
+            ---@alias MockParameters<T> T extends Procedure and Parameters<T> or never
+
+            ---@alias MockReturnType<T> T extends Procedure and ReturnType<T> or never
+
+            ---@class Mock<T>
+            ---@field calls MockParameters<T>[]
+            ---@overload fun(...: MockParameters<T>...): MockReturnType<T>
+            "#,
+        );
+        {
+            ws.def(
+                r#"
+                ---@generic T: Procedure
+                ---@param a T
+                ---@return Mock<T>
+                local function fn(a)
+                end
+
+                local sum = fn(function(a, b)
+                    return a + b
+                end)
+                A = sum
+            "#,
+            );
+
+            let result_ty = ws.expr_ty("A");
+            assert_eq!(
+                ws.humanize_type_detailed(result_ty),
+                "Mock<fun(a, b) -> any>"
+            );
+        }
+
+        {
+            ws.def(
+                r#"
+                ---@generic T: Procedure
+                ---@param a T?
+                ---@return Mock<T>
+                local function fn(a)
+                end
+
+                result = fn().calls
+            "#,
+            );
+
+            let result_ty = ws.expr_ty("result");
+            assert_eq!(ws.humanize_type(result_ty), "any[][]");
+        }
+    }
+
+    #[test]
+    fn test_constant_decay() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@alias std.RawGet<T, K> unknown
+
+            ---@alias std.ConstTpl<T> unknown
+
+            ---@generic T, K extends keyof T
+            ---@param object T
+            ---@param key K
+            ---@return std.RawGet<T, K>
+            function pick(object, key)
+            end
+
+            ---@class Person
+            ---@field age integer
+        "#,
+        );
+
+        ws.def(
+            r#"
+            ---@type Person
+            local person
+
+            result = pick(person, "age")
+        "#,
+        );
+
+        let result_ty = ws.expr_ty("result");
+        assert_eq!(ws.humanize_type(result_ty), "integer");
+    }
 }

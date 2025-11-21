@@ -164,10 +164,12 @@ fn infer_buildin_or_ref_type(
             LuaType::Table
         }
         _ => {
-            if let Some(tpl_id) = analyzer.generic_index.find_generic(position, name) {
+            if let Some((tpl_id, constraint)) = analyzer.generic_index.find_generic(position, name)
+            {
                 return LuaType::TplRef(Arc::new(GenericTpl::new(
                     tpl_id,
                     SmolStr::new(name).into(),
+                    constraint,
                 )));
             }
 
@@ -570,9 +572,12 @@ fn register_inline_func_generics(
         return;
     }
 
+    let scope_id = analyzer
+        .generic_index
+        .add_generic_scope(vec![func.get_range()], true);
     analyzer
         .generic_index
-        .add_generic_scope(vec![func.get_range()], generics, true);
+        .append_generic_params(scope_id, generics);
 }
 
 fn get_colon_define(analyzer: &mut DocAnalyzer) -> Option<bool> {
@@ -633,10 +638,16 @@ fn infer_str_tpl(
         let typ = infer_buildin_or_ref_type(analyzer, &tpl, str_tpl.get_range(), node);
         if let LuaType::TplRef(tpl) = typ {
             let tpl_id = tpl.get_tpl_id();
-            let prefix = prefix.unwrap_or("".to_string());
-            let suffix = suffix.unwrap_or("".to_string());
+            let prefix = prefix.unwrap_or_default();
+            let suffix = suffix.unwrap_or_default();
             if tpl_id.is_func() {
-                let str_tpl_type = LuaStringTplType::new(&prefix, tpl.get_name(), tpl_id, &suffix);
+                let str_tpl_type = LuaStringTplType::new(
+                    &prefix,
+                    tpl.get_name(),
+                    tpl_id,
+                    &suffix,
+                    tpl.get_constraint().cloned(),
+                );
                 return LuaType::StrTplRef(str_tpl_type.into());
             }
         }
@@ -731,9 +742,12 @@ fn infer_conditional_type(
         if !infer_params.is_empty() {
             // 条件表达式中 infer 声明的类型参数只允许在`true`分支中使用
             let true_range = when_true.get_range();
+            let scope_id = analyzer
+                .generic_index
+                .add_generic_scope(vec![true_range], false);
             analyzer
                 .generic_index
-                .add_generic_scope(vec![true_range], infer_params.clone(), false);
+                .append_generic_params(scope_id, infer_params.clone());
         }
 
         // 处理条件和分支类型
@@ -780,13 +794,14 @@ fn infer_mapped_type(
         .map(|constraint| infer_type(analyzer, constraint));
     let param = GenericParam::new(SmolStr::new(name), constraint, None);
 
-    analyzer.generic_index.add_generic_scope(
-        vec![mapped_type.get_range()],
-        vec![param.clone()],
-        false,
-    );
+    let scope_id = analyzer
+        .generic_index
+        .add_generic_scope(vec![mapped_type.get_range()], false);
+    analyzer
+        .generic_index
+        .append_generic_param(scope_id, param.clone());
     let position = mapped_type.get_range().start();
-    let id = analyzer.generic_index.find_generic(position, name)?;
+    let (id, _) = analyzer.generic_index.find_generic(position, name)?;
 
     let doc_type = mapped_type.get_value_type()?;
     let value_type = infer_type(analyzer, doc_type);
