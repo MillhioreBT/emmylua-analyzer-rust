@@ -8,11 +8,9 @@ use lsp_types::{
 
 use super::actions::{
     build_add_doc_tag, build_disable_file_changes, build_disable_next_line_changes,
+    build_need_check_nil, build_preferred_local_alias_fix,
 };
-use crate::handlers::{
-    code_actions::actions::build_need_check_nil,
-    command::{DisableAction, make_disable_code_command},
-};
+use crate::handlers::command::{DisableAction, make_disable_code_command};
 
 pub fn build_actions(
     semantic_model: &SemanticModel,
@@ -71,6 +69,9 @@ fn add_fix_code_action(
     match diagnostic_code {
         DiagnosticCode::NeedCheckNil => build_need_check_nil(semantic_model, actions, range, data),
         DiagnosticCode::UnknownDocTag => build_add_doc_tag(semantic_model, actions, range, data),
+        DiagnosticCode::PreferredLocalAlias => {
+            build_preferred_local_alias_fix(semantic_model, actions, range, data)
+        }
         _ => Some(()),
     }
 }
