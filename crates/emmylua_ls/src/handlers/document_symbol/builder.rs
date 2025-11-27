@@ -45,24 +45,47 @@ impl<'a> DocumentSymbolBuilder<'a> {
             .clone()
     }
 
-    pub fn add_node_symbol(&mut self, node: LuaSyntaxNode, symbol: LuaSymbol) {
+    pub fn add_node_symbol(
+        &mut self,
+        node: LuaSyntaxNode,
+        symbol: LuaSymbol,
+        parent: Option<LuaSyntaxId>,
+    ) -> LuaSyntaxId {
         let syntax_id = LuaSyntaxId::new(node.kind(), node.text_range());
         self.document_symbols.insert(syntax_id, Box::new(symbol));
-        let mut node = node;
-        while let Some(parent) = node.parent() {
-            let parent_syntax_id = LuaSyntaxId::new(parent.kind(), parent.text_range());
-            if let Some(symbol) = self.document_symbols.get_mut(&parent_syntax_id) {
-                symbol.add_child(syntax_id);
+
+        if let Some(parent_id) = parent {
+            self.link_parent_child(parent_id, syntax_id);
+            return syntax_id;
+        }
+
+        let mut current = node;
+        while let Some(parent_node) = current.parent() {
+            let parent_syntax_id = LuaSyntaxId::new(parent_node.kind(), parent_node.text_range());
+            if let Some(parent_symbol) = self.document_symbols.get_mut(&parent_syntax_id) {
+                parent_symbol.add_child(syntax_id);
                 break;
             }
 
-            node = parent;
+            current = parent_node;
         }
+
+        syntax_id
     }
 
-    pub fn add_token_symbol(&mut self, token: LuaSyntaxToken, symbol: LuaSymbol) {
+    pub fn add_token_symbol(
+        &mut self,
+        token: LuaSyntaxToken,
+        symbol: LuaSymbol,
+        parent: Option<LuaSyntaxId>,
+    ) -> LuaSyntaxId {
         let syntax_id = LuaSyntaxId::new(token.kind(), token.text_range());
         self.document_symbols.insert(syntax_id, Box::new(symbol));
+
+        if let Some(parent_id) = parent {
+            self.link_parent_child(parent_id, syntax_id);
+            return syntax_id;
+        }
 
         let mut node = token.parent();
         while let Some(parent_node) = node {
@@ -73,6 +96,27 @@ impl<'a> DocumentSymbolBuilder<'a> {
             }
 
             node = parent_node.parent();
+        }
+
+        syntax_id
+    }
+
+    pub fn contains_symbol(&self, id: &LuaSyntaxId) -> bool {
+        self.document_symbols.contains_key(id)
+    }
+
+    pub fn with_symbol_mut<F>(&mut self, id: &LuaSyntaxId, func: F) -> Option<()>
+    where
+        F: FnOnce(&mut LuaSymbol),
+    {
+        let symbol = self.document_symbols.get_mut(id)?;
+        func(symbol);
+        Some(())
+    }
+
+    fn link_parent_child(&mut self, parent: LuaSyntaxId, child: LuaSyntaxId) {
+        if let Some(parent_symbol) = self.document_symbols.get_mut(&parent) {
+            parent_symbol.add_child(child);
         }
     }
 
@@ -240,5 +284,13 @@ impl LuaSymbol {
 
     pub fn add_child(&mut self, child: LuaSyntaxId) {
         self.children.push(child);
+    }
+
+    pub fn set_kind(&mut self, kind: SymbolKind) {
+        self.kind = kind;
+    }
+
+    pub fn set_detail(&mut self, detail: Option<String>) {
+        self.detail = detail;
     }
 }
