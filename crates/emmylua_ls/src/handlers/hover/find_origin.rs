@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use emmylua_code_analysis::{
-    LuaCompilation, LuaDeclId, LuaMemberId, LuaSemanticDeclId, LuaType, SemanticDeclLevel,
-    SemanticModel,
+    LuaCompilation, LuaDeclId, LuaMemberId, LuaSemanticDeclId, LuaType, LuaUnionType,
+    SemanticDeclLevel, SemanticModel,
 };
 use emmylua_parser::{LuaAssignStat, LuaAstNode, LuaSyntaxKind, LuaTableExpr, LuaTableField};
 
@@ -240,6 +240,21 @@ fn resolve_member_owner(
     }
 }
 
+// 判断`table`是否为类
+fn table_is_class(table_type: &LuaType, depth: usize) -> bool {
+    if depth > 10 {
+        return false;
+    }
+    match table_type {
+        LuaType::Ref(_) | LuaType::Def(_) | LuaType::Generic(_) => true,
+        LuaType::Union(union) => match union.as_ref() {
+            LuaUnionType::Nullable(t) => table_is_class(t, depth + 1),
+            LuaUnionType::Multi(ts) => ts.iter().any(|t| table_is_class(t, depth + 1)),
+        },
+        _ => false,
+    }
+}
+
 fn resolve_table_field_through_type_inference(
     semantic_model: &SemanticModel,
     table_field: &LuaTableField,
@@ -248,10 +263,8 @@ fn resolve_table_field_through_type_inference(
     let table_expr = LuaTableExpr::cast(parent)?;
     let table_type = semantic_model.infer_table_should_be(table_expr)?;
 
-    if !matches!(
-        table_type,
-        LuaType::Ref(_) | LuaType::Def(_) | LuaType::Generic(_)
-    ) {
+    // 必须为类我们才搜索其成员
+    if !table_is_class(&table_type, 0) {
         return None;
     }
 

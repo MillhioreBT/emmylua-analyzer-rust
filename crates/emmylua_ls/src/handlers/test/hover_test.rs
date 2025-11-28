@@ -413,4 +413,32 @@ mod tests {
 
         Ok(())
     }
+
+    #[gtest]
+    fn test_class_with_nil() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@class A
+            ---@field aAnnotation? string a标签
+
+            ---@class B
+            ---@field bAnnotation? string b标签
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+            ---@type A|B|nil
+            local defaultOpt = {
+                aAnnota<??>tion = "a",
+            }
+            "#,
+            VirtualHoverResult {
+                value:
+                    "```lua\n(field) aAnnotation: string = \"a\"\n```\n\n---\n\na标签".to_string(),
+            },
+        ));
+
+        Ok(())
+    }
 }
