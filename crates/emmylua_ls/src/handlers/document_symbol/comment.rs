@@ -1,4 +1,4 @@
-use emmylua_parser::{LuaAstNode, LuaComment, LuaTokenKind};
+use emmylua_parser::{LuaAstNode, LuaComment, LuaSyntaxId, LuaTokenKind};
 use lsp_types::SymbolKind;
 use rowan::NodeOrToken;
 
@@ -7,7 +7,8 @@ use super::builder::{DocumentSymbolBuilder, LuaSymbol};
 pub fn build_doc_region_symbol(
     builder: &mut DocumentSymbolBuilder,
     comment: LuaComment,
-) -> Option<()> {
+    parent_id: LuaSyntaxId,
+) -> Option<LuaSyntaxId> {
     let mut region_token = None;
     for child in comment.syntax().children_with_tokens() {
         if let NodeOrToken::Token(token) = child {
@@ -18,10 +19,7 @@ pub fn build_doc_region_symbol(
         }
     }
 
-    let region_token = match region_token {
-        Some(token) => token,
-        None => return Some(()),
-    };
+    let region_token = region_token?;
 
     let description = comment
         .get_description()
@@ -46,7 +44,7 @@ pub fn build_doc_region_symbol(
         selection_range,
     );
 
-    builder.add_node_symbol(comment.syntax().clone(), symbol);
+    let symbol_id = builder.add_node_symbol(comment.syntax().clone(), symbol, Some(parent_id));
 
-    Some(())
+    Some(symbol_id)
 }

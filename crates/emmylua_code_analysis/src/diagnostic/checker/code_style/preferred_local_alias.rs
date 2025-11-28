@@ -5,6 +5,7 @@ use emmylua_parser::{
     LuaSyntaxKind,
 };
 use rowan::{NodeOrToken, TextRange};
+use serde_json::json;
 
 use crate::{
     DiagnosticCode, LuaDeclId, LuaSemanticDeclId, SemanticDeclLevel, SemanticModel,
@@ -247,7 +248,9 @@ fn check_index_expr_preference(
                 name = alias_info.preferred_name
             )
             .to_string(),
-            None,
+            Some(json!({
+                "preferredAlias": alias_info.preferred_name.clone(),
+            })),
         );
     }
 
