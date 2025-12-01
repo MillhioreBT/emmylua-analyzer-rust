@@ -12,61 +12,59 @@ impl<'a> FileDependencyRelation<'a> {
     }
 
     pub fn get_best_analysis_order(&self, file_ids: Vec<FileId>) -> Vec<FileId> {
-        if self.dependencies.is_empty() {
+        let n = file_ids.len();
+        if n == 0 || self.dependencies.is_empty() {
             return file_ids;
         }
 
-        let file_set: HashSet<_> = file_ids.iter().copied().collect();
+        let file_to_idx: HashMap<FileId, usize> = file_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &f)| (f, i))
+            .collect();
 
-        let mut in_degree: HashMap<FileId, usize> = HashMap::new();
-        let mut adjacency: HashMap<FileId, Vec<FileId>> = HashMap::new();
+        let mut in_degree = vec![0usize; n];
+        let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); n];
 
-        for file_id in &file_ids {
-            if let Some(deps) = self.dependencies.get(file_id) {
-                adjacency.entry(*file_id).or_default();
+        for (idx, &file_id) in file_ids.iter().enumerate() {
+            if let Some(deps) = self.dependencies.get(&file_id) {
                 for &dep in deps {
-                    if file_set.contains(&dep) {
-                        adjacency.entry(dep).or_default().push(*file_id);
-                        *in_degree.entry(*file_id).or_default() += 1;
-                    }
-                }
-            } else {
-                adjacency.entry(*file_id).or_default();
-                in_degree.entry(*file_id).or_default();
-            }
-        }
-
-        let mut queue = VecDeque::new();
-        let mut sorted_keys: Vec<_> = adjacency.keys().copied().collect();
-        sorted_keys.sort();
-        for &file in &sorted_keys {
-            if *in_degree.get(&file).unwrap_or(&0) == 0 {
-                queue.push_back(file);
-            }
-        }
-
-        let mut order = Vec::new();
-        while let Some(node) = queue.pop_front() {
-            order.push(node);
-            if let Some(neighbors) = adjacency.get(&node) {
-                for &n in neighbors {
-                    if let Some(x) = in_degree.get_mut(&n) {
-                        *x = x.saturating_sub(1);
-                        if *x == 0 {
-                            queue.push_back(n);
-                        }
+                    if let Some(&dep_idx) = file_to_idx.get(&dep) {
+                        adjacency[dep_idx].push(idx);
+                        in_degree[idx] += 1;
                     }
                 }
             }
         }
+        let mut result = Vec::with_capacity(n);
+        let mut queue = VecDeque::with_capacity(n);
 
-        let processed: HashSet<_> = order.iter().copied().collect();
-        for file in file_ids {
-            if !processed.contains(&file) {
-                order.push(file);
+        let mut zero_in_degree: Vec<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+        zero_in_degree.sort_by_key(|&i| file_ids[i]);
+
+        for idx in zero_in_degree {
+            queue.push_back(idx);
+        }
+
+        while let Some(idx) = queue.pop_front() {
+            result.push(file_ids[idx]);
+            for &neighbor in &adjacency[idx] {
+                in_degree[neighbor] -= 1;
+                if in_degree[neighbor] == 0 {
+                    queue.push_back(neighbor);
+                }
             }
         }
-        order
+
+        if result.len() < n {
+            for (idx, &deg) in in_degree.iter().enumerate() {
+                if deg > 0 {
+                    result.push(file_ids[idx]);
+                }
+            }
+        }
+
+        result
     }
 
     /// Get all direct and indirect dependencies for the file list
@@ -102,34 +100,78 @@ mod tests {
     #[test]
     fn test_best_analysis_order() {
         let mut map = HashMap::new();
+        // 文件1依赖文件2
         map.insert(FileId::new(1), {
             let mut s = HashSet::new();
             s.insert(FileId::new(2));
             s
         });
+        // 文件2没有依赖
         map.insert(FileId::new(2), HashSet::new());
         let rel = FileDependencyRelation::new(&map);
         let result = rel.get_best_analysis_order(vec![FileId::new(1), FileId::new(2)]);
+        // 文件2没有依赖，应该在前；文件1依赖文件2，在后
         assert_eq!(result, vec![FileId::new(2), FileId::new(1)]);
     }
 
     #[test]
     fn test_best_analysis_order2() {
         let mut map = HashMap::new();
+        // 文件1依赖文件2和文件3
         map.insert(1.into(), {
             let mut s = HashSet::new();
             s.insert(2.into());
             s.insert(3.into());
             s
         });
+        // 文件2依赖文件3
         map.insert(2.into(), {
             let mut s = HashSet::new();
             s.insert(3.into());
             s
         });
+        // 文件3没有依赖
+        map.insert(3.into(), HashSet::new());
         let rel = FileDependencyRelation::new(&map);
         let result = rel.get_best_analysis_order(vec![1.into(), 2.into(), 3.into()]);
+        // 文件3没有依赖，应该在最前面；然后是2，最后是1
         assert_eq!(result, vec![3.into(), 2.into(), 1.into()]);
+    }
+
+    #[test]
+    fn test_no_deps_files_first() {
+        let mut map = HashMap::new();
+        // 文件1依赖文件2
+        map.insert(FileId::new(1), {
+            let mut s = HashSet::new();
+            s.insert(FileId::new(2));
+            s
+        });
+        // 文件2依赖文件1（循环依赖）
+        map.insert(FileId::new(2), {
+            let mut s = HashSet::new();
+            s.insert(FileId::new(1));
+            s
+        });
+        // 文件3没有依赖
+        map.insert(FileId::new(3), HashSet::new());
+        // 文件4没有依赖
+        map.insert(FileId::new(4), HashSet::new());
+
+        let rel = FileDependencyRelation::new(&map);
+        let result = rel.get_best_analysis_order(vec![
+            FileId::new(1),
+            FileId::new(2),
+            FileId::new(3),
+            FileId::new(4),
+        ]);
+
+        // 文件3和4没有依赖，应该在前面
+        assert_eq!(result[0], FileId::new(3));
+        assert_eq!(result[1], FileId::new(4));
+        // 文件1和2有循环依赖，在后面
+        assert!(result.contains(&FileId::new(1)));
+        assert!(result.contains(&FileId::new(2)));
     }
 
     #[test]
