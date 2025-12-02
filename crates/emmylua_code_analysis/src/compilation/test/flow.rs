@@ -1459,4 +1459,21 @@ _2 = a[1]
         let e_expected = ws.ty("string");
         assert_eq!(e, e_expected);
     }
+
+    #[test]
+    fn test_issue_868() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.check_code_for(
+            DiagnosticCode::AssignTypeMismatch,
+            r#"
+            local a --- @type string|{foo:boolean, bar:string}
+
+            if a.foo then
+                --- @type string
+                local _ = a.bar
+            end
+            "#,
+        );
+    }
 }
