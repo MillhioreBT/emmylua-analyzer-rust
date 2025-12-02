@@ -49,4 +49,23 @@ mod test {
         let expected = ws.ty("Origin");
         assert_eq!(ty, expected);
     }
+
+    #[test]
+    fn test_issue_867() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            local a --- @type { foo? : { bar: { baz: number } } }
+
+            local b = a.foo.bar -- a.foo may be nil (correct)
+
+            c = b.baz -- b may be nil (incorrect)
+        "#,
+        );
+
+        let ty = ws.expr_ty("c");
+        let expected = ws.ty("number");
+        assert_eq!(ty, expected);
+    }
 }

@@ -149,6 +149,7 @@ pub fn infer_member_by_member_key(
 ) -> InferResult {
     match &prefix_type {
         LuaType::Table | LuaType::Any | LuaType::Unknown => Ok(LuaType::Any),
+        LuaType::Nil => Ok(LuaType::Never),
         LuaType::TableConst(id) => infer_table_member(db, cache, id.clone(), index_expr),
         LuaType::String
         | LuaType::Io
@@ -683,7 +684,9 @@ fn infer_union_member(
             &infer_guard.fork(),
         );
         if let Ok(typ) = result {
-            member_types.push(typ);
+            if !typ.is_never() {
+                member_types.push(typ);
+            }
         } else {
             member_types.push(LuaType::Nil);
         }

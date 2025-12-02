@@ -133,6 +133,7 @@ pub fn analyze_doc_tag_meta(analyzer: &mut DeclAnalyzer, tag: LuaDocTagMeta) -> 
     let file_id = analyzer.get_file_id();
     analyzer.db.get_module_index_mut().set_meta(file_id);
     analyzer.is_meta = true;
+    analyzer.context.add_meta(file_id);
 
     if let Some(name_token) = tag.get_name_token() {
         let text = name_token.get_name_text();

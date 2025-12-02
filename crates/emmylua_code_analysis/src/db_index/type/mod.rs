@@ -69,6 +69,7 @@ impl LuaTypeIndex {
         self.file_using_namespace.get(file_id)
     }
 
+    /// return previous FileId if exist
     pub fn add_type_decl(&mut self, file_id: FileId, type_decl: LuaTypeDecl) {
         let id = type_decl.get_id();
         self.file_types.entry(file_id).or_default().push(id.clone());
