@@ -2,22 +2,20 @@ use emmylua_code_analysis::update_code_style;
 use std::path::PathBuf;
 use walkdir::{DirEntry, WalkDir};
 
+use crate::context::{WorkspaceFolder, WorkspaceImport};
+
 const VCS_DIRS: [&str; 3] = [".git", ".hg", ".svn"];
 
-pub fn load_editorconfig(workspace_folders: Vec<PathBuf>) -> Option<()> {
+pub fn load_editorconfig(workspace_folders: Vec<WorkspaceFolder>) -> Option<()> {
     let mut editorconfig_files = Vec::new();
 
     for workspace in workspace_folders {
-        // 构建 WalkDir 迭代器，递归遍历工作区目录
-        let walker = WalkDir::new(&workspace)
-            .into_iter()
-            .filter_entry(|e| !is_vcs_dir(e, &VCS_DIRS))
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file());
-        for entry in walker {
-            let path = entry.path();
-            if path.ends_with(".editorconfig") {
-                editorconfig_files.push(path.to_path_buf());
+        match &workspace.import {
+            WorkspaceImport::All => collect_editorconfigs(&workspace.root, &mut editorconfig_files),
+            WorkspaceImport::SubPaths(subs) => {
+                for sub in subs {
+                    collect_editorconfigs(&workspace.root.join(sub), &mut editorconfig_files);
+                }
             }
         }
     }
@@ -43,7 +41,21 @@ pub fn load_editorconfig(workspace_folders: Vec<PathBuf>) -> Option<()> {
     Some(())
 }
 
-/// 判断目录条目是否应该被包含在遍历中（不被过滤）
+fn collect_editorconfigs(root: &PathBuf, results: &mut Vec<PathBuf>) {
+    let walker = WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| !is_vcs_dir(e, &VCS_DIRS))
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file());
+    for entry in walker {
+        let path = entry.path();
+        if path.ends_with(".editorconfig") {
+            results.push(path.to_path_buf());
+        }
+    }
+}
+
+/// 判断目录/文件是否应被包含在遍历中（不被过滤）
 fn is_vcs_dir(entry: &DirEntry, vcs_dirs: &[&str]) -> bool {
     if entry.file_type().is_dir() {
         let name = entry.file_name().to_string_lossy();

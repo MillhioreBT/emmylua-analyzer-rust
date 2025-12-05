@@ -407,7 +407,7 @@ fn find_intersection_members(
             member_set.insert(key.clone());
 
             result.push(LuaMemberInfo {
-                property_owner_id: None,
+                property_owner_id: member.property_owner_id.clone(),
                 key: key.clone(),
                 typ: typ.clone(),
                 feature: None,

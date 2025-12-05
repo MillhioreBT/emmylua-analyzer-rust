@@ -13,7 +13,7 @@ pub use workspace::{Workspace, WorkspaceId};
 use super::traits::LuaIndex;
 use crate::{Emmyrc, FileId};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -363,6 +363,15 @@ impl LuaModuleIndex {
         if !self.workspaces.iter().any(|w| w.root == root) {
             self.workspaces.push(Workspace::new(root, workspace_id));
         }
+    }
+
+    pub fn next_library_workspace_id(&self) -> u32 {
+        let used: HashSet<u32> = self.workspaces.iter().map(|w| w.id.id).collect();
+        let mut candidate = 2;
+        while used.contains(&candidate) {
+            candidate += 1;
+        }
+        candidate
     }
 
     #[allow(unused)]

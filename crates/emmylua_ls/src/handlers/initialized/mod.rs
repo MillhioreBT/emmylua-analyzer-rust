@@ -3,13 +3,13 @@ mod codestyle;
 mod collect_files;
 mod locale;
 
-use std::{path::PathBuf, str::FromStr, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     cmd_args::CmdArgs,
     context::{
         FileDiagnostic, LspFeatures, ProgressTask, ServerContextSnapshot, StatusBar,
-        WorkspaceFileMatcher, get_client_id, load_emmy_config,
+        WorkspaceFileMatcher, WorkspaceFolder, get_client_id, load_emmy_config,
     },
     handlers::{
         initialized::collect_files::calculate_include_and_exclude,
@@ -33,7 +33,7 @@ pub async fn initialized_handler(
     locale::set_ls_locale(&params);
     let workspace_folders = get_workspace_folders(&params);
     let main_root: Option<&str> = match workspace_folders.first() {
-        Some(path) => path.to_str(),
+        Some(path) => path.root.to_str(),
         None => None,
     };
 
@@ -105,7 +105,7 @@ pub async fn init_analysis(
     status_bar: &StatusBar,
     file_diagnostic: &FileDiagnostic,
     lsp_features: &LspFeatures,
-    workspace_folders: Vec<PathBuf>,
+    workspace_folders: Vec<WorkspaceFolder>,
     emmyrc: Arc<Emmyrc>,
 ) {
     let mut mut_analysis = analysis.write().await;
@@ -128,19 +128,45 @@ pub async fn init_analysis(
 
     let mut workspace_folders = workspace_folders;
     for workspace_root in &workspace_folders {
-        log::info!("add workspace root: {:?}", workspace_root);
-        mut_analysis.add_main_workspace(workspace_root.clone());
+        log::info!("add workspace root: {:?}", workspace_root.root);
+        mut_analysis.add_main_workspace(workspace_root.root.clone());
     }
 
     for workspace_root in &emmyrc.workspace.workspace_roots {
         log::info!("add workspace root: {:?}", workspace_root);
-        mut_analysis.add_main_workspace(PathBuf::from_str(workspace_root).unwrap());
+        let root_path = PathBuf::from(workspace_root);
+        mut_analysis.add_main_workspace(root_path.clone());
+        workspace_folders.push(WorkspaceFolder::new(root_path));
     }
 
     for lib in &emmyrc.workspace.library {
         log::info!("add library: {:?}", lib);
-        mut_analysis.add_library_workspace(PathBuf::from_str(lib).unwrap());
-        workspace_folders.push(PathBuf::from_str(lib).unwrap());
+        let lib_path = PathBuf::from(lib);
+        mut_analysis.add_library_workspace(lib_path.clone());
+        workspace_folders.push(WorkspaceFolder::new(lib_path));
+    }
+
+    for package_dir in &emmyrc.workspace.package_dirs {
+        let package_path = PathBuf::from(package_dir);
+        if let Some(parent) = package_path.parent() {
+            if let Some(name) = package_path.file_name() {
+                let parent_path = parent.to_path_buf();
+                log::info!(
+                    "add package dir {:?} with parent workspace {:?}",
+                    package_path,
+                    parent_path
+                );
+                mut_analysis.add_library_workspace(parent_path.clone());
+                workspace_folders.push(WorkspaceFolder::with_sub_paths(
+                    parent_path,
+                    vec![PathBuf::from(name)],
+                ));
+            } else {
+                log::warn!("package dir {:?} has no file name", package_path);
+            }
+        } else {
+            log::warn!("package dir {:?} has no parent", package_path);
+        }
     }
 
     status_bar.update_progress_task(
@@ -183,12 +209,12 @@ pub async fn init_analysis(
     }
 }
 
-pub fn get_workspace_folders(params: &InitializeParams) -> Vec<PathBuf> {
+pub fn get_workspace_folders(params: &InitializeParams) -> Vec<WorkspaceFolder> {
     let mut workspace_folders = Vec::new();
     if let Some(workspaces) = &params.workspace_folders {
         for workspace in workspaces {
             if let Some(path) = uri_to_file_path(&workspace.uri) {
-                workspace_folders.push(path);
+                workspace_folders.push(WorkspaceFolder::new(path));
             }
         }
     }
@@ -199,7 +225,7 @@ pub fn get_workspace_folders(params: &InitializeParams) -> Vec<PathBuf> {
         if let Some(uri) = &params.root_uri {
             let root_workspace = uri_to_file_path(uri);
             if let Some(path) = root_workspace {
-                workspace_folders.push(path);
+                workspace_folders.push(WorkspaceFolder::new(path));
             }
         }
     }

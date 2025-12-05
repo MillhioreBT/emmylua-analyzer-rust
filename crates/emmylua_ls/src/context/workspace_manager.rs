@@ -14,6 +14,34 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use wax::Pattern;
 
+#[derive(Clone, Debug)]
+pub enum WorkspaceImport {
+    All,
+    SubPaths(Vec<PathBuf>),
+}
+
+#[derive(Clone, Debug)]
+pub struct WorkspaceFolder {
+    pub root: PathBuf,
+    pub import: WorkspaceImport,
+}
+
+impl WorkspaceFolder {
+    pub fn new(root: PathBuf) -> Self {
+        Self {
+            root,
+            import: WorkspaceImport::All,
+        }
+    }
+
+    pub fn with_sub_paths(root: PathBuf, sub_paths: Vec<PathBuf>) -> Self {
+        Self {
+            root,
+            import: WorkspaceImport::SubPaths(sub_paths),
+        }
+    }
+}
+
 pub struct WorkspaceManager {
     analysis: Arc<RwLock<EmmyLuaAnalysis>>,
     client: Arc<ClientProxy>,
@@ -22,7 +50,7 @@ pub struct WorkspaceManager {
     file_diagnostic: Arc<FileDiagnostic>,
     lsp_features: Arc<LspFeatures>,
     pub client_config: ClientConfig,
-    pub workspace_folders: Vec<PathBuf>,
+    pub workspace_folders: Vec<WorkspaceFolder>,
     pub watcher: Option<notify::RecommendedWatcher>,
     pub current_open_files: HashSet<Uri>,
     pub match_file_pattern: WorkspaceFileMatcher,
@@ -128,7 +156,7 @@ impl WorkspaceManager {
     }
 
     pub fn add_reload_workspace_task(&self) -> Option<()> {
-        let config_root: Option<PathBuf> = self.workspace_folders.first().map(PathBuf::from);
+        let config_root: Option<PathBuf> = self.workspace_folders.first().map(|wf| wf.root.clone());
 
         let emmyrc = load_emmy_config(config_root, self.client_config.clone());
         let analysis = self.analysis.clone();
@@ -235,19 +263,26 @@ impl WorkspaceManager {
             return true;
         };
 
-        let mut file_matched = true;
         for workspace in &self.workspace_folders {
-            if let Ok(relative) = file_path.strip_prefix(workspace) {
-                file_matched = self.match_file_pattern.is_match(&file_path, relative);
+            if let Ok(relative) = file_path.strip_prefix(&workspace.root) {
+                let inside_import = match &workspace.import {
+                    WorkspaceImport::All => true,
+                    WorkspaceImport::SubPaths(paths) => {
+                        paths.iter().any(|p| relative.starts_with(p))
+                    }
+                };
 
-                if file_matched {
-                    // If the file matches the include pattern, we can stop checking further.
-                    break;
+                if !inside_import {
+                    continue;
+                }
+
+                if self.match_file_pattern.is_match(&file_path, relative) {
+                    return true;
                 }
             }
         }
 
-        file_matched
+        false
     }
 }
 

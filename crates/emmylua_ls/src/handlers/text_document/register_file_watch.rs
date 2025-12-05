@@ -94,8 +94,8 @@ async fn register_files_watch_use_fsnotify(context: ServerContextSnapshot) -> Op
 
     let mut workspace_manager = context.workspace_manager().write().await;
     for workspace in &workspace_manager.workspace_folders {
-        if let Err(e) = watcher.watch(workspace, RecursiveMode::Recursive) {
-            warn!("can not watch {:?}: {:?}", workspace, e);
+        if let Err(e) = watcher.watch(&workspace.root, RecursiveMode::Recursive) {
+            warn!("can not watch {:?}: {:?}", workspace.root, e);
         }
     }
     workspace_manager.watcher = Some(watcher);

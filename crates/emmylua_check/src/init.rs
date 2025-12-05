@@ -3,10 +3,7 @@ use emmylua_code_analysis::{
 };
 use fern::Dispatch;
 use log::LevelFilter;
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
 
 fn root_from_configs(config_paths: &[PathBuf], fallback: &Path) -> PathBuf {
     if config_paths.len() != 1 {
@@ -102,12 +99,12 @@ pub fn load_workspace(
     }
 
     for root in &emmyrc.workspace.workspace_roots {
-        analysis.add_main_workspace(PathBuf::from_str(root).unwrap());
+        analysis.add_main_workspace(PathBuf::from(root));
     }
 
     for lib in &emmyrc.workspace.library {
-        analysis.add_library_workspace(PathBuf::from_str(lib).unwrap());
-        workspace_folders.push(PathBuf::from_str(lib).unwrap());
+        analysis.add_library_workspace(PathBuf::from(lib));
+        workspace_folders.push(PathBuf::from(lib));
     }
 
     let file_infos = collect_files(&workspace_folders, &analysis.emmyrc, ignore);
