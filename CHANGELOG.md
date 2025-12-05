@@ -4,8 +4,7 @@
 
 ## [0.18.0] - 2025-12-5
 
-### Announcement
-一个实验性的由Rust实现的Lua 5.4解释器实现: https://github.com/CppCXY/lua-rs
+An experimental Lua 5.4 interpreter implemented in Rust: https://github.com/CppCXY/lua-rs
 
 ### ✨ Added
 
