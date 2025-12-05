@@ -21,7 +21,7 @@ pub async fn get_client_config_default(
         .clone();
     let main_workspace_folder = workspace_folders.first();
     let client = context.client();
-    let scope_uri = main_workspace_folder.map(|p| file_path_to_uri(p).unwrap());
+    let scope_uri = main_workspace_folder.and_then(|p| file_path_to_uri(&p.root));
 
     let mut configs = Vec::new();
     let mut used_scope = None;

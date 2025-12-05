@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use emmylua_code_analysis::{Emmyrc, LuaFileInfo, load_workspace_files};
 use log::{debug, info};
 
-pub fn collect_files(workspaces: &Vec<PathBuf>, emmyrc: &Emmyrc) -> Vec<LuaFileInfo> {
+use crate::context::{WorkspaceFolder, WorkspaceImport};
+
+pub fn collect_files(workspaces: &Vec<WorkspaceFolder>, emmyrc: &Emmyrc) -> Vec<LuaFileInfo> {
     let mut files = Vec::new();
     let (match_pattern, exclude, exclude_dir) = calculate_include_and_exclude(emmyrc);
 
@@ -14,16 +16,36 @@ pub fn collect_files(workspaces: &Vec<PathBuf>, emmyrc: &Emmyrc) -> Vec<LuaFileI
         workspaces, match_pattern, exclude, exclude_dir
     );
     for workspace in workspaces {
-        let loaded = load_workspace_files(
-            workspace,
-            &match_pattern,
-            &exclude,
-            &exclude_dir,
-            Some(encoding),
-        )
-        .ok();
-        if let Some(loaded) = loaded {
-            files.extend(loaded);
+        match &workspace.import {
+            WorkspaceImport::All => {
+                let loaded = load_workspace_files(
+                    &workspace.root,
+                    &match_pattern,
+                    &exclude,
+                    &exclude_dir,
+                    Some(encoding),
+                )
+                .ok();
+                if let Some(loaded) = loaded {
+                    files.extend(loaded);
+                }
+            }
+            WorkspaceImport::SubPaths(paths) => {
+                for sub in paths {
+                    let target = workspace.root.join(sub);
+                    let loaded = load_workspace_files(
+                        &target,
+                        &match_pattern,
+                        &exclude,
+                        &exclude_dir,
+                        Some(encoding),
+                    )
+                    .ok();
+                    if let Some(loaded) = loaded {
+                        files.extend(loaded);
+                    }
+                }
+            }
         }
     }
 

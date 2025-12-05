@@ -119,6 +119,9 @@ impl Emmyrc {
 
         self.workspace.library = process_and_dedup(self.workspace.library.iter(), workspace_root);
 
+        self.workspace.package_dirs =
+            process_and_dedup(self.workspace.package_dirs.iter(), workspace_root);
+
         self.workspace.ignore_dir =
             process_and_dedup(self.workspace.ignore_dir.iter(), workspace_root);
 
