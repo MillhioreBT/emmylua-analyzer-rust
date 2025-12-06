@@ -27,6 +27,7 @@ mod tests {
                 detail:
                     "local function test(event: string, callback: fun(trg: string, data: number)) -> number (+2 overloads)"
                         .to_string(),
+                documentation: None,
             },
         ));
         Ok(())
@@ -46,6 +47,7 @@ mod tests {
             "#,
             VirtualCompletionResolveItem {
                 detail: "(field) Test2.event(event: \"游戏-初始化\") (+1 overloads)".to_string(),
+                documentation: None,
             },
         ));
         Ok(())
@@ -66,6 +68,7 @@ mod tests {
             "#,
             VirtualCompletionResolveItem {
                 detail: "(field) T.func(self: string)".to_string(),
+                documentation: Some("\n注释注释".to_string()),
             },
         ));
         Ok(())
@@ -86,6 +89,36 @@ mod tests {
             "#,
             VirtualCompletionResolveItem {
                 detail: "(method) T:func()".to_string(),
+                documentation: Some("\n注释注释".to_string()),
+            },
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_intersection() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@class Matchers
+            ---@field toBe fun(self: Assertion, expected: any) -- 测试
+
+            ---@class Inverse<T>
+            ---@field not_ T
+
+            ---@class Assertion<T>: Matchers<T>
+        "#,
+        );
+        check!(ws.check_completion_resolve(
+            r#"
+
+            ---@type Assertion<any>
+            local expect
+            expect:<??>
+            "#,
+            VirtualCompletionResolveItem {
+                detail: "(method) Matchers:toBe(expected: any)".to_string(),
+                documentation: Some("\n测试".to_string()),
             },
         ));
         Ok(())

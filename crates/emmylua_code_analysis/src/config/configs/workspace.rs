@@ -14,6 +14,10 @@ pub struct EmmyrcWorkspace {
     /// Library paths. eg: "/usr/local/share/lua/5.1"
     pub library: Vec<String>,
     #[serde(default)]
+    /// Package directories. Treat the parent directory as a `library`, but only add files from the specified directory.
+    /// eg: `/usr/local/share/lua/5.1/module`
+    pub package_dirs: Vec<String>,
+    #[serde(default)]
     /// Workspace roots. eg: ["src", "test"]
     pub workspace_roots: Vec<String>,
     // unused
@@ -45,6 +49,7 @@ impl Default for EmmyrcWorkspace {
             ignore_dir: Vec::new(),
             ignore_globs: Vec::new(),
             library: Vec::new(),
+            package_dirs: Vec::new(),
             workspace_roots: Vec::new(),
             preload_file_size: 0,
             encoding: encoding_default(),

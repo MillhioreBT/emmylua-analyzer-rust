@@ -1,8 +1,8 @@
-use emmylua_parser::{LuaAssignStat, LuaAstNode, LuaChunk, LuaVarExpr};
+use emmylua_parser::{LuaAssignStat, LuaAstNode, LuaChunk, LuaExpr, LuaVarExpr};
 
 use crate::{
     CacheEntry, DbIndex, FlowId, FlowNode, FlowNodeKind, FlowTree, InferFailReason, LuaDeclId,
-    LuaInferCache, LuaMemberId, LuaType, TypeOps, infer_expr,
+    LuaInferCache, LuaMemberId, LuaSignatureId, LuaType, TypeOps, infer_expr,
     semantic::infer::{
         InferResult, VarRefId,
         narrow::{
@@ -61,8 +61,23 @@ pub fn get_type_at_flow(
             }
             FlowNodeKind::DeclPosition(position) => {
                 if *position <= var_ref_id.get_position() {
-                    result_type = get_var_ref_type(db, cache, var_ref_id)?;
-                    break;
+                    match get_var_ref_type(db, cache, var_ref_id) {
+                        Ok(var_type) => {
+                            result_type = var_type;
+                            break;
+                        }
+                        Err(err) => {
+                            // 尝试推断声明位置的类型, 如果发生错误则返回初始错误, 否则返回当前推断错误
+                            if let Some(init_type) =
+                                try_infer_decl_initializer_type(db, cache, root, var_ref_id)?
+                            {
+                                result_type = init_type;
+                                break;
+                            }
+
+                            return Err(err);
+                        }
+                    }
                 } else {
                     antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
                 }
@@ -81,6 +96,32 @@ pub fn get_type_at_flow(
 
                 if let ResultTypeOrContinue::Result(assign_type) = result_or_continue {
                     result_type = assign_type;
+                    break;
+                } else {
+                    antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
+                }
+            }
+            FlowNodeKind::ImplFunc(func_ptr) => {
+                let func_stat = func_ptr.to_node(root).ok_or(InferFailReason::None)?;
+                let Some(func_name) = func_stat.get_func_name() else {
+                    antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
+                    continue;
+                };
+
+                let Some(ref_id) = get_var_expr_var_ref_id(db, cache, func_name.to_expr()) else {
+                    antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
+                    continue;
+                };
+
+                if ref_id == *var_ref_id {
+                    let Some(closure) = func_stat.get_closure() else {
+                        return Err(InferFailReason::None);
+                    };
+
+                    result_type = LuaType::Signature(LuaSignatureId::from_closure(
+                        cache.get_file_id(),
+                        &closure,
+                    ));
                     break;
                 } else {
                     antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
@@ -231,4 +272,40 @@ fn get_type_at_assign_stat(
     }
 
     Ok(ResultTypeOrContinue::Continue)
+}
+
+fn try_infer_decl_initializer_type(
+    db: &DbIndex,
+    cache: &mut LuaInferCache,
+    root: &LuaChunk,
+    var_ref_id: &VarRefId,
+) -> Result<Option<LuaType>, InferFailReason> {
+    let Some(decl_id) = var_ref_id.get_decl_id_ref() else {
+        return Ok(None);
+    };
+
+    let decl = db
+        .get_decl_index()
+        .get_decl(&decl_id)
+        .ok_or(InferFailReason::None)?;
+
+    let Some(value_syntax_id) = decl.get_value_syntax_id() else {
+        return Ok(None);
+    };
+
+    let Some(node) = value_syntax_id.to_node_from_root(root.syntax()) else {
+        return Ok(None);
+    };
+
+    let Some(expr) = LuaExpr::cast(node) else {
+        return Ok(None);
+    };
+
+    let expr_type = infer_expr(db, cache, expr.clone())?;
+    let init_type = match expr_type {
+        LuaType::Variadic(variadic) => variadic.get_type(0).cloned(),
+        ty => Some(ty),
+    };
+
+    Ok(init_type)
 }

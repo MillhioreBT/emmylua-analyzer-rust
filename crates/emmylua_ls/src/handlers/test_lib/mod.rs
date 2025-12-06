@@ -3,9 +3,10 @@ use googletest::prelude::*;
 use itertools::Itertools;
 use lsp_types::{
     CodeActionOrCommand, CompletionItem, CompletionItemKind, CompletionResponse,
-    CompletionTriggerKind, GotoDefinitionResponse, Hover, HoverContents, InlayHintLabel, Location,
-    MarkupContent, Position, SemanticTokenModifier, SemanticTokenType, SemanticTokensResult,
-    SignatureHelpContext, SignatureHelpTriggerKind, SignatureInformation, TextEdit,
+    CompletionTriggerKind, Documentation, GotoDefinitionResponse, Hover, HoverContents,
+    InlayHintLabel, Location, MarkupContent, Position, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokensResult, SignatureHelpContext, SignatureHelpTriggerKind, SignatureInformation,
+    TextEdit,
 };
 use std::collections::HashSet;
 use std::{ops::Deref, sync::Arc};
@@ -72,6 +73,7 @@ impl Default for VirtualCompletionItem {
 #[derive(Debug)]
 pub struct VirtualCompletionResolveItem {
     pub detail: String,
+    pub documentation: Option<String>,
 }
 
 #[derive(Debug)]
@@ -279,7 +281,18 @@ impl ProviderVirtualWorkspace {
             .or_fail()?;
         let item = completion_resolve(&self.analysis, param.clone(), ClientId::VSCode);
         let item_detail = item.detail.ok_or("item detail is empty").or_fail()?;
-        verify_eq!(item_detail, expected.detail)
+        verify_eq!(item_detail, expected.detail)?;
+        match (item.documentation.as_ref(), expected.documentation.as_ref()) {
+            (None, None) => Ok(()),
+            (Some(doc), Some(expected_doc)) => match doc {
+                Documentation::String(s) => verify_eq!(s, expected_doc),
+                Documentation::MarkupContent(MarkupContent { value, .. }) => {
+                    verify_eq!(value, expected_doc)
+                }
+            },
+            (Some(_), None) => fail!("unexpected documentation in completion resolve result"),
+            (None, Some(_)) => fail!("expected documentation missing in completion resolve result"),
+        }
     }
 
     pub fn check_implementation(
@@ -408,7 +421,7 @@ impl ProviderVirtualWorkspace {
         expected: Vec<VirtualInlayHint>,
     ) -> Result<()> {
         let file_id = self.def(block_str);
-        let result = inlay_hint(&self.analysis, file_id)
+        let result = inlay_hint(&self.analysis, file_id, ClientId::VSCode)
             .ok_or("failed to get inlay hints")
             .or_fail()?;
 

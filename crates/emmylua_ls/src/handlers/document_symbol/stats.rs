@@ -1,21 +1,35 @@
 use emmylua_code_analysis::{LuaDeclId, LuaSignatureId, LuaType};
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaAstToken, LuaForRangeStat, LuaForStat, LuaFuncStat,
-    LuaIfClauseStat, LuaIfStat, LuaLocalFuncStat, LuaLocalStat,
+    LuaAssignStat, LuaAstNode, LuaAstToken, LuaDoStat, LuaExpr, LuaForRangeStat, LuaForStat,
+    LuaFuncStat, LuaIfClauseStat, LuaIfStat, LuaLocalFuncStat, LuaLocalStat, LuaSyntaxId,
 };
 use lsp_types::SymbolKind;
 
 use super::builder::{DocumentSymbolBuilder, LuaSymbol};
 
+#[derive(Clone)]
+pub struct SymbolBinding {
+    pub symbol_id: LuaSyntaxId,
+    pub value_expr: Option<LuaExpr>,
+}
+
+pub struct IfSymbolContext {
+    pub if_id: LuaSyntaxId,
+    pub clause_symbols: Vec<(LuaIfClauseStat, LuaSyntaxId)>,
+}
+
 pub fn build_local_stat_symbol(
     builder: &mut DocumentSymbolBuilder,
     local_stat: LuaLocalStat,
-) -> Option<()> {
+    parent_id: LuaSyntaxId,
+) -> Option<Vec<SymbolBinding>> {
     let file_id = builder.get_file_id();
     let local_names: Vec<_> = local_stat.get_local_name_list().collect();
+    let local_values: Vec<_> = local_stat.get_value_exprs().collect();
     let simple_local = local_names.len() == 1;
+    let mut bindings = Vec::new();
 
-    for local_name in local_names {
+    for (index, local_name) in local_names.into_iter().enumerate() {
         let decl_id = LuaDeclId::new(file_id, local_name.get_position());
         let decl = builder.get_decl(&decl_id)?;
         let typ = builder.get_type(decl_id.into());
@@ -27,21 +41,29 @@ pub fn build_local_stat_symbol(
         };
 
         let symbol = LuaSymbol::new(decl.get_name().to_string(), desc.1, desc.0, range);
-
-        builder.add_node_symbol(local_name.syntax().clone(), symbol);
+        let symbol_id =
+            builder.add_node_symbol(local_name.syntax().clone(), symbol, Some(parent_id));
+        let value_expr = local_values.get(index).cloned();
+        bindings.push(SymbolBinding {
+            symbol_id,
+            value_expr,
+        });
     }
 
-    Some(())
+    Some(bindings)
 }
 
 pub fn build_assign_stat_symbol(
     builder: &mut DocumentSymbolBuilder,
     assign_stat: LuaAssignStat,
-) -> Option<()> {
+    parent_id: LuaSyntaxId,
+) -> Option<Vec<SymbolBinding>> {
     let file_id = builder.get_file_id();
-    let (vars, _) = assign_stat.get_var_and_expr_list();
+    let (vars, exprs) = assign_stat.get_var_and_expr_list();
     let simple_var = vars.len() == 1;
-    for var in vars {
+    let mut bindings = Vec::new();
+
+    for (index, var) in vars.into_iter().enumerate() {
         let decl_id = LuaDeclId::new(file_id, var.get_position());
         let decl = match builder.get_decl(&decl_id) {
             Some(decl) => decl,
@@ -56,16 +78,22 @@ pub fn build_assign_stat_symbol(
         let desc = builder.get_symbol_kind_and_detail(Some(&typ));
         let symbol = LuaSymbol::new(decl.get_name().to_string(), desc.1, desc.0, range);
 
-        builder.add_node_symbol(var.syntax().clone(), symbol);
+        let symbol_id = builder.add_node_symbol(var.syntax().clone(), symbol, Some(parent_id));
+        let value_expr = exprs.get(index).cloned();
+        bindings.push(SymbolBinding {
+            symbol_id,
+            value_expr,
+        });
     }
 
-    Some(())
+    Some(bindings)
 }
 
 pub fn build_for_stat_symbol(
     builder: &mut DocumentSymbolBuilder,
     for_stat: LuaForStat,
-) -> Option<()> {
+    parent_id: LuaSyntaxId,
+) -> Option<LuaSyntaxId> {
     let file_id = builder.get_file_id();
     let for_symbol = LuaSymbol::new(
         "for".to_string(),
@@ -73,7 +101,8 @@ pub fn build_for_stat_symbol(
         SymbolKind::MODULE,
         for_stat.get_range(),
     );
-    builder.add_node_symbol(for_stat.syntax().clone(), for_symbol);
+    let for_symbol_id =
+        builder.add_node_symbol(for_stat.syntax().clone(), for_symbol, Some(parent_id));
 
     let iter_token = for_stat.get_var_name()?;
     let decl_id = LuaDeclId::new(file_id, iter_token.get_position());
@@ -87,14 +116,15 @@ pub fn build_for_stat_symbol(
         decl.get_range(),
     );
 
-    builder.add_token_symbol(iter_token.syntax().clone(), symbol);
-    Some(())
+    builder.add_token_symbol(iter_token.syntax().clone(), symbol, Some(for_symbol_id));
+    Some(for_symbol_id)
 }
 
 pub fn build_for_range_stat_symbol(
     builder: &mut DocumentSymbolBuilder,
     for_range_stat: LuaForRangeStat,
-) -> Option<()> {
+    parent_id: LuaSyntaxId,
+) -> Option<LuaSyntaxId> {
     let file_id = builder.get_file_id();
     let for_symbol = LuaSymbol::new(
         "for in".to_string(),
@@ -103,7 +133,8 @@ pub fn build_for_range_stat_symbol(
         for_range_stat.get_range(),
     );
 
-    builder.add_node_symbol(for_range_stat.syntax().clone(), for_symbol);
+    let for_in_id =
+        builder.add_node_symbol(for_range_stat.syntax().clone(), for_symbol, Some(parent_id));
 
     let vars = for_range_stat.get_var_name_list();
     for var in vars {
@@ -118,16 +149,17 @@ pub fn build_for_range_stat_symbol(
             decl.get_range(),
         );
 
-        builder.add_token_symbol(var.syntax().clone(), symbol);
+        builder.add_token_symbol(var.syntax().clone(), symbol, Some(for_in_id));
     }
 
-    Some(())
+    Some(for_in_id)
 }
 
 pub fn build_local_func_stat_symbol(
     builder: &mut DocumentSymbolBuilder,
     local_func: LuaLocalFuncStat,
-) -> Option<()> {
+    parent_id: LuaSyntaxId,
+) -> Option<LuaSyntaxId> {
     let file_id = builder.get_file_id();
     let func_name = local_func.get_local_name()?;
     let decl_id = LuaDeclId::new(file_id, func_name.get_position());
@@ -146,14 +178,15 @@ pub fn build_local_func_stat_symbol(
         name_range,
     );
 
-    builder.add_node_symbol(local_func.syntax().clone(), symbol);
-    Some(())
+    let func_id = builder.add_node_symbol(local_func.syntax().clone(), symbol, Some(parent_id));
+    Some(func_id)
 }
 
 pub fn build_func_stat_symbol(
     builder: &mut DocumentSymbolBuilder,
     func: LuaFuncStat,
-) -> Option<()> {
+    parent_id: LuaSyntaxId,
+) -> Option<LuaSyntaxId> {
     let file_id = builder.get_file_id();
     let func_name = func.get_func_name()?;
     let name = func_name.syntax().text().to_string();
@@ -167,11 +200,15 @@ pub fn build_func_stat_symbol(
 
     let symbol = LuaSymbol::with_selection_range(name, desc.1, desc.0, full_range, name_range);
 
-    builder.add_node_symbol(func.syntax().clone(), symbol);
-    Some(())
+    let func_id = builder.add_node_symbol(func.syntax().clone(), symbol, Some(parent_id));
+    Some(func_id)
 }
 
-pub fn build_if_stat_symbol(builder: &mut DocumentSymbolBuilder, if_stat: LuaIfStat) -> Option<()> {
+pub fn build_if_stat_symbol(
+    builder: &mut DocumentSymbolBuilder,
+    if_stat: LuaIfStat,
+    parent_id: LuaSyntaxId,
+) -> Option<IfSymbolContext> {
     let if_symbol = LuaSymbol::new(
         "if".to_string(),
         None,
@@ -179,7 +216,8 @@ pub fn build_if_stat_symbol(builder: &mut DocumentSymbolBuilder, if_stat: LuaIfS
         if_stat.get_range(),
     );
 
-    builder.add_node_symbol(if_stat.syntax().clone(), if_symbol);
+    let if_id = builder.add_node_symbol(if_stat.syntax().clone(), if_symbol, Some(parent_id));
+    let mut clause_symbols = Vec::new();
 
     for branch in if_stat.get_all_clause() {
         let name = match &branch {
@@ -194,8 +232,28 @@ pub fn build_if_stat_symbol(builder: &mut DocumentSymbolBuilder, if_stat: LuaIfS
             branch.get_range(),
         );
 
-        builder.add_node_symbol(branch.syntax().clone(), symbol);
+        let clause_id = builder.add_node_symbol(branch.syntax().clone(), symbol, Some(if_id));
+        clause_symbols.push((branch, clause_id));
     }
 
-    Some(())
+    Some(IfSymbolContext {
+        if_id,
+        clause_symbols,
+    })
+}
+
+pub fn build_do_stat_symbol(
+    builder: &mut DocumentSymbolBuilder,
+    do_stat: LuaDoStat,
+    parent_id: LuaSyntaxId,
+) -> Option<LuaSyntaxId> {
+    let symbol = LuaSymbol::new(
+        "do end".to_string(),
+        None,
+        SymbolKind::MODULE,
+        do_stat.get_range(),
+    );
+
+    let do_id = builder.add_node_symbol(do_stat.syntax().clone(), symbol, Some(parent_id));
+    Some(do_id)
 }

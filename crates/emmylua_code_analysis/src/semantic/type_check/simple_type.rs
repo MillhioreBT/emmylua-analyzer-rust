@@ -2,7 +2,10 @@ use std::ops::Deref;
 
 use crate::{
     DbIndex, LuaType, LuaTypeDeclId, VariadicType,
-    semantic::type_check::{is_sub_type_of, type_check_context::TypeCheckContext},
+    semantic::type_check::{
+        is_sub_type_of,
+        type_check_context::{TypeCheckCheckLevel, TypeCheckContext},
+    },
 };
 
 use super::{
@@ -11,7 +14,7 @@ use super::{
 };
 
 pub fn check_simple_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -69,12 +72,39 @@ pub fn check_simple_type_compact(
                 return Ok(());
             }
         }
-        LuaType::String | LuaType::StringConst(_) => match compact_type {
+        LuaType::String => match compact_type {
             LuaType::String
             | LuaType::StringConst(_)
             | LuaType::DocStringConst(_)
             | LuaType::StrTplRef(_)
             | LuaType::Language(_) => {
+                return Ok(());
+            }
+            LuaType::Ref(_) => {
+                match check_base_type_for_ref_compact(context, source, compact_type, check_guard) {
+                    Ok(_) => return Ok(()),
+                    Err(err) if err.is_type_not_match() => {}
+                    Err(err) => return Err(err),
+                }
+            }
+            LuaType::Def(id) => {
+                if id.get_name() == "string" {
+                    return Ok(());
+                }
+            }
+            _ => {}
+        },
+        LuaType::StringConst(s1) => match compact_type {
+            LuaType::String
+            | LuaType::StringConst(_)
+            | LuaType::StrTplRef(_)
+            | LuaType::Language(_) => {
+                return Ok(());
+            }
+            LuaType::DocStringConst(s2) => {
+                if context.level == TypeCheckCheckLevel::GenericConditional && s1 != s2 {
+                    return Err(TypeCheckFailReason::TypeNotMatch);
+                }
                 return Ok(());
             }
             LuaType::Ref(_) => {
@@ -304,7 +334,7 @@ fn get_alias_real_type<'a>(
 
 /// 检查基础类型是否匹配自定义类型
 fn check_base_type_for_ref_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -352,7 +382,7 @@ fn check_base_type_for_ref_compact(
 
 /// 检查`enum`的所有字段是否匹配`source`
 fn check_enum_fields_match_source(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     enum_type_decl_id: &LuaTypeDeclId,
     check_guard: TypeCheckGuard,
@@ -370,7 +400,7 @@ fn check_enum_fields_match_source(
 }
 
 fn check_variadic_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_type: &VariadicType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,

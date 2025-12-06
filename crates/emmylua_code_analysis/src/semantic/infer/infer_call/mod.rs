@@ -5,9 +5,8 @@ use rowan::TextRange;
 
 use super::{
     super::{
-        InferGuard, LuaInferCache,
-        generic::{TypeSubstitutor, instantiate_func_generic},
-        instantiate_type_generic, resolve_signature,
+        InferGuard, LuaInferCache, generic::TypeSubstitutor, instantiate_type_generic,
+        resolve_signature,
     },
     InferFailReason, InferResult,
 };
@@ -22,7 +21,7 @@ use crate::{
         generic::instantiate_doc_function, infer::narrow::get_type_at_call_expr_inline_cast,
     },
 };
-use crate::{build_self_type, infer_self_type, semantic::infer_expr};
+use crate::{build_self_type, infer_self_type, instantiate_func_generic, semantic::infer_expr};
 use infer_require::infer_require_call;
 use infer_setmetatable::infer_setmetatable_call;
 
@@ -265,6 +264,9 @@ fn infer_type_doc_function(
                     {
                         overloads.push(f);
                     }
+                } else if f.contain_tpl() {
+                    let result = instantiate_func_generic(db, cache, &f, call_expr.clone())?;
+                    overloads.push(Arc::new(result));
                 } else {
                     overloads.push(f.clone());
                 }

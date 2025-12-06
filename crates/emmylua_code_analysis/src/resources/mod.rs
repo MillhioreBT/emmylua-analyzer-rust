@@ -78,7 +78,7 @@ fn load_resource_from_file_system(resources_dir: &Path) -> Option<Vec<LuaFileInf
         let files = load_resource_from_include_dir();
         for file in &files {
             let path = resources_dir.join(&file.path);
-            let parent = path.parent().expect("resources not top-level dir");
+            let parent = path.parent()?;
             if !parent.exists() {
                 match std::fs::create_dir_all(parent) {
                     Ok(_) => {}

@@ -42,7 +42,7 @@ mod test {
     fn test_3() {
         let mut ws = VirtualWorkspace::new();
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
                 ---@return any ...
                 ---@return integer offset

@@ -23,7 +23,6 @@ mod test {
         );
 
         let aaa_ty = ws.expr_ty("aaa");
-        let expected = ws.expr_ty("require('a')");
-        assert_eq!(aaa_ty, expected);
+        assert!(aaa_ty.is_module_ref());
     }
 }

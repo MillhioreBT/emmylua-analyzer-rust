@@ -4,9 +4,9 @@ use emmylua_parser::{
 };
 
 use crate::{
-    DbIndex, LuaDeclId, LuaDeclOrMemberId, LuaInferCache, LuaInstanceType, LuaMemberId,
-    LuaMemberKey, LuaMemberOwner, LuaSemanticDeclId, LuaType, LuaTypeCache, LuaTypeDeclId,
-    LuaUnionType,
+    DbIndex, LuaDeclId, LuaDeclOrMemberId, LuaInferCache, LuaInstanceType, LuaIntersectionType,
+    LuaMemberId, LuaMemberKey, LuaMemberOwner, LuaSemanticDeclId, LuaType, LuaTypeCache,
+    LuaTypeDeclId, LuaUnionType,
     semantic::{
         infer::find_self_decl_or_member_id, member::get_buildin_type_map_type_id,
         semantic_info::resolve_global_decl_id,
@@ -283,6 +283,27 @@ fn infer_member_semantic_decl_by_member_key(
             semantic_guard.next_level()?,
         ),
         LuaType::Global => infer_global_member_semantic_decl_by_member_key(db, cache, member_key),
+        LuaType::ModuleRef(file_id) => {
+            let module_info = db.get_module_index().get_module(*file_id)?;
+            if let Some(export_type) = &module_info.export_type {
+                infer_member_semantic_decl_by_member_key(
+                    db,
+                    cache,
+                    export_type,
+                    member_key,
+                    semantic_guard.next_level()?,
+                )
+            } else {
+                None
+            }
+        }
+        LuaType::Intersection(intersection_type) => infer_intersection_member_semantic_info(
+            db,
+            cache,
+            intersection_type,
+            member_key,
+            semantic_guard.next_level()?,
+        ),
         _ => None,
     }
 }
@@ -401,4 +422,26 @@ fn infer_global_member_semantic_decl_by_member_key(
 ) -> Option<LuaSemanticDeclId> {
     let name = member_key.get_name()?;
     resolve_global_decl_id(db, cache, name, None).map(LuaSemanticDeclId::LuaDecl)
+}
+
+fn infer_intersection_member_semantic_info(
+    db: &DbIndex,
+    cache: &mut LuaInferCache,
+    intersection_type: &LuaIntersectionType,
+    member_key: &LuaMemberKey,
+    semantic_guard: SemanticDeclGuard,
+) -> Option<LuaSemanticDeclId> {
+    for typ in intersection_type.get_types() {
+        if let Some(property_owner_id) = infer_member_semantic_decl_by_member_key(
+            db,
+            cache,
+            typ,
+            member_key,
+            semantic_guard.next_level()?,
+        ) {
+            return Some(property_owner_id);
+        }
+    }
+
+    None
 }

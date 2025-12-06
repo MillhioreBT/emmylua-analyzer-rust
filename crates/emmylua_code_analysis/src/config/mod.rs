@@ -119,6 +119,9 @@ impl Emmyrc {
 
         self.workspace.library = process_and_dedup(self.workspace.library.iter(), workspace_root);
 
+        self.workspace.package_dirs =
+            process_and_dedup(self.workspace.package_dirs.iter(), workspace_root);
+
         self.workspace.ignore_dir =
             process_and_dedup(self.workspace.ignore_dir.iter(), workspace_root);
 
@@ -149,7 +152,7 @@ fn pre_process_path(path: &str, workspace: &Path) -> String {
                 return path;
             }
         };
-        path = home_dir.join(&path[1..]).to_string_lossy().to_string();
+        path = home_dir.join(&path[2..]).to_string_lossy().to_string();
     } else if path.starts_with("./") {
         path = workspace.join(&path[2..]).to_string_lossy().to_string();
     } else if PathBuf::from(&path).is_absolute() {

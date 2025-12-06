@@ -129,7 +129,7 @@ fn is_require_stat(stat: LuaStat, require_like_func: &[String]) -> Option<bool> 
         LuaStat::LocalStat(local_stat) => {
             let exprs = local_stat.get_value_exprs();
             for expr in exprs {
-                if is_require_expr(expr, require_like_func).unwrap_or(false) {
+                if is_require_expr(expr, require_like_func, 0).unwrap_or(false) {
                     return Some(true);
                 }
             }
@@ -137,14 +137,14 @@ fn is_require_stat(stat: LuaStat, require_like_func: &[String]) -> Option<bool> 
         LuaStat::AssignStat(assign_stat) => {
             let (_, exprs) = assign_stat.get_var_and_expr_list();
             for expr in exprs {
-                if is_require_expr(expr, require_like_func).unwrap_or(false) {
+                if is_require_expr(expr, require_like_func, 0).unwrap_or(false) {
                     return Some(true);
                 }
             }
         }
         LuaStat::CallExprStat(call_expr_stat) => {
             let expr = call_expr_stat.get_call_expr()?;
-            if is_require_expr(expr.into(), require_like_func).unwrap_or(false) {
+            if is_require_expr(expr.into(), require_like_func, 0).unwrap_or(false) {
                 return Some(true);
             }
         }
@@ -154,15 +154,38 @@ fn is_require_stat(stat: LuaStat, require_like_func: &[String]) -> Option<bool> 
     Some(false)
 }
 
-fn is_require_expr(expr: LuaExpr, require_like_func: &[String]) -> Option<bool> {
-    if let LuaExpr::CallExpr(call_expr) = expr {
-        let name = call_expr.get_prefix_expr()?;
-        if let LuaExpr::NameExpr(name_expr) = name {
-            let name = name_expr.get_name_text()?;
-            if require_like_func.contains(&name.to_string()) || name == "require" {
+fn is_require_expr(expr: LuaExpr, require_like_func: &[String], depth: usize) -> Option<bool> {
+    if depth > 5 {
+        return Some(false);
+    }
+    match expr {
+        LuaExpr::CallExpr(call_expr) => {
+            let name = call_expr.get_prefix_expr()?;
+            match name {
+                LuaExpr::NameExpr(name_expr) => {
+                    let name = name_expr.get_name_text()?;
+                    if require_like_func.contains(&name.to_string()) || name == "require" {
+                        return Some(true);
+                    }
+                }
+                LuaExpr::CallExpr(prefix_call_expr) => {
+                    if is_require_expr(prefix_call_expr.into(), require_like_func, depth + 1)
+                        .unwrap_or(false)
+                    {
+                        return Some(true);
+                    }
+                }
+                _ => {}
+            }
+        }
+        LuaExpr::IndexExpr(index_expr) => {
+            if is_require_expr(index_expr.get_prefix_expr()?, require_like_func, depth + 1)
+                .unwrap_or(false)
+            {
                 return Some(true);
             }
         }
+        _ => {}
     }
 
     Some(false)

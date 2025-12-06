@@ -149,6 +149,7 @@ pub fn infer_member_by_member_key(
 ) -> InferResult {
     match &prefix_type {
         LuaType::Table | LuaType::Any | LuaType::Unknown => Ok(LuaType::Any),
+        LuaType::Nil => Ok(LuaType::Never),
         LuaType::TableConst(id) => infer_table_member(db, cache, id.clone(), index_expr),
         LuaType::String
         | LuaType::Io
@@ -189,6 +190,24 @@ pub fn infer_member_by_member_key(
         LuaType::Namespace(ns) => infer_namespace_member(db, cache, ns, index_expr),
         LuaType::Array(array_type) => infer_array_member(db, cache, array_type, index_expr),
         LuaType::TplRef(tpl) => infer_tpl_ref_member(db, cache, tpl, index_expr, infer_guard),
+        LuaType::ModuleRef(file_id) => {
+            let module_info = db.get_module_index().get_module(*file_id);
+            if let Some(module_info) = module_info {
+                if let Some(export_type) = &module_info.export_type {
+                    return infer_member_by_member_key(
+                        db,
+                        cache,
+                        export_type,
+                        index_expr,
+                        infer_guard,
+                    );
+                } else {
+                    return Err(InferFailReason::UnResolveModuleExport(*file_id));
+                }
+            }
+
+            Err(InferFailReason::FieldNotFound)
+        }
         _ => Err(InferFailReason::FieldNotFound),
     }
 }
@@ -665,7 +684,9 @@ fn infer_union_member(
             &infer_guard.fork(),
         );
         if let Ok(typ) = result {
-            member_types.push(typ);
+            if !typ.is_never() {
+                member_types.push(typ);
+            }
         } else {
             member_types.push(LuaType::Nil);
         }
@@ -817,6 +838,24 @@ pub fn infer_member_by_operator(
         LuaType::Instance(inst) => {
             let base = inst.get_base();
             infer_member_by_operator(db, cache, base, index_expr, infer_guard)
+        }
+        LuaType::ModuleRef(file_id) => {
+            let module_info = db.get_module_index().get_module(*file_id);
+            if let Some(module_info) = module_info {
+                if let Some(export_type) = &module_info.export_type {
+                    return infer_member_by_operator(
+                        db,
+                        cache,
+                        export_type,
+                        index_expr,
+                        infer_guard,
+                    );
+                } else {
+                    return Err(InferFailReason::UnResolveModuleExport(*file_id));
+                }
+            }
+
+            Err(InferFailReason::FieldNotFound)
         }
         _ => Err(InferFailReason::FieldNotFound),
     }

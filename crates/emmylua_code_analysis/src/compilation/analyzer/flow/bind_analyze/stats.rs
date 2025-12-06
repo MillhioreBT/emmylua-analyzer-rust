@@ -1,7 +1,7 @@
 use emmylua_parser::{
     BinaryOperator, LuaAssignStat, LuaAst, LuaAstNode, LuaBlock, LuaBreakStat, LuaCallArgList,
     LuaCallExprStat, LuaDoStat, LuaExpr, LuaForRangeStat, LuaForStat, LuaFuncStat, LuaGotoStat,
-    LuaIfStat, LuaLabelStat, LuaLocalStat, LuaRepeatStat, LuaReturnStat, LuaWhileStat,
+    LuaIfStat, LuaLabelStat, LuaLocalStat, LuaRepeatStat, LuaReturnStat, LuaVarExpr, LuaWhileStat,
 };
 
 use crate::{
@@ -366,8 +366,20 @@ pub fn bind_if_stat(binder: &mut FlowBinder, if_stat: LuaIfStat, current: FlowId
 }
 
 pub fn bind_func_stat(binder: &mut FlowBinder, func_stat: LuaFuncStat, current: FlowId) -> FlowId {
-    bind_each_child(binder, LuaAst::LuaFuncStat(func_stat), current);
-    current
+    let Some(func_name) = func_stat.get_func_name() else {
+        return current; // If there's no function name, just return the current flow
+    };
+
+    bind_each_child(binder, LuaAst::LuaFuncStat(func_stat.clone()), current);
+    let LuaVarExpr::NameExpr(_) = func_name else {
+        return current; // If the function name is not a simple name, just return the current flow
+    };
+
+    let func_kind = FlowNodeKind::ImplFunc(func_stat.to_ptr());
+    let flow_id = binder.create_node(func_kind);
+    binder.add_antecedent(flow_id, current);
+
+    flow_id
 }
 
 pub fn bind_local_func_stat(

@@ -75,3 +75,29 @@ pub fn build_add_doc_tag(
 
     Some(())
 }
+
+pub fn build_preferred_local_alias_fix(
+    semantic_model: &SemanticModel,
+    actions: &mut Vec<CodeActionOrCommand>,
+    range: Range,
+    data: &Option<serde_json::Value>,
+) -> Option<()> {
+    let alias_name = data.as_ref()?.get("preferredAlias")?.as_str()?;
+    let document = semantic_model.get_document();
+    let text_edit = TextEdit {
+        range,
+        new_text: alias_name.to_string(),
+    };
+
+    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+        title: t!("Replace with local alias '%{name}'", name = alias_name).to_string(),
+        kind: Some(CodeActionKind::QUICKFIX),
+        edit: Some(WorkspaceEdit {
+            changes: Some(HashMap::from([(document.get_uri(), vec![text_edit])])),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }));
+
+    Some(())
+}

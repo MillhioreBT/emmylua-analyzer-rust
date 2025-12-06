@@ -17,11 +17,15 @@ use rowan::NodeOrToken;
 
 use rowan::TokenAtOffset;
 
+use crate::context::ClientId;
 use crate::handlers::completion::get_index_alias_name;
 use crate::handlers::definition::compare_function_types;
 use crate::handlers::inlay_hint::build_function_hint::{build_closure_hint, build_label_parts};
 
-pub fn build_inlay_hints(semantic_model: &SemanticModel) -> Option<Vec<InlayHint>> {
+pub fn build_inlay_hints(
+    semantic_model: &SemanticModel,
+    client_id: ClientId,
+) -> Option<Vec<InlayHint>> {
     let mut result = Vec::new();
     let root = semantic_model.get_root();
     for node in root.clone().descendants::<LuaAst>() {
@@ -39,6 +43,9 @@ pub fn build_inlay_hints(semantic_model: &SemanticModel) -> Option<Vec<InlayHint
                 build_local_name_hint(semantic_model, &mut result, local_name);
             }
             LuaAst::LuaFuncStat(func_stat) => {
+                if client_id.is_intellij() {
+                    continue;
+                }
                 build_func_stat_override_hint(semantic_model, &mut result, func_stat);
             }
             LuaAst::LuaIndexExpr(index_expr) => {
@@ -426,7 +433,7 @@ fn build_func_stat_override_hint(
     Some(())
 }
 
-fn get_super_member_id(
+pub fn get_super_member_id(
     semantic_model: &SemanticModel,
     super_type: LuaType,
     member_key: &LuaMemberKey,
@@ -449,7 +456,7 @@ fn get_super_member_id(
     None
 }
 
-fn get_override_lsp_location(
+pub fn get_override_lsp_location(
     semantic_model: &SemanticModel,
     file_id: FileId,
     syntax_id: LuaSyntaxId,
@@ -543,7 +550,7 @@ fn set_meta_call_part(
         ("new".to_string(), call_expr.get_range(), Some(true))
     } else {
         (
-            "⚡".to_string(),
+            ":call".to_string(),
             call_expr.get_prefix_expr()?.get_range(),
             None,
         )

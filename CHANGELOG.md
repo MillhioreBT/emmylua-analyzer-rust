@@ -2,58 +2,129 @@
 
 *All notable changes to the EmmyLua Analyzer Rust project will be documented in this file.*
 
----
-## [0.17.0] - Unreleased
+## [0.18.0] - 2025-12-5
 
-### 🔧 Changed
-- **Refactor IndexAliasName**: 删除原先的索引别名实现(`-- [IndexAliasName]`), 现在使用`---@[index_alias("name")]`
-- **Refactor ClassDefaultCall**: 删除配置项`runtime.class_default_call`, 转为使用`---@[constructor("<constructor_method_name>")]`
+An experimental Lua 5.4 interpreter implemented in Rust: https://github.com/CppCXY/lua-rs
 
 ### ✨ Added
-- **Attribute**: 实现了新的特性`---@attribute`，用于定义附加元数据，内置多个特性：
+
+- **Type narrowing with union types using field checks**: Changed the behavior when using a field of a union type in an `if` statement for type narrowing. Now, if the field exists in some types of the union but not in others, the types without that field will be excluded from the narrowed type. For example:
 ```lua
---- Deprecated. Receives an optional message parameter.
+local a --- @type string|{foo:boolean, bar:string}
+
+if a.foo then
+  local _ = a.bar -- a will be narrowed to {foo:boolean, bar:string}
+end
+```
+- **Support generic in @field**: You can now use declaration generic type in `@field` annotations. For example:
+```lua
+---@class GetType
+---@field get_type fun<T>(name:`T`): T
+local MyClass = {}
+
+local d = MyClass.get_type("Car") -- d: "Car"
+```
+
+### 🔧 Changed
+
+- **Refactor Document Symbols**: Refactored the `textDocument/documentSymbol` request to improve performance and accuracy. The new implementation provides better handling of nested symbols and improves the overall structure of the returned symbol tree.
+
+
+### 🐛 Fixed
+- **Fix Lazyvim.dev integration issue**: Fixed an issue where Lazyvim.dev integration did not work correctly due to ignore `workspace/didConfiguration` changes.
+- **Fix Completion**: Fixed an issue where certain completions were not being suggested, like:
+`Partial<Type>`
+- **Fix nil propagation in consecutive field access**: Fixed an issue where, during consecutive field access, if a previous field could be nil, subsequent fields would incorrectly propagate the nil type. For example:
+```lua
+local a --- @type { foo? : { bar: { baz: number } } }
+
+local b = a.foo.bar -- a.foo may be nil (correct)
+
+local _ = b.baz -- b is number
+```
+
+
+
+---
+## [0.17.0] - 2025-11-7
+### 🔧 Changed
+- **Refactor IndexAliasName**: Removed the original index alias implementation (`-- [IndexAliasName]`), now use `---@[index_alias("name")]`.
+- **Refactor ClassDefaultCall**: Removed the configuration item `runtime.class_default_call`, now use `---@[constructor("<constructor_method_name>")]`.
+- **Rename ParamTypeNotMatch to ParamTypeMismatch**: Renamed the diagnostic `ParamTypeNotMatch` to `ParamTypeMismatch` for better clarity.
+- **Optimize comment parsing logic**: Comments now preserve leading spaces at the start of each line, maintaining the original formatting as much as possible when returned to the LSP client.
+
+
+### ✨ Added
+- **Attribute**: Introduced the new feature `---@attribute` for defining additional metadata, with several built-in attributes:
+```lua
+--- Deprecated. Accepts an optional message parameter.
 ---@attribute deprecated(message: string?)
 
---- Language Server Performance Optimization Items.
+--- Language Server Optimization Items.
 ---
---- Receives a parameter, the options are:
---- - `check_table_field` - Skip the assign check for table fields. It is recommended to use this option for all large configuration tables.
----@attribute lsp_perf_optim(code: "check_table_field"|string)
+--- Parameters:
+--- - `check_table_field`: Skips assignment checks for table fields. Recommended for large configuration tables.
+--- - `delayed_definition`: Indicates the variable type is determined by the first assignment.
+---   Only valid for `local` declarations without an initial value.
+---@attribute lsp_optimization(code: "check_table_field"|"delayed_definition")
 
---- Index field alias, will be displayed in `hint` and `completion`.
+--- Index field alias, displayed in `hint` and `completion`.
 ---
---- Receives a string parameter for the alias name.
+--- Accepts a string parameter for the alias name.
 ---@attribute index_alias(name: string)
 
---- This attribute must be applied to function parameters, and the function parameter's type must be a string template generic,
---- used to specify the default constructor of a class.
+--- This attribute must be applied to function parameters, and the parameter type must be a string template generic.
+--- Used to specify the default constructor of a class.
 ---
 --- Parameters:
---- - `name` - The name of the method as a constructor.
---- - `root_class` - Used to mark the root class, will implicitly inherit this class, such as `System.Object` in c#. Defaults to empty.
---- - `strip_self` - Whether the `self` parameter can be omitted when calling the constructor, defaults to `true`
---- - `return_self` - Whether the constructor is forced to return `self`, defaults to `true`
+--- - `name`: The method name as a constructor.
+--- - `root_class`: Marks the root class, will be implicitly inherited, e.g., `System.Object` in C#. Defaults to empty.
+--- - `strip_self`: Whether the `self` parameter can be omitted when calling the constructor, defaults to `true`.
+--- - `return_self`: Whether the constructor is forced to return `self`, defaults to `true`.
 ---@attribute constructor(name: string, root_class: string?, strip_self: boolean?, return_self: boolean?)
 
---- Associates `getter` and `setter` methods with a field. Currently provides only definition navigation functionality,
---- and the target methods must reside within the same class.
+--- Associates `getter` and `setter` methods with a field. Currently only provides definition navigation functionality.
+--- The target methods must be within the same class.
 ---
 --- Parameters:
---- - convention: Naming convention, defaults to `camelCase`. Implicitly adds `get` and `set` prefixes. eg: `_age` -> `getAge`, `setAge`.
---- - getter: Getter method name. Takes precedence over `convention`.
---- - setter: Setter method name. Takes precedence over `convention`.
+--- - `convention`: Naming convention, defaults to `camelCase`. Implicitly adds `get` and `set` prefixes. e.g., `_age` -> `getAge`, `setAge`.
+--- - `getter`: Getter method name. Takes precedence over `convention`.
+--- - `setter`: Setter method name. Takes precedence over `convention`.
 ---@attribute field_accessor(convention: "camelCase"|"PascalCase"|"snake_case"|nil, getter: string?, setter: string?)
 ```
 
-使用语法为 `---@[attribute_name_1(arg...), attribute_name_2(arg...), ...]`, 可以同时使用多个特性, 示例：
+The syntax is `---@[attribute_name_1(arg...), attribute_name_2(arg...), ...]`, and multiple attributes can be used simultaneously. Example:
 ```lua
 ---@class A
----@[deprecated] # 如果特性可以省略参数, 则可以省略`()`
----@field b string # b 此时被标记为弃用
+---@[deprecated] # If the attribute can omit parameters, `()` can be omitted
+---@field b string # b is now marked as deprecated
 ---@[index_alias("b")]
----@field [1] string # 此时在提示和补全中会显示为 `b`
+---@field [1] string # This will be shown as `b` in hints and completion
 ```
+- **More Generic Type**: support generic like:
+```lua
+--- Get the parameters of a function as a tuple
+---@alias Parameters<T extends function> T extends (fun(...: infer P): any) and P or never
+
+--- Get the parameters of a constructor as a tuple
+---@alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
+
+--- Make all properties in T optional
+---@alias Partial<T> { [P in keyof T]?: T[P]; }
+```
+
+- **Support gutter request for intellij**: Added support for gutter requests in IntelliJ, allowing for better integration with the IDE's features.
+
+### 🐛 Fixed
+- **Fix completion**: Fixed an issue where certain completions were not being suggested, like:
+```lua
+if not self:<|>
+```
+- **Fix '~' Replace error in config**: Fixed an issue where using '~' in configuration paths did not correctly expand to the user's home directory.
+- **Fix enum completion issue**: Fixed an issue where enum members were not being suggested in completions.
+- **Fix workspace load status bar**: Fixed an issue where the workspace load status bar always display in empty lua workspace.
+- **Fix some condition narrow**: Fixed some issues with condition-based type narrowing not working as expected.
+
 
 ## [0.16.0] - 2025-10-17
 ### ✨ Added

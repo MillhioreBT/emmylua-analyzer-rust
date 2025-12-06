@@ -5,7 +5,6 @@ use fern::Dispatch;
 use log::LevelFilter;
 use std::{
     path::{Path, PathBuf},
-    str::FromStr,
     sync::Arc,
 };
 
@@ -96,7 +95,7 @@ pub fn load_workspace(
     emmyrc.pre_process_emmyrc(&config_root);
 
     for lib in &emmyrc.workspace.library {
-        workspace_folders.push(PathBuf::from_str(lib).unwrap());
+        workspace_folders.push(PathBuf::from(lib));
     }
 
     let mut analysis = EmmyLuaAnalysis::new();
@@ -106,7 +105,7 @@ pub fn load_workspace(
     }
 
     for root in &emmyrc.workspace.workspace_roots {
-        analysis.add_main_workspace(PathBuf::from_str(root).unwrap());
+        analysis.add_main_workspace(PathBuf::from(root));
     }
 
     analysis.update_config(Arc::new(emmyrc));

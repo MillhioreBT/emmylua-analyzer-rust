@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use itertools::Itertools;
 
 use crate::{
-    AsyncState, DbIndex, GenericTpl, LuaAliasCallType, LuaFunctionType, LuaGenericType,
-    LuaInstanceType, LuaIntersectionType, LuaMemberKey, LuaMemberOwner, LuaObjectType,
-    LuaSignatureId, LuaStringTplType, LuaTupleType, LuaType, LuaTypeDeclId, LuaUnionType,
-    TypeSubstitutor, VariadicType,
+    AsyncState, DbIndex, GenericTpl, LuaAliasCallType, LuaConditionalType, LuaFunctionType,
+    LuaGenericType, LuaInstanceType, LuaIntersectionType, LuaMemberKey, LuaMemberOwner,
+    LuaObjectType, LuaSignatureId, LuaStringTplType, LuaTupleType, LuaType, LuaTypeDeclId,
+    LuaUnionType, TypeSubstitutor, VariadicType,
 };
 
 use super::{LuaAliasCallKind, LuaMultiLineUnion};
@@ -107,6 +107,20 @@ pub fn humanize_type(db: &DbIndex, ty: &LuaType, level: RenderLevel) -> String {
         }
         LuaType::ConstTplRef(const_tpl) => humanize_const_tpl_ref_type(const_tpl),
         LuaType::Language(s) => s.to_string(),
+        LuaType::Conditional(c) => humanize_conditional_type(db, c, level),
+        LuaType::ConditionalInfer(s) => s.to_string(),
+        LuaType::Never => "never".to_string(),
+        LuaType::ModuleRef(file_id) => {
+            if let Some(module_info) = db.get_module_index().get_module(*file_id) {
+                humanize_type(
+                    db,
+                    &module_info.export_type.clone().unwrap_or(LuaType::Any),
+                    level,
+                )
+            } else {
+                "module 'unknown'".to_string()
+            }
+        }
         _ => "unknown".to_string(),
     }
 }
@@ -127,13 +141,7 @@ fn humanize_def_type(db: &DbIndex, id: &LuaTypeDeclId, level: RenderLevel) -> St
 
     let generic_names = generic
         .iter()
-        .map(|it| {
-            if it.is_variadic {
-                format!("{}...", it.name)
-            } else {
-                it.name.to_string()
-            }
-        })
+        .map(|it| it.name.to_string())
         .collect::<Vec<_>>()
         .join(", ");
     format!("{}<{}>", full_name, generic_names)
@@ -305,7 +313,8 @@ fn humanize_multi_line_union_type(
         if let Some(description) = description {
             text.push_str(&format!(
                 "    | {} -- {}\n",
-                type_humanize_text, description
+                type_humanize_text,
+                description.replace('\n', " ")
             ));
         } else {
             text.push_str(&format!("    | {}\n", type_humanize_text));
@@ -508,16 +517,16 @@ fn humanize_generic_type(db: &DbIndex, generic: &LuaGenericType, level: RenderLe
         .join(",");
 
     let generic_base = format!("{}<{}>", full_name, generic_inst_params);
-    if (level == RenderLevel::Detailed || level == RenderLevel::Documentation)
-        && type_decl.is_alias()
+    if matches!(
+        level,
+        RenderLevel::Documentation | RenderLevel::CustomDetailed(_) | RenderLevel::Detailed
+    ) && type_decl.is_alias()
     {
         let substituor = TypeSubstitutor::from_type_array(generic.get_params().clone());
         if let Some(origin_type) = type_decl.get_alias_origin(db, Some(&substituor)) {
             // prevent infinite recursion
-            if origin_type.is_function() {
-                let origin_type_str = humanize_type(db, &origin_type, level);
-                return format!("{} = {}", generic_base, origin_type_str);
-            }
+            let origin_type_str = humanize_type(db, &origin_type, level.next_level());
+            return format!("{} = {}", generic_base, origin_type_str);
         }
     }
 
@@ -636,6 +645,18 @@ fn humanize_tpl_ref_type(tpl: &GenericTpl) -> String {
 
 fn humanize_const_tpl_ref_type(const_tpl: &GenericTpl) -> String {
     const_tpl.get_name().to_string()
+}
+
+fn humanize_conditional_type(
+    db: &DbIndex,
+    conditional: &LuaConditionalType,
+    level: RenderLevel,
+) -> String {
+    let check_type = humanize_type(db, conditional.get_condition(), level.next_level());
+    let true_type = humanize_type(db, conditional.get_true_type(), level.next_level());
+    let false_type = humanize_type(db, conditional.get_false_type(), level.next_level());
+
+    format!("{} and {} or {}", check_type, true_type, false_type)
 }
 
 fn humanize_str_tpl_ref_type(str_tpl: &LuaStringTplType) -> String {

@@ -23,17 +23,19 @@ fn parse_docs(p: &mut LuaDocParser) {
     while p.current_token() != LuaTokenKind::TkEof {
         match p.current_token() {
             LuaTokenKind::TkDocStart => {
-                p.set_state(LuaDocLexerState::Tag);
+                p.set_lexer_state(LuaDocLexerState::Tag);
                 p.bump();
                 parse_tag(p);
             }
             LuaTokenKind::TkDocLongStart => {
-                p.set_state(LuaDocLexerState::Tag);
+                p.set_lexer_state(LuaDocLexerState::Tag);
                 p.bump();
                 parse_long_tag(p);
             }
             LuaTokenKind::TkNormalStart => {
-                p.set_state(LuaDocLexerState::NormalDescription);
+                p.set_lexer_state(LuaDocLexerState::NormalDescription);
+                let mut m = p.mark(LuaSyntaxKind::DocDescription);
+
                 p.bump();
 
                 if_token_bump(p, LuaTokenKind::TkWhitespace);
@@ -42,13 +44,24 @@ fn parse_docs(p: &mut LuaDocParser) {
                     p.current_token(),
                     LuaTokenKind::TkDocRegion | LuaTokenKind::TkDocEndRegion
                 ) {
+                    m.undo(p);
+                    p.bump();
+                    m = p.mark(LuaSyntaxKind::DocDescription);
+                }
+
+                while let LuaTokenKind::TkDocDetail
+                | LuaTokenKind::TkEndOfLine
+                | LuaTokenKind::TkWhitespace
+                | LuaTokenKind::TkDocContinue
+                | LuaTokenKind::TkNormalStart = p.current_token()
+                {
                     p.bump();
                 }
 
-                parse_normal_description(p);
+                m.complete(p);
             }
             LuaTokenKind::TkLongCommentStart => {
-                p.set_state(LuaDocLexerState::LongDescription);
+                p.set_lexer_state(LuaDocLexerState::LongDescription);
                 p.bump();
 
                 parse_description(p);
@@ -72,7 +85,7 @@ fn parse_docs(p: &mut LuaDocParser) {
             continue;
         }
 
-        p.set_state(LuaDocLexerState::Init);
+        p.set_lexer_state(LuaDocLexerState::Init);
     }
 }
 
@@ -114,19 +127,4 @@ fn if_token_bump(p: &mut LuaDocParser, token: LuaTokenKind) -> bool {
     } else {
         false
     }
-}
-
-fn parse_normal_description(p: &mut LuaDocParser) {
-    let m = p.mark(LuaSyntaxKind::DocDescription);
-
-    while let LuaTokenKind::TkDocDetail
-    | LuaTokenKind::TkEndOfLine
-    | LuaTokenKind::TkWhitespace
-    | LuaTokenKind::TkDocContinue
-    | LuaTokenKind::TkNormalStart = p.current_token()
-    {
-        p.bump();
-    }
-
-    m.complete(p);
 }

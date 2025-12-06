@@ -299,4 +299,41 @@ mod test {
         "#
         ));
     }
+
+    #[test]
+    fn test_generic_keyof_param_scope() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+                ---@generic T, K extends keyof T
+                ---@param object T
+                ---@param key K
+                ---@return std.RawGet<T, K>
+                function pick(object, key)
+                end
+
+                ---@class Person
+                ---@field name string
+            "#,
+        );
+        assert!(!ws.check_code_for(
+            DiagnosticCode::GenericConstraintMismatch,
+            r#"
+            ---@type Person
+            local person
+
+            pick(person, "abc")
+        "#
+        ));
+
+        assert!(ws.check_code_for(
+            DiagnosticCode::GenericConstraintMismatch,
+            r#"
+            ---@type Person
+            local person
+
+            pick(person, "name")
+        "#
+        ));
+    }
 }

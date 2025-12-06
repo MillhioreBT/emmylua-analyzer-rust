@@ -336,7 +336,7 @@ pub fn substitutor_form_expr(
         let mut substitutor = TypeSubstitutor::new();
         if let LuaType::Generic(generic) = prefix_type {
             for (i, param) in generic.get_params().iter().enumerate() {
-                substitutor.insert_type(GenericTplId::Type(i as u32), param.clone());
+                substitutor.insert_type(GenericTplId::Type(i as u32), param.clone(), true);
             }
             return Some(substitutor);
         } else {

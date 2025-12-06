@@ -15,7 +15,7 @@ use crate::{
     first_param_may_not_self,
 };
 
-use super::{TypeOps, type_decl::LuaTypeDeclId};
+use super::{GenericParam, TypeOps, type_decl::LuaTypeDeclId};
 
 #[derive(Debug, Clone)]
 pub enum LuaType {
@@ -65,6 +65,9 @@ pub enum LuaType {
     Language(ArcIntern<SmolStr>),
     ModuleRef(FileId),
     DocAttribute(Arc<LuaAttributeType>),
+    Conditional(Arc<LuaConditionalType>),
+    ConditionalInfer(ArcIntern<SmolStr>),
+    Mapped(Arc<LuaMappedType>),
 }
 
 impl PartialEq for LuaType {
@@ -116,6 +119,9 @@ impl PartialEq for LuaType {
             (LuaType::Language(a), LuaType::Language(b)) => a == b,
             (LuaType::ModuleRef(a), LuaType::ModuleRef(b)) => a == b,
             (LuaType::DocAttribute(a), LuaType::DocAttribute(b)) => a == b,
+            (LuaType::Conditional(a), LuaType::Conditional(b)) => a == b,
+            (LuaType::ConditionalInfer(a), LuaType::ConditionalInfer(b)) => a == b,
+            (LuaType::Mapped(a), LuaType::Mapped(b)) => a == b,
             _ => false, // 不同变体之间不相等
         }
     }
@@ -171,8 +177,14 @@ impl Hash for LuaType {
                 let ptr = Arc::as_ptr(a);
                 (31, ptr).hash(state)
             }
-            LuaType::TplRef(a) => (32, a).hash(state),
-            LuaType::StrTplRef(a) => (33, a).hash(state),
+            LuaType::TplRef(a) => {
+                let ptr = Arc::as_ptr(a);
+                (32, ptr).hash(state)
+            }
+            LuaType::StrTplRef(a) => {
+                let ptr = Arc::as_ptr(a);
+                (33, ptr).hash(state)
+            }
             LuaType::Variadic(a) => {
                 let ptr = Arc::as_ptr(a);
                 (34, ptr).hash(state)
@@ -192,9 +204,21 @@ impl Hash for LuaType {
                 (44, ptr).hash(state)
             }
             LuaType::Never => 45.hash(state),
-            LuaType::ConstTplRef(a) => (46, a).hash(state),
+            LuaType::ConstTplRef(a) => {
+                let ptr = Arc::as_ptr(a);
+                (46, ptr).hash(state)
+            }
             LuaType::Language(a) => (47, a).hash(state),
             LuaType::ModuleRef(a) => (48, a).hash(state),
+            LuaType::Conditional(a) => {
+                let ptr = Arc::as_ptr(a);
+                (49, ptr).hash(state)
+            }
+            LuaType::ConditionalInfer(a) => (50, a).hash(state),
+            LuaType::Mapped(a) => {
+                let ptr = Arc::as_ptr(a);
+                (51, ptr).hash(state)
+            }
             LuaType::DocAttribute(a) => (52, a).hash(state),
         }
     }
@@ -420,6 +444,8 @@ impl LuaType {
             LuaType::SelfInfer => true,
             LuaType::MultiLineUnion(inner) => inner.contain_tpl(),
             LuaType::TypeGuard(inner) => inner.contain_tpl(),
+            LuaType::Conditional(inner) => inner.contain_tpl(),
+            LuaType::Mapped(_) => true,
             _ => false,
         }
     }
@@ -476,6 +502,10 @@ impl LuaType {
             }
         }
     }
+
+    pub fn is_module_ref(&self) -> bool {
+        matches!(self, LuaType::ModuleRef(_))
+    }
 }
 
 impl TypeVisitTrait for LuaType {
@@ -500,6 +530,7 @@ impl TypeVisitTrait for LuaType {
             }
             LuaType::MultiLineUnion(inner) => inner.visit_type(f),
             LuaType::TypeGuard(inner) => inner.visit_type(f),
+            LuaType::Conditional(inner) => inner.visit_type(f),
             _ => {}
         }
     }
@@ -695,8 +726,11 @@ impl LuaFunctionType {
                             {
                                 return false;
                             }
-
-                            semantic_model.type_check(owner_type, t).is_ok()
+                            if semantic_model.type_check(owner_type, t).is_ok() {
+                                return true;
+                            }
+                            // 如果名称是`self`, 则做更宽泛的检查
+                            name == "self" && semantic_model.type_check(t, owner_type).is_ok()
                         }
                         None => name == "self",
                     }
@@ -1318,19 +1352,23 @@ impl GenericTplId {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericTpl {
     tpl_id: GenericTplId,
     name: ArcIntern<SmolStr>,
-    is_variadic: bool,
+    constraint: Option<LuaType>,
 }
 
 impl GenericTpl {
-    pub fn new(tpl_id: GenericTplId, name: ArcIntern<SmolStr>, is_variadic: bool) -> Self {
+    pub fn new(
+        tpl_id: GenericTplId,
+        name: ArcIntern<SmolStr>,
+        constraint: Option<LuaType>,
+    ) -> Self {
         Self {
             tpl_id,
             name,
-            is_variadic,
+            constraint,
         }
     }
 
@@ -1342,26 +1380,34 @@ impl GenericTpl {
         &self.name
     }
 
-    pub fn is_variadic(&self) -> bool {
-        self.is_variadic
+    pub fn get_constraint(&self) -> Option<&LuaType> {
+        self.constraint.as_ref()
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LuaStringTplType {
     prefix: ArcIntern<String>,
     tpl_id: GenericTplId,
     name: ArcIntern<String>,
     suffix: ArcIntern<String>,
+    constraint: Option<LuaType>,
 }
 
 impl LuaStringTplType {
-    pub fn new(prefix: &str, name: &str, tpl_id: GenericTplId, suffix: &str) -> Self {
+    pub fn new(
+        prefix: &str,
+        name: &str,
+        tpl_id: GenericTplId,
+        suffix: &str,
+        constraint: Option<LuaType>,
+    ) -> Self {
         Self {
             prefix: ArcIntern::new(prefix.to_string()),
             tpl_id,
             name: ArcIntern::new(name.to_string()),
             suffix: ArcIntern::new(suffix.to_string()),
+            constraint,
         }
     }
 
@@ -1379,6 +1425,10 @@ impl LuaStringTplType {
 
     pub fn get_suffix(&self) -> &str {
         &self.suffix
+    }
+
+    pub fn get_constraint(&self) -> Option<&LuaType> {
+        self.constraint.as_ref()
     }
 }
 
@@ -1492,5 +1542,96 @@ impl LuaAttributeType {
 
     pub fn get_params(&self) -> &[(String, Option<LuaType>)] {
         &self.params
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct LuaConditionalType {
+    condition: LuaType,
+    true_type: LuaType,
+    false_type: LuaType,
+    /// infer 参数声明, 这些参数只在 true_type 的作用域内可见
+    infer_params: Vec<GenericParam>,
+    pub has_new: bool,
+}
+
+impl TypeVisitTrait for LuaConditionalType {
+    fn visit_type<F>(&self, f: &mut F)
+    where
+        F: FnMut(&LuaType),
+    {
+        self.condition.visit_type(f);
+        self.true_type.visit_type(f);
+        self.false_type.visit_type(f);
+    }
+}
+
+impl LuaConditionalType {
+    pub fn new(
+        condition: LuaType,
+        true_type: LuaType,
+        false_type: LuaType,
+        infer_params: Vec<GenericParam>,
+        has_new: bool,
+    ) -> Self {
+        Self {
+            condition,
+            true_type,
+            false_type,
+            infer_params,
+            has_new,
+        }
+    }
+
+    pub fn get_condition(&self) -> &LuaType {
+        &self.condition
+    }
+
+    pub fn get_true_type(&self) -> &LuaType {
+        &self.true_type
+    }
+
+    pub fn get_false_type(&self) -> &LuaType {
+        &self.false_type
+    }
+
+    pub fn get_infer_params(&self) -> &[GenericParam] {
+        &self.infer_params
+    }
+
+    pub fn contain_tpl(&self) -> bool {
+        self.condition.contain_tpl()
+            || self.true_type.contain_tpl()
+            || self.false_type.contain_tpl()
+    }
+}
+
+impl From<LuaConditionalType> for LuaType {
+    fn from(t: LuaConditionalType) -> Self {
+        LuaType::Conditional(Arc::new(t))
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct LuaMappedType {
+    pub param: (GenericTplId, GenericParam),
+    pub value: LuaType,
+    pub is_readonly: bool,
+    pub is_optional: bool,
+}
+
+impl LuaMappedType {
+    pub fn new(
+        param: (GenericTplId, GenericParam),
+        value: LuaType,
+        is_readonly: bool,
+        is_optional: bool,
+    ) -> Self {
+        Self {
+            param,
+            value,
+            is_readonly,
+            is_optional,
+        }
     }
 }

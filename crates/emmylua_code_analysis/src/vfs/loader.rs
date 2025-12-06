@@ -62,7 +62,7 @@ pub fn load_workspace_files(
         .filter(|e| e.file_type().is_file())
     {
         let path = entry.path();
-        let relative_path = path.strip_prefix(root).expect("paths are descendants");
+        let relative_path = path.strip_prefix(root)?;
         if exclude_set.is_match(relative_path) {
             continue;
         }

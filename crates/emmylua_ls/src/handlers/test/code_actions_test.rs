@@ -23,27 +23,7 @@ mod tests {
             "#,
             vec![
                 VirtualCodeAction {
-                    title: "Disable current line diagnostic (need-check-nil)".to_string()
-                },
-                VirtualCodeAction {
-                    title: "Disable all diagnostics in current file (need-check-nil)".to_string()
-                },
-                VirtualCodeAction {
-                    title:
-                        "Disable all diagnostics in current project (need-check-nil)".to_string()
-                },
-                VirtualCodeAction {
                     title: "use cast to remove nil".to_string()
-                },
-                VirtualCodeAction {
-                    title: "Disable current line diagnostic (need-check-nil)".to_string()
-                },
-                VirtualCodeAction {
-                    title: "Disable all diagnostics in current file (need-check-nil)".to_string()
-                },
-                VirtualCodeAction {
-                    title:
-                        "Disable all diagnostics in current project (need-check-nil)".to_string()
                 },
                 VirtualCodeAction {
                     title: "Disable current line diagnostic (need-check-nil)".to_string()
@@ -67,7 +47,7 @@ mod tests {
                 VirtualCodeAction {
                     title:
                         "Disable all diagnostics in current project (need-check-nil)".to_string()
-                },
+                }
             ]
         ));
 

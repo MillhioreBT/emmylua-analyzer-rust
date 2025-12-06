@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub fn check_intersection_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_intersection: &LuaIntersectionType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -61,7 +61,7 @@ pub fn check_intersection_type_compact(
 }
 
 fn check_intersection_type_compact_table(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_intersection: &LuaIntersectionType,
     table_owner: LuaMemberOwner,
     check_guard: TypeCheckGuard,
@@ -85,7 +85,7 @@ fn check_intersection_type_compact_table(
 }
 
 fn check_intersection_type_compact_intersection(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_intersection: &LuaIntersectionType,
     compact_intersection: &LuaIntersectionType,
     check_guard: TypeCheckGuard,

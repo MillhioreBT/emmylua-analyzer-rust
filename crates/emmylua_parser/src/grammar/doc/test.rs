@@ -32,17 +32,17 @@ Syntax(Chunk)@0..83
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..19
-      Token(TkNormalStart)@9..11 "--"
-      Token(TkWhitespace)@11..12 " "
-      Syntax(DocDescription)@12..19
+      Syntax(DocDescription)@9..19
+        Token(TkNormalStart)@9..11 "--"
+        Token(TkWhitespace)@11..12 " "
         Token(TkDocDetail)@12..19 "comment"
     Token(TkEndOfLine)@19..20 "\n"
     Token(TkEndOfLine)@20..21 "\n"
     Token(TkWhitespace)@21..29 "        "
     Syntax(Comment)@29..74
-      Token(TkNormalStart)@29..31 "--"
-      Token(TkWhitespace)@31..32 " "
-      Syntax(DocDescription)@32..74
+      Syntax(DocDescription)@29..74
+        Token(TkNormalStart)@29..31 "--"
+        Token(TkWhitespace)@31..32 " "
         Token(TkDocDetail)@32..38 "hihihi"
         Token(TkEndOfLine)@38..39 "\n"
         Token(TkWhitespace)@39..47 "        "
@@ -76,8 +76,8 @@ Syntax(Chunk)@0..163
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..120
-      Token(TkNormalStart)@9..15 "---   "
-      Syntax(DocDescription)@15..22
+      Syntax(DocDescription)@9..22
+        Token(TkNormalStart)@9..15 "---   "
         Token(TkDocDetail)@15..22 "hiihihi"
       Token(TkEndOfLine)@22..23 "\n"
       Token(TkWhitespace)@23..31 "        "
@@ -1682,14 +1682,14 @@ Syntax(Chunk)@0..63
         Token(TkInt)@19..22 "123"
     Token(TkWhitespace)@22..23 " "
     Syntax(Comment)@23..34
-      Token(TkNormalStart)@23..25 "--"
-      Syntax(DocDescription)@25..34
+      Syntax(DocDescription)@23..34
+        Token(TkNormalStart)@23..25 "--"
         Token(TkDocDetail)@25..34 "comment 1"
     Token(TkEndOfLine)@34..35 "\n"
     Token(TkWhitespace)@35..43 "        "
     Syntax(Comment)@43..54
-      Token(TkNormalStart)@43..45 "--"
-      Syntax(DocDescription)@45..54
+      Syntax(DocDescription)@43..54
+        Token(TkNormalStart)@43..45 "--"
         Token(TkDocDetail)@45..54 "comment 2"
     Token(TkEndOfLine)@54..55 "\n"
     Token(TkWhitespace)@55..63 "        "
@@ -2009,37 +2009,32 @@ Syntax(Chunk)@0..90
     #[test]
     fn test_region_with_comment() {
         let code = r#"
-        -----------
         --region hhhh
         --comment
         --endregion
         "#;
 
         let result = r#"
-Syntax(Chunk)@0..89
-  Syntax(Block)@0..89
+Syntax(Chunk)@0..69
+  Syntax(Block)@0..69
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
-    Syntax(Comment)@9..80
-      Token(TkNormalStart)@9..12 "---"
-      Syntax(DocDescription)@12..31
-        Token(TkDocDetail)@12..20 "--------"
-        Token(TkEndOfLine)@20..21 "\n"
-        Token(TkWhitespace)@21..29 "        "
-        Token(TkNormalStart)@29..31 "--"
-      Token(TkDocTrivia)@31..37 "region"
-      Token(TkDocTrivia)@37..42 " hhhh"
-      Token(TkEndOfLine)@42..43 "\n"
-      Token(TkWhitespace)@43..51 "        "
-      Token(TkNormalStart)@51..53 "--"
-      Syntax(DocDescription)@53..71
-        Token(TkDocDetail)@53..60 "comment"
-        Token(TkEndOfLine)@60..61 "\n"
-        Token(TkWhitespace)@61..69 "        "
-        Token(TkNormalStart)@69..71 "--"
-      Token(TkDocEndRegion)@71..80 "endregion"
-    Token(TkEndOfLine)@80..81 "\n"
-    Token(TkWhitespace)@81..89 "        "
+    Syntax(Comment)@9..60
+      Token(TkNormalStart)@9..11 "--"
+      Token(TkDocRegion)@11..17 "region"
+      Token(TkWhitespace)@17..18 " "
+      Syntax(DocDescription)@18..51
+        Token(TkDocDetail)@18..22 "hhhh"
+        Token(TkEndOfLine)@22..23 "\n"
+        Token(TkWhitespace)@23..31 "        "
+        Token(TkNormalStart)@31..33 "--"
+        Token(TkDocDetail)@33..40 "comment"
+        Token(TkEndOfLine)@40..41 "\n"
+        Token(TkWhitespace)@41..49 "        "
+        Token(TkNormalStart)@49..51 "--"
+      Token(TkDocEndRegion)@51..60 "endregion"
+    Token(TkEndOfLine)@60..61 "\n"
+    Token(TkWhitespace)@61..69 "        "
         "#;
 
         assert_ast_eq!(code, result);
@@ -2489,8 +2484,8 @@ Syntax(Chunk)@0..118
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..93
-      Token(TkNormalStart)@9..13 "--- "
-      Syntax(DocDescription)@13..93
+      Syntax(DocDescription)@9..93
+        Token(TkNormalStart)@9..13 "--- "
         Token(TkDocDetail)@13..27 "Note: ajfioiof"
         Token(TkEndOfLine)@27..28 "\n"
         Token(TkWhitespace)@28..36 "        "
@@ -2514,7 +2509,6 @@ Syntax(Chunk)@0..118
     Token(TkEndOfLine)@109..110 "\n"
     Token(TkWhitespace)@110..118 "        "
         "#;
-
         assert_ast_eq!(code, result);
     }
 
@@ -2691,8 +2685,8 @@ Syntax(Chunk)@0..263
     Token(TkEndOfLine)@0..1 "\n"
     Token(TkWhitespace)@1..9 "        "
     Syntax(Comment)@9..90
-      Token(TkNormalStart)@9..13 "--- "
-      Syntax(DocDescription)@13..19
+      Syntax(DocDescription)@9..19
+        Token(TkNormalStart)@9..13 "--- "
         Token(TkDocDetail)@13..19 "hihiih"
       Token(TkEndOfLine)@19..20 "\n"
       Token(TkWhitespace)@20..28 "        "
@@ -2933,6 +2927,460 @@ Syntax(Chunk)@0..105
     Token(TkEndOfLine)@96..97 "\n"
     Token(TkWhitespace)@97..105 "        "
         "#;
+        assert_ast_eq!(code, result);
+    }
+
+    #[test]
+    fn test_infer_keyword() {
+        // 只有在 extends 后的 infer 才能被视为关键词
+        {
+            let code = r#"
+        ---@alias Foo infer
+        "#;
+            let result = r#"
+Syntax(Chunk)@0..37
+  Syntax(Block)@0..37
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..28
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagAlias)@13..28
+        Token(TkTagAlias)@13..18 "alias"
+        Token(TkWhitespace)@18..19 " "
+        Token(TkName)@19..22 "Foo"
+        Token(TkWhitespace)@22..23 " "
+        Syntax(TypeName)@23..28
+          Token(TkName)@23..28 "infer"
+    Token(TkEndOfLine)@28..29 "\n"
+    Token(TkWhitespace)@29..37 "        "
+"#;
+            assert_ast_eq!(code, result);
+        }
+        {
+            let code = r#"---@alias ConstructorParameters<T> T extends infer P and P or unknown"#;
+            let result = r#"
+Syntax(Chunk)@0..69
+  Syntax(Block)@0..69
+    Syntax(Comment)@0..69
+      Token(TkDocStart)@0..4 "---@"
+      Syntax(DocTagAlias)@4..69
+        Token(TkTagAlias)@4..9 "alias"
+        Token(TkWhitespace)@9..10 " "
+        Token(TkName)@10..31 "ConstructorParameters"
+        Syntax(DocGenericDeclareList)@31..34
+          Token(TkLt)@31..32 "<"
+          Syntax(DocGenericParameter)@32..33
+            Token(TkName)@32..33 "T"
+          Token(TkGt)@33..34 ">"
+        Token(TkWhitespace)@34..35 " "
+        Syntax(TypeConditional)@35..69
+          Syntax(TypeBinary)@35..52
+            Syntax(TypeName)@35..36
+              Token(TkName)@35..36 "T"
+            Token(TkWhitespace)@36..37 " "
+            Token(TkDocExtends)@37..44 "extends"
+            Token(TkWhitespace)@44..45 " "
+            Syntax(TypeInfer)@45..52
+              Token(TkDocInfer)@45..50 "infer"
+              Token(TkWhitespace)@50..51 " "
+              Syntax(DocGenericParameter)@51..52
+                Token(TkName)@51..52 "P"
+          Token(TkWhitespace)@52..53 " "
+          Token(TkAnd)@53..56 "and"
+          Token(TkWhitespace)@56..57 " "
+          Syntax(TypeName)@57..58
+            Token(TkName)@57..58 "P"
+          Token(TkWhitespace)@58..59 " "
+          Token(TkOr)@59..61 "or"
+          Token(TkWhitespace)@61..62 " "
+          Syntax(TypeName)@62..69
+            Token(TkName)@62..69 "unknown"
+            "#;
+            assert_ast_eq!(code, result);
+        }
+    }
+
+    #[test]
+    fn test_alias_conditional_infer() {
+        let code = r#"
+        ---@alias ConstructorParameters<T> T extends (fun(infer: infer P): any) and P or unknown
+        "#;
+
+        let result = r#"
+Syntax(Chunk)@0..106
+  Syntax(Block)@0..106
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..97
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagAlias)@13..97
+        Token(TkTagAlias)@13..18 "alias"
+        Token(TkWhitespace)@18..19 " "
+        Token(TkName)@19..40 "ConstructorParameters"
+        Syntax(DocGenericDeclareList)@40..43
+          Token(TkLt)@40..41 "<"
+          Syntax(DocGenericParameter)@41..42
+            Token(TkName)@41..42 "T"
+          Token(TkGt)@42..43 ">"
+        Token(TkWhitespace)@43..44 " "
+        Syntax(TypeConditional)@44..97
+          Syntax(TypeBinary)@44..80
+            Syntax(TypeName)@44..45
+              Token(TkName)@44..45 "T"
+            Token(TkWhitespace)@45..46 " "
+            Token(TkDocExtends)@46..53 "extends"
+            Token(TkWhitespace)@53..54 " "
+            Token(TkLeftParen)@54..55 "("
+            Syntax(TypeFun)@55..79
+              Token(TkName)@55..58 "fun"
+              Token(TkLeftParen)@58..59 "("
+              Syntax(DocTypedParameter)@59..73
+                Token(TkName)@59..64 "infer"
+                Token(TkColon)@64..65 ":"
+                Token(TkWhitespace)@65..66 " "
+                Syntax(TypeInfer)@66..73
+                  Token(TkDocInfer)@66..71 "infer"
+                  Token(TkWhitespace)@71..72 " "
+                  Syntax(DocGenericParameter)@72..73
+                    Token(TkName)@72..73 "P"
+              Token(TkRightParen)@73..74 ")"
+              Token(TkColon)@74..75 ":"
+              Token(TkWhitespace)@75..76 " "
+              Syntax(DocTypeList)@76..79
+                Syntax(DocNamedReturnType)@76..79
+                  Syntax(TypeName)@76..79
+                    Token(TkName)@76..79 "any"
+            Token(TkRightParen)@79..80 ")"
+          Token(TkWhitespace)@80..81 " "
+          Token(TkAnd)@81..84 "and"
+          Token(TkWhitespace)@84..85 " "
+          Syntax(TypeName)@85..86
+            Token(TkName)@85..86 "P"
+          Token(TkWhitespace)@86..87 " "
+          Token(TkOr)@87..89 "or"
+          Token(TkWhitespace)@89..90 " "
+          Syntax(TypeName)@90..97
+            Token(TkName)@90..97 "unknown"
+    Token(TkEndOfLine)@97..98 "\n"
+    Token(TkWhitespace)@98..106 "        "
+"#;
+
+        assert_ast_eq!(code, result);
+    }
+
+    #[test]
+    fn test_alias_nested_conditional() {
+        let code = r#"
+        ---@alias IsFortyTwo<T> T extends number and T extends 42 and true or false or false
+        "#;
+
+        let result = r#"
+Syntax(Chunk)@0..102
+  Syntax(Block)@0..102
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..93
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagAlias)@13..93
+        Token(TkTagAlias)@13..18 "alias"
+        Token(TkWhitespace)@18..19 " "
+        Token(TkName)@19..29 "IsFortyTwo"
+        Syntax(DocGenericDeclareList)@29..32
+          Token(TkLt)@29..30 "<"
+          Syntax(DocGenericParameter)@30..31
+            Token(TkName)@30..31 "T"
+          Token(TkGt)@31..32 ">"
+        Token(TkWhitespace)@32..33 " "
+        Syntax(TypeConditional)@33..93
+          Syntax(TypeBinary)@33..49
+            Syntax(TypeName)@33..34
+              Token(TkName)@33..34 "T"
+            Token(TkWhitespace)@34..35 " "
+            Token(TkDocExtends)@35..42 "extends"
+            Token(TkWhitespace)@42..43 " "
+            Syntax(TypeName)@43..49
+              Token(TkName)@43..49 "number"
+          Token(TkWhitespace)@49..50 " "
+          Token(TkAnd)@50..53 "and"
+          Token(TkWhitespace)@53..54 " "
+          Syntax(TypeConditional)@54..84
+            Syntax(TypeBinary)@54..66
+              Syntax(TypeName)@54..55
+                Token(TkName)@54..55 "T"
+              Token(TkWhitespace)@55..56 " "
+              Token(TkDocExtends)@56..63 "extends"
+              Token(TkWhitespace)@63..64 " "
+              Syntax(TypeLiteral)@64..66
+                Token(TkInt)@64..66 "42"
+            Token(TkWhitespace)@66..67 " "
+            Token(TkAnd)@67..70 "and"
+            Token(TkWhitespace)@70..71 " "
+            Syntax(TypeLiteral)@71..75
+              Token(TkTrue)@71..75 "true"
+            Token(TkWhitespace)@75..76 " "
+            Token(TkOr)@76..78 "or"
+            Token(TkWhitespace)@78..79 " "
+            Syntax(TypeLiteral)@79..84
+              Token(TkFalse)@79..84 "false"
+          Token(TkWhitespace)@84..85 " "
+          Token(TkOr)@85..87 "or"
+          Token(TkWhitespace)@87..88 " "
+          Syntax(TypeLiteral)@88..93
+            Token(TkFalse)@88..93 "false"
+    Token(TkEndOfLine)@93..94 "\n"
+    Token(TkWhitespace)@94..102 "        "
+"#;
+
+        assert_ast_eq!(code, result);
+    }
+
+    #[test]
+    fn test_generic_in() {
+        let code: &str = r#"
+        ---@alias Pick1<T, K extends keyof T> {
+        ---  readonly [P in K]+?: T[P];
+        ---}
+        "#;
+        // print_ast(code);
+        let result = r#"
+Syntax(Chunk)@0..110
+  Syntax(Block)@0..110
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..101
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagAlias)@13..101
+        Token(TkTagAlias)@13..18 "alias"
+        Token(TkWhitespace)@18..19 " "
+        Token(TkName)@19..24 "Pick1"
+        Syntax(DocGenericDeclareList)@24..46
+          Token(TkLt)@24..25 "<"
+          Syntax(DocGenericParameter)@25..26
+            Token(TkName)@25..26 "T"
+          Token(TkComma)@26..27 ","
+          Token(TkWhitespace)@27..28 " "
+          Syntax(DocGenericParameter)@28..45
+            Token(TkName)@28..29 "K"
+            Token(TkWhitespace)@29..30 " "
+            Token(TkDocExtends)@30..37 "extends"
+            Token(TkWhitespace)@37..38 " "
+            Syntax(TypeUnary)@38..45
+              Token(TkDocKeyOf)@38..43 "keyof"
+              Token(TkWhitespace)@43..44 " "
+              Syntax(TypeName)@44..45
+                Token(TkName)@44..45 "T"
+          Token(TkGt)@45..46 ">"
+        Token(TkWhitespace)@46..47 " "
+        Syntax(TypeMapped)@47..101
+          Token(TkLeftBrace)@47..48 "{"
+          Token(TkEndOfLine)@48..49 "\n"
+          Token(TkWhitespace)@49..57 "        "
+          Token(TkDocContinue)@57..62 "---  "
+          Token(TkDocReadonly)@62..70 "readonly"
+          Token(TkWhitespace)@70..71 " "
+          Syntax(DocMappedKey)@71..79
+            Token(TkLeftBracket)@71..72 "["
+            Syntax(DocGenericParameter)@72..78
+              Token(TkName)@72..73 "P"
+              Token(TkWhitespace)@73..74 " "
+              Token(TkIn)@74..76 "in"
+              Token(TkWhitespace)@76..77 " "
+              Syntax(TypeName)@77..78
+                Token(TkName)@77..78 "K"
+            Token(TkRightBracket)@78..79 "]"
+          Token(TkPlus)@79..80 "+"
+          Token(TkDocQuestion)@80..81 "?"
+          Token(TkColon)@81..82 ":"
+          Token(TkWhitespace)@82..83 " "
+          Syntax(TypeIndexAccess)@83..87
+            Syntax(TypeName)@83..84
+              Token(TkName)@83..84 "T"
+            Token(TkLeftBracket)@84..85 "["
+            Syntax(TypeName)@85..86
+              Token(TkName)@85..86 "P"
+            Token(TkRightBracket)@86..87 "]"
+          Token(TkSemicolon)@87..88 ";"
+          Token(TkEndOfLine)@88..89 "\n"
+          Token(TkWhitespace)@89..97 "        "
+          Token(TkDocContinue)@97..100 "---"
+          Token(TkRightBrace)@100..101 "}"
+    Token(TkEndOfLine)@101..102 "\n"
+    Token(TkWhitespace)@102..110 "        "
+"#;
+        assert_ast_eq!(code, result);
+    }
+
+    #[test]
+    fn test_alias_conditional_infer_dots() {
+        let code = r#"
+        ---@alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
+        "#;
+        print_ast(code);
+        let result = r#"
+Syntax(Chunk)@0..106
+  Syntax(Block)@0..106
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..97
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagAlias)@13..97
+        Token(TkTagAlias)@13..18 "alias"
+        Token(TkWhitespace)@18..19 " "
+        Token(TkName)@19..40 "ConstructorParameters"
+        Syntax(DocGenericDeclareList)@40..43
+          Token(TkLt)@40..41 "<"
+          Syntax(DocGenericParameter)@41..42
+            Token(TkName)@41..42 "T"
+          Token(TkGt)@42..43 ">"
+        Token(TkWhitespace)@43..44 " "
+        Syntax(TypeConditional)@44..97
+          Syntax(TypeBinary)@44..82
+            Syntax(TypeName)@44..45
+              Token(TkName)@44..45 "T"
+            Token(TkWhitespace)@45..46 " "
+            Token(TkDocExtends)@46..53 "extends"
+            Token(TkWhitespace)@53..54 " "
+            Token(TkDocNew)@54..57 "new"
+            Token(TkWhitespace)@57..58 " "
+            Token(TkLeftParen)@58..59 "("
+            Syntax(TypeFun)@59..81
+              Token(TkName)@59..62 "fun"
+              Token(TkLeftParen)@62..63 "("
+              Syntax(DocTypedParameter)@63..75
+                Token(TkDots)@63..66 "..."
+                Token(TkColon)@66..67 ":"
+                Token(TkWhitespace)@67..68 " "
+                Syntax(TypeInfer)@68..75
+                  Token(TkDocInfer)@68..73 "infer"
+                  Token(TkWhitespace)@73..74 " "
+                  Syntax(DocGenericParameter)@74..75
+                    Token(TkName)@74..75 "P"
+              Token(TkRightParen)@75..76 ")"
+              Token(TkColon)@76..77 ":"
+              Token(TkWhitespace)@77..78 " "
+              Syntax(DocTypeList)@78..81
+                Syntax(DocNamedReturnType)@78..81
+                  Syntax(TypeName)@78..81
+                    Token(TkName)@78..81 "any"
+            Token(TkRightParen)@81..82 ")"
+          Token(TkWhitespace)@82..83 " "
+          Token(TkAnd)@83..86 "and"
+          Token(TkWhitespace)@86..87 " "
+          Syntax(TypeName)@87..88
+            Token(TkName)@87..88 "P"
+          Token(TkWhitespace)@88..89 " "
+          Token(TkOr)@89..91 "or"
+          Token(TkWhitespace)@91..92 " "
+          Syntax(TypeName)@92..97
+            Token(TkName)@92..97 "never"
+    Token(TkEndOfLine)@97..98 "\n"
+    Token(TkWhitespace)@98..106 "        "
+        "#;
+        assert_ast_eq!(code, result);
+    }
+
+    #[test]
+    fn test_call_generic() {
+        let code = r#"
+        call_generic--[[@<number | string>]](1, "2")
+      "#;
+        print_ast(code);
+        let result = r#"
+Syntax(Chunk)@0..60
+  Syntax(Block)@0..60
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(CallExprStat)@9..53
+      Syntax(CallExpr)@9..53
+        Syntax(NameExpr)@9..21
+          Token(TkName)@9..21 "call_generic"
+        Syntax(Comment)@21..45
+          Token(TkDocLongStart)@21..26 "--[[@"
+          Syntax(DocTagCallGeneric)@26..43
+            Token(TkCallGeneric)@26..27 "<"
+            Syntax(DocTypeList)@27..42
+              Syntax(TypeBinary)@27..42
+                Syntax(TypeName)@27..33
+                  Token(TkName)@27..33 "number"
+                Token(TkWhitespace)@33..34 " "
+                Token(TkDocOr)@34..35 "|"
+                Token(TkWhitespace)@35..36 " "
+                Syntax(TypeName)@36..42
+                  Token(TkName)@36..42 "string"
+            Token(TkGt)@42..43 ">"
+          Token(TkLongCommentEnd)@43..45 "]]"
+        Syntax(CallArgList)@45..53
+          Token(TkLeftParen)@45..46 "("
+          Syntax(LiteralExpr)@46..47
+            Token(TkInt)@46..47 "1"
+          Token(TkComma)@47..48 ","
+          Token(TkWhitespace)@48..49 " "
+          Syntax(LiteralExpr)@49..52
+            Token(TkString)@49..52 "\"2\""
+          Token(TkRightParen)@52..53 ")"
+    Token(TkEndOfLine)@53..54 "\n"
+    Token(TkWhitespace)@54..60 "      "
+"#;
+        assert_ast_eq!(code, result);
+    }
+
+    #[test]
+    fn test_fun_generic_type() {
+        let code = r#"
+        ---@type fun<T, R: Foo>(value: T, other: R): R
+        "#;
+
+        let result = r#"
+Syntax(Chunk)@0..64
+  Syntax(Block)@0..64
+    Token(TkEndOfLine)@0..1 "\n"
+    Token(TkWhitespace)@1..9 "        "
+    Syntax(Comment)@9..55
+      Token(TkDocStart)@9..13 "---@"
+      Syntax(DocTagType)@13..55
+        Token(TkTagType)@13..17 "type"
+        Token(TkWhitespace)@17..18 " "
+        Syntax(TypeFun)@18..55
+          Token(TkName)@18..21 "fun"
+          Syntax(DocGenericDeclareList)@21..32
+            Token(TkLt)@21..22 "<"
+            Syntax(DocGenericParameter)@22..23
+              Token(TkName)@22..23 "T"
+            Token(TkComma)@23..24 ","
+            Token(TkWhitespace)@24..25 " "
+            Syntax(DocGenericParameter)@25..31
+              Token(TkName)@25..26 "R"
+              Token(TkColon)@26..27 ":"
+              Token(TkWhitespace)@27..28 " "
+              Syntax(TypeName)@28..31
+                Token(TkName)@28..31 "Foo"
+            Token(TkGt)@31..32 ">"
+          Token(TkLeftParen)@32..33 "("
+          Syntax(DocTypedParameter)@33..41
+            Token(TkName)@33..38 "value"
+            Token(TkColon)@38..39 ":"
+            Token(TkWhitespace)@39..40 " "
+            Syntax(TypeName)@40..41
+              Token(TkName)@40..41 "T"
+          Token(TkComma)@41..42 ","
+          Token(TkWhitespace)@42..43 " "
+          Syntax(DocTypedParameter)@43..51
+            Token(TkName)@43..48 "other"
+            Token(TkColon)@48..49 ":"
+            Token(TkWhitespace)@49..50 " "
+            Syntax(TypeName)@50..51
+              Token(TkName)@50..51 "R"
+          Token(TkRightParen)@51..52 ")"
+          Token(TkColon)@52..53 ":"
+          Token(TkWhitespace)@53..54 " "
+          Syntax(DocTypeList)@54..55
+            Syntax(DocNamedReturnType)@54..55
+              Syntax(TypeName)@54..55
+                Token(TkName)@54..55 "R"
+    Token(TkEndOfLine)@55..56 "\n"
+    Token(TkWhitespace)@56..64 "        "
+        "#;
+
         assert_ast_eq!(code, result);
     }
 }

@@ -12,7 +12,7 @@ use super::{
 };
 
 pub fn check_generic_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_generic: &LuaGenericType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -104,7 +104,7 @@ pub fn check_generic_type_compact(
 }
 
 fn check_generic_type_compact_generic(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_generic: &LuaGenericType,
     compact_generic: &LuaGenericType,
     check_guard: TypeCheckGuard,
@@ -149,7 +149,7 @@ fn check_generic_type_compact_generic(
 }
 
 fn check_generic_type_compact_table(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_generic: &LuaGenericType,
     table_owner: LuaMemberOwner,
     check_guard: TypeCheckGuard,
@@ -244,7 +244,7 @@ fn check_generic_type_compact_table(
 }
 
 fn check_generic_type_compact_ref_type(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_generic: &LuaGenericType,
     ref_id: &LuaTypeDeclId,
     check_guard: TypeCheckGuard,

@@ -1,18 +1,15 @@
-use std::ops::Deref;
-
-use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaDocTagType, LuaExpr};
+use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaDocTagType};
 use rowan::TextRange;
 
-use crate::diagnostic::checker::generic::infer_doc_type::infer_doc_type;
-use crate::diagnostic::checker::param_type_check::get_call_source_type;
-use crate::{
-    DiagnosticCode, GenericTplId, LuaDeclExtra, LuaMemberOwner, LuaSemanticDeclId, LuaSignature,
-    LuaStringTplType, LuaType, RenderLevel, SemanticDeclLevel, SemanticModel, TypeCheckFailReason,
-    TypeCheckResult, TypeOps, VariadicType, humanize_type,
+use crate::diagnostic::{checker::Checker, lua_diagnostic::DiagnosticContext};
+use crate::semantic::{
+    CallConstraintContext, build_call_constraint_context, normalize_constraint_type,
 };
-
-use crate::diagnostic::checker::Checker;
-use crate::diagnostic::lua_diagnostic::DiagnosticContext;
+use crate::{
+    DiagnosticCode, DocTypeInferContext, LuaStringTplType, LuaType, RenderLevel, SemanticModel,
+    TypeCheckFailReason, TypeCheckResult, TypeSubstitutor, VariadicType, humanize_type,
+    infer_doc_type, instantiate_type_generic,
+};
 
 pub struct GenericConstraintMismatchChecker;
 
@@ -35,14 +32,86 @@ impl Checker for GenericConstraintMismatchChecker {
     }
 }
 
+fn check_call_expr(
+    context: &mut DiagnosticContext,
+    semantic_model: &SemanticModel,
+    call_expr: LuaCallExpr,
+) -> Option<()> {
+    let Some((
+        CallConstraintContext {
+            params,
+            arg_infos,
+            substitutor,
+        },
+        doc_func,
+    )) = build_call_constraint_context(semantic_model, &call_expr)
+    else {
+        return Some(());
+    };
+
+    let mut arg_ranges = collect_arg_ranges(semantic_model, &call_expr);
+    if call_expr.is_colon_call() && !doc_func.is_colon_define() {
+        let colon_range = call_expr.get_colon_token()?.get_range();
+        arg_ranges.insert(0, colon_range);
+    }
+
+    for (i, (_, param_type)) in params.iter().enumerate() {
+        let param_type = if let Some(param_type) = param_type {
+            param_type
+        } else {
+            continue;
+        };
+
+        check_param(
+            context,
+            semantic_model,
+            &call_expr,
+            i,
+            param_type,
+            &arg_infos,
+            &arg_ranges,
+            false,
+            &substitutor,
+        );
+    }
+
+    Some(())
+}
+
+fn collect_arg_ranges(semantic_model: &SemanticModel, call_expr: &LuaCallExpr) -> Vec<TextRange> {
+    let Some(arg_list) = call_expr.get_args_list() else {
+        return Vec::new();
+    };
+    let arg_exprs = arg_list.get_args().collect::<Vec<_>>();
+    let mut ranges = Vec::new();
+    for expr in arg_exprs {
+        let expr_type = semantic_model
+            .infer_expr(expr.clone())
+            .unwrap_or(LuaType::Unknown);
+        match expr_type {
+            LuaType::Variadic(variadic) => match variadic.as_ref() {
+                VariadicType::Base(_) => ranges.push(expr.get_range()),
+                VariadicType::Multi(values) => {
+                    for _ in values {
+                        ranges.push(expr.get_range());
+                    }
+                }
+            },
+            _ => ranges.push(expr.get_range()),
+        }
+    }
+    ranges
+}
+
 fn check_doc_tag_type(
     context: &mut DiagnosticContext,
     semantic_model: &SemanticModel,
     doc_tag_type: LuaDocTagType,
 ) -> Option<()> {
     let type_list = doc_tag_type.get_type_list();
+    let doc_ctx = DocTypeInferContext::new(semantic_model.get_db(), semantic_model.get_file_id());
     for doc_type in type_list {
-        let type_ref = infer_doc_type(semantic_model, &doc_type);
+        let type_ref = infer_doc_type(doc_ctx, &doc_type);
         let generic_type = match type_ref {
             LuaType::Generic(generic_type) => generic_type,
             _ => continue,
@@ -70,82 +139,27 @@ fn check_doc_tag_type(
     Some(())
 }
 
-fn check_call_expr(
-    context: &mut DiagnosticContext,
-    semantic_model: &SemanticModel,
-    call_expr: LuaCallExpr,
-) -> Option<()> {
-    let function = semantic_model
-        .infer_expr(call_expr.get_prefix_expr()?.clone())
-        .ok()?;
-
-    if let LuaType::Signature(signature_id) = function {
-        let signature = semantic_model
-            .get_db()
-            .get_signature_index()
-            .get(&signature_id)?;
-        let mut params = signature.get_type_params();
-        let mut arg_infos = get_arg_infos(semantic_model, &call_expr)?;
-
-        match (call_expr.is_colon_call(), signature.is_colon_define) {
-            (true, true) | (false, false) => {}
-            (false, true) => {
-                params.insert(0, ("self".into(), Some(LuaType::SelfInfer)));
-            }
-            (true, false) => {
-                // 往调用参数插入插入调用者类型
-                arg_infos.insert(
-                    0,
-                    (
-                        get_call_source_type(semantic_model, &call_expr)?,
-                        call_expr.get_colon_token()?.get_range(),
-                    ),
-                );
-            }
-        }
-        for (i, (_, param_type)) in params.iter().enumerate() {
-            let param_type = if let Some(param_type) = param_type {
-                param_type
-            } else {
-                continue;
-            };
-
-            check_param_type(
-                context,
-                semantic_model,
-                &call_expr,
-                i,
-                param_type,
-                signature,
-                &arg_infos,
-                false,
-            );
-        }
-    }
-
-    Some(())
-}
-
 #[allow(clippy::too_many_arguments)]
-fn check_param_type(
+fn check_param(
     context: &mut DiagnosticContext,
     semantic_model: &SemanticModel,
     call_expr: &LuaCallExpr,
     param_index: usize,
     param_type: &LuaType,
-    signature: &LuaSignature,
-    arg_infos: &[(LuaType, TextRange)],
+    arg_infos: &[LuaType],
+    arg_ranges: &[TextRange],
     from_union: bool,
+    substitutor: &TypeSubstitutor,
 ) -> Option<()> {
     // 应该先通过泛型体操约束到唯一类型再进行检查
     match param_type {
         LuaType::StrTplRef(str_tpl_ref) => {
-            let extend_type = get_extend_type(
-                semantic_model,
-                call_expr,
-                str_tpl_ref.get_tpl_id(),
-                signature,
-            );
+            let extend_type = str_tpl_ref.get_constraint().cloned().map(|ty| {
+                normalize_constraint_type(
+                    semantic_model.get_db(),
+                    instantiate_type_generic(semantic_model.get_db(), &ty, substitutor),
+                )
+            });
             let arg_expr = call_expr.get_args_list()?.get_args().nth(param_index)?;
             let arg_type = semantic_model.infer_expr(arg_expr.clone()).ok()?;
 
@@ -153,7 +167,7 @@ fn check_param_type(
                 return None;
             }
 
-            check_str_tpl_ref(
+            validate_str_tpl_ref(
                 context,
                 semantic_model,
                 str_tpl_ref,
@@ -163,28 +177,30 @@ fn check_param_type(
             );
         }
         LuaType::TplRef(tpl_ref) | LuaType::ConstTplRef(tpl_ref) => {
-            let extend_type =
-                get_extend_type(semantic_model, call_expr, tpl_ref.get_tpl_id(), signature);
-            check_tpl_ref(
-                context,
-                semantic_model,
-                &extend_type,
-                arg_infos.get(param_index),
-            );
+            let extend_type = tpl_ref.get_constraint().cloned().map(|ty| {
+                normalize_constraint_type(
+                    semantic_model.get_db(),
+                    instantiate_type_generic(semantic_model.get_db(), &ty, substitutor),
+                )
+            });
+            let arg_type = arg_infos.get(param_index);
+            let arg_range = arg_ranges.get(param_index).copied();
+            validate_tpl_ref(context, semantic_model, &extend_type, arg_type, arg_range);
         }
         LuaType::Union(union_type) => {
             // 如果不是来自 union, 才展开 union 中的每个类型进行检查
             if !from_union {
                 for union_member_type in union_type.into_vec().iter() {
-                    check_param_type(
+                    check_param(
                         context,
                         semantic_model,
                         call_expr,
                         param_index,
                         union_member_type,
-                        signature,
                         arg_infos,
+                        arg_ranges,
                         true,
+                        substitutor,
                     );
                 }
             }
@@ -194,46 +210,7 @@ fn check_param_type(
     Some(())
 }
 
-fn get_extend_type(
-    semantic_model: &SemanticModel,
-    call_expr: &LuaCallExpr,
-    tpl_id: GenericTplId,
-    signature: &LuaSignature,
-) -> Option<LuaType> {
-    match tpl_id {
-        GenericTplId::Func(tpl_id) => signature
-            .generic_params
-            .get(tpl_id as usize)?
-            .type_constraint
-            .clone(),
-        GenericTplId::Type(tpl_id) => {
-            let prefix_expr = call_expr.get_prefix_expr()?;
-            let semantic_decl = semantic_model.find_decl(
-                prefix_expr.syntax().clone().into(),
-                SemanticDeclLevel::default(),
-            )?;
-            let member_index = semantic_model.get_db().get_member_index();
-            match semantic_decl {
-                LuaSemanticDeclId::Member(member_id) => {
-                    let owner = member_index.get_current_owner(&member_id)?;
-                    match owner {
-                        LuaMemberOwner::Type(type_id) => {
-                            let generic_params = semantic_model
-                                .get_db()
-                                .get_type_index()
-                                .get_generic_params(type_id)?;
-                            generic_params.get(tpl_id as usize)?.type_constraint.clone()
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            }
-        }
-    }
-}
-
-fn check_str_tpl_ref(
+fn validate_str_tpl_ref(
     context: &mut DiagnosticContext,
     semantic_model: &SemanticModel,
     str_tpl_ref: &LuaStringTplType,
@@ -293,22 +270,24 @@ fn check_str_tpl_ref(
     Some(())
 }
 
-fn check_tpl_ref(
+fn validate_tpl_ref(
     context: &mut DiagnosticContext,
     semantic_model: &SemanticModel,
     extend_type: &Option<LuaType>,
-    arg_info: Option<&(LuaType, TextRange)>,
+    arg_type: Option<&LuaType>,
+    range: Option<TextRange>,
 ) -> Option<()> {
     let extend_type = extend_type.clone()?;
-    let arg_info = arg_info?;
-    let result = semantic_model.type_check_detail(&extend_type, &arg_info.0);
+    let arg_type = arg_type?;
+    let range = range?;
+    let result = semantic_model.type_check_detail(&extend_type, arg_type);
     if result.is_err() {
         add_type_check_diagnostic(
             context,
             semantic_model,
-            arg_info.1,
+            range,
             &extend_type,
-            &arg_info.0,
+            arg_type,
             result,
         );
     }
@@ -348,143 +327,4 @@ fn add_type_check_diagnostic(
             );
         }
     }
-}
-
-fn get_arg_infos(
-    semantic_model: &SemanticModel,
-    call_expr: &LuaCallExpr,
-) -> Option<Vec<(LuaType, TextRange)>> {
-    let arg_exprs = call_expr.get_args_list()?.get_args().collect::<Vec<_>>();
-    let mut arg_infos = infer_expr_list_types(semantic_model, &arg_exprs);
-    for (arg_type, arg_expr) in arg_infos.iter_mut() {
-        let extend_type = try_instantiate_arg_type(semantic_model, arg_type, arg_expr, 0);
-        if let Some(extend_type) = extend_type {
-            *arg_type = extend_type;
-        }
-    }
-
-    let arg_infos = arg_infos
-        .into_iter()
-        .map(|(arg_type, arg_expr)| (arg_type, arg_expr.get_range()))
-        .collect();
-
-    Some(arg_infos)
-}
-
-fn try_instantiate_arg_type(
-    semantic_model: &SemanticModel,
-    arg_type: &LuaType,
-    arg_expr: &LuaExpr,
-    depth: usize,
-) -> Option<LuaType> {
-    match arg_type {
-        LuaType::TplRef(tpl_ref) => {
-            let node_or_token = arg_expr.syntax().clone().into();
-            let semantic_decl =
-                semantic_model.find_decl(node_or_token, SemanticDeclLevel::default())?;
-            match tpl_ref.get_tpl_id() {
-                GenericTplId::Func(tpl_id) => {
-                    if let LuaSemanticDeclId::LuaDecl(decl_id) = semantic_decl {
-                        let decl = semantic_model
-                            .get_db()
-                            .get_decl_index()
-                            .get_decl(&decl_id)?;
-                        match decl.extra {
-                            LuaDeclExtra::Param { signature_id, .. } => {
-                                let signature = semantic_model
-                                    .get_db()
-                                    .get_signature_index()
-                                    .get(&signature_id)?;
-                                if let Some(generic_param) =
-                                    signature.generic_params.get(tpl_id as usize)
-                                {
-                                    return generic_param.type_constraint.clone();
-                                }
-                            }
-                            _ => return None,
-                        }
-                    }
-                    None
-                }
-                GenericTplId::Type(tpl_id) => {
-                    if let LuaSemanticDeclId::LuaDecl(decl_id) = semantic_decl {
-                        let decl = semantic_model
-                            .get_db()
-                            .get_decl_index()
-                            .get_decl(&decl_id)?;
-                        match decl.extra {
-                            LuaDeclExtra::Param {
-                                owner_member_id, ..
-                            } => {
-                                let owner_member_id = owner_member_id?;
-                                let parent_owner = semantic_model
-                                    .get_db()
-                                    .get_member_index()
-                                    .get_current_owner(&owner_member_id)?;
-                                match parent_owner {
-                                    LuaMemberOwner::Type(type_id) => {
-                                        let generic_params = semantic_model
-                                            .get_db()
-                                            .get_type_index()
-                                            .get_generic_params(type_id)?;
-                                        return generic_params
-                                            .get(tpl_id as usize)?
-                                            .type_constraint
-                                            .clone();
-                                    }
-                                    _ => return None,
-                                }
-                            }
-                            _ => return None,
-                        }
-                    }
-                    None
-                }
-            }
-        }
-        LuaType::Union(union_type) => {
-            if depth > 1 {
-                return None;
-            }
-            let mut result = LuaType::Unknown;
-            for union_member_type in union_type.into_vec().iter() {
-                let extend_type = try_instantiate_arg_type(
-                    semantic_model,
-                    union_member_type,
-                    arg_expr,
-                    depth + 1,
-                )
-                .unwrap_or(union_member_type.clone());
-                result = TypeOps::Union.apply(semantic_model.get_db(), &result, &extend_type);
-            }
-            Some(result)
-        }
-        _ => None,
-    }
-}
-
-fn infer_expr_list_types(
-    semantic_model: &SemanticModel,
-    exprs: &[LuaExpr],
-) -> Vec<(LuaType, LuaExpr)> {
-    let mut value_types = Vec::new();
-    for expr in exprs.iter() {
-        let expr_type = semantic_model
-            .infer_expr(expr.clone())
-            .unwrap_or(LuaType::Unknown);
-        match expr_type {
-            LuaType::Variadic(variadic) => match variadic.deref() {
-                VariadicType::Base(base) => {
-                    value_types.push((base.clone(), expr.clone()));
-                }
-                VariadicType::Multi(vecs) => {
-                    for typ in vecs {
-                        value_types.push((typ.clone(), expr.clone()));
-                    }
-                }
-            },
-            _ => value_types.push((expr_type.clone(), expr.clone())),
-        }
-    }
-    value_types
 }

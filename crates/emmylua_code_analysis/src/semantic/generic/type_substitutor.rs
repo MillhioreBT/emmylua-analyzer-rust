@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use super::tpl_pattern::constant_decay;
 use crate::{GenericTplId, LuaType, LuaTypeDeclId};
 
 #[derive(Debug, Clone)]
@@ -27,7 +28,10 @@ impl TypeSubstitutor {
     pub fn from_type_array(type_array: Vec<LuaType>) -> Self {
         let mut tpl_replace_map = HashMap::new();
         for (i, ty) in type_array.into_iter().enumerate() {
-            tpl_replace_map.insert(GenericTplId::Type(i as u32), SubstitutorValue::Type(ty));
+            tpl_replace_map.insert(
+                GenericTplId::Type(i as u32),
+                SubstitutorValue::Type(SubstitutorTypeValue::new(ty, true)),
+            );
         }
         Self {
             tpl_replace_map,
@@ -39,7 +43,10 @@ impl TypeSubstitutor {
     pub fn from_alias(type_array: Vec<LuaType>, alias_type_id: LuaTypeDeclId) -> Self {
         let mut tpl_replace_map = HashMap::new();
         for (i, ty) in type_array.into_iter().enumerate() {
-            tpl_replace_map.insert(GenericTplId::Type(i as u32), SubstitutorValue::Type(ty));
+            tpl_replace_map.insert(
+                GenericTplId::Type(i as u32),
+                SubstitutorValue::Type(SubstitutorTypeValue::new(ty, true)),
+            );
         }
         Self {
             tpl_replace_map,
@@ -65,13 +72,17 @@ impl TypeSubstitutor {
         true
     }
 
-    pub fn insert_type(&mut self, tpl_id: GenericTplId, replace_type: LuaType) {
+    pub fn insert_type(&mut self, tpl_id: GenericTplId, replace_type: LuaType, decay: bool) {
+        self.insert_type_value(tpl_id, SubstitutorTypeValue::new(replace_type, decay));
+    }
+
+    fn insert_type_value(&mut self, tpl_id: GenericTplId, value: SubstitutorTypeValue) {
         if !self.can_insert_type(tpl_id) {
             return;
         }
 
         self.tpl_replace_map
-            .insert(tpl_id, SubstitutorValue::Type(replace_type));
+            .insert(tpl_id, SubstitutorValue::Type(value));
     }
 
     fn can_insert_type(&self, tpl_id: GenericTplId) -> bool {
@@ -86,6 +97,11 @@ impl TypeSubstitutor {
         if !self.can_insert_type(tpl_id) {
             return;
         }
+
+        let params = params
+            .into_iter()
+            .map(|(name, ty)| (name, ty.map(into_ref_type)))
+            .collect();
 
         self.tpl_replace_map
             .insert(tpl_id, SubstitutorValue::Params(params));
@@ -113,40 +129,11 @@ impl TypeSubstitutor {
         self.tpl_replace_map.get(&tpl_id)
     }
 
-    pub fn get_variadic(&self, start_tpl_id: GenericTplId) -> Option<Vec<LuaType>> {
-        let mut variadic_tpl_id = start_tpl_id;
-        let id = start_tpl_id.get_idx();
-        let limit = id + 255;
-
-        let mut result = Vec::new();
-        for i in id..limit {
-            variadic_tpl_id = variadic_tpl_id.with_idx(i as u32);
-            if let Some(value) = self.tpl_replace_map.get(&variadic_tpl_id) {
-                match value {
-                    SubstitutorValue::Type(ty) => {
-                        result.push(ty.clone());
-                    }
-                    SubstitutorValue::MultiTypes(types) => {
-                        result.extend_from_slice(types);
-                    }
-                    SubstitutorValue::Params(params) => {
-                        result.extend(
-                            params
-                                .iter()
-                                .map(|(_, t)| t.clone().unwrap_or(LuaType::Any)),
-                        );
-                    }
-                    // donot support this
-                    SubstitutorValue::MultiBase(base) => {
-                        result.push(base.clone());
-                    }
-                    _ => break,
-                }
-            } else {
-                break;
-            }
+    pub fn get_raw_type(&self, tpl_id: GenericTplId) -> Option<&LuaType> {
+        match self.tpl_replace_map.get(&tpl_id) {
+            Some(SubstitutorValue::Type(ty)) => Some(ty.raw()),
+            _ => None,
         }
-        Some(result)
     }
 
     pub fn check_recursion(&self, type_id: &LuaTypeDeclId) -> bool {
@@ -166,37 +153,38 @@ impl TypeSubstitutor {
     pub fn get_self_type(&self) -> Option<&LuaType> {
         self.self_type.as_ref()
     }
-
-    pub fn convert_def_to_ref(&mut self) {
-        for (_, value) in self.tpl_replace_map.iter_mut() {
-            match value {
-                SubstitutorValue::Type(ty) => {
-                    *ty = convert_type_def_to_ref(ty);
-                }
-                SubstitutorValue::Params(params) => {
-                    for (_, param_ty) in params.iter_mut() {
-                        if let Some(ty) = param_ty {
-                            *ty = convert_type_def_to_ref(ty);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
 }
 
-fn convert_type_def_to_ref(ty: &LuaType) -> LuaType {
-    match ty {
-        LuaType::Def(type_decl_id) => LuaType::Ref(type_decl_id.clone()),
-        _ => ty.clone(),
+#[derive(Debug, Clone)]
+pub struct SubstitutorTypeValue {
+    raw: LuaType,
+    default: LuaType,
+}
+
+impl SubstitutorTypeValue {
+    pub fn new(raw: LuaType, decay: bool) -> Self {
+        let raw = into_ref_type(raw);
+        let default = if decay {
+            into_ref_type(constant_decay(raw.clone()))
+        } else {
+            raw.clone()
+        };
+        Self { raw, default }
+    }
+
+    pub fn raw(&self) -> &LuaType {
+        &self.raw
+    }
+
+    pub fn default(&self) -> &LuaType {
+        &self.default
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum SubstitutorValue {
     None,
-    Type(LuaType),
+    Type(SubstitutorTypeValue),
     Params(Vec<(String, Option<LuaType>)>),
     MultiTypes(Vec<LuaType>),
     MultiBase(LuaType),
@@ -205,5 +193,12 @@ pub enum SubstitutorValue {
 impl SubstitutorValue {
     pub fn is_none(&self) -> bool {
         matches!(self, SubstitutorValue::None)
+    }
+}
+
+fn into_ref_type(ty: LuaType) -> LuaType {
+    match ty {
+        LuaType::Def(type_decl_id) => LuaType::Ref(type_decl_id),
+        _ => ty,
     }
 }

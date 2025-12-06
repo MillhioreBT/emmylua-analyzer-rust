@@ -6,9 +6,14 @@ mod infer_cache_manager;
 mod lua;
 mod unresolve;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use crate::{Emmyrc, InFiled, InferFailReason, WorkspaceId, db_index::DbIndex, profile::Profile};
+use crate::{
+    Emmyrc, FileId, InFiled, InferFailReason, WorkspaceId, db_index::DbIndex, profile::Profile,
+};
 use emmylua_parser::LuaChunk;
 use infer_cache_manager::InferCacheManager;
 use unresolve::UnResolve;
@@ -121,6 +126,7 @@ pub struct AnalyzeContext {
     tree_list: Vec<InFiled<LuaChunk>>,
     #[allow(unused)]
     config: Arc<Emmyrc>,
+    metas: HashSet<FileId>,
     unresolves: Vec<(UnResolve, InferFailReason)>,
     infer_manager: InferCacheManager,
 }
@@ -130,9 +136,14 @@ impl AnalyzeContext {
         Self {
             tree_list: Vec::new(),
             config: emmyrc,
+            metas: HashSet::new(),
             unresolves: Vec::new(),
             infer_manager: InferCacheManager::new(),
         }
+    }
+
+    pub fn add_meta(&mut self, file_id: FileId) {
+        self.metas.insert(file_id);
     }
 
     pub fn add_tree_chunk(&mut self, tree: InFiled<LuaChunk>) {

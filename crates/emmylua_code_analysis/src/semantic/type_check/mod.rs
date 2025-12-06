@@ -9,6 +9,8 @@ mod type_check_context;
 mod type_check_fail_reason;
 mod type_check_guard;
 
+use std::ops::Deref;
+
 use complex_type::check_complex_type_compact;
 use func_type::{check_doc_func_type_compact, check_sig_type_compact};
 use generic_type::check_generic_type_compact;
@@ -18,19 +20,21 @@ pub use type_check_fail_reason::TypeCheckFailReason;
 use type_check_guard::TypeCheckGuard;
 
 use crate::{
+    LuaUnionType,
     db_index::{DbIndex, LuaType},
     semantic::type_check::type_check_context::TypeCheckContext,
 };
 pub use sub_type::is_sub_type_of;
 pub type TypeCheckResult = Result<(), TypeCheckFailReason>;
+pub use type_check_context::TypeCheckCheckLevel;
 
 pub fn check_type_compact(
     db: &DbIndex,
     source: &LuaType,
     compact_type: &LuaType,
 ) -> TypeCheckResult {
-    let context = TypeCheckContext::new(db, false);
-    check_general_type_compact(&context, source, compact_type, TypeCheckGuard::new())
+    let mut context = TypeCheckContext::new(db, false, TypeCheckCheckLevel::Normal);
+    check_general_type_compact(&mut context, source, compact_type, TypeCheckGuard::new())
 }
 
 #[allow(unused)]
@@ -40,12 +44,22 @@ pub fn check_type_compact_detail(
     compact_type: &LuaType,
 ) -> TypeCheckResult {
     let guard = TypeCheckGuard::new();
-    let context = TypeCheckContext::new(db, true);
-    check_general_type_compact(&context, source, compact_type, guard)
+    let mut context = TypeCheckContext::new(db, true, TypeCheckCheckLevel::Normal);
+    check_general_type_compact(&mut context, source, compact_type, guard)
+}
+
+pub fn check_type_compact_with_level(
+    db: &DbIndex,
+    source: &LuaType,
+    compact_type: &LuaType,
+    level: TypeCheckCheckLevel,
+) -> TypeCheckResult {
+    let mut context = TypeCheckContext::new(db, false, level);
+    check_general_type_compact(&mut context, source, compact_type, TypeCheckGuard::new())
 }
 
 fn check_general_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -149,6 +163,14 @@ fn check_general_type_compact(
             }
             Err(TypeCheckFailReason::TypeNotMatch)
         }
+        LuaType::Never => {
+            // never 只能赋值给 never
+            if compact_type.is_never() {
+                return Ok(());
+            }
+            Err(TypeCheckFailReason::TypeNotMatch)
+        }
+        LuaType::ModuleRef(_) => Ok(()),
         _ => Err(TypeCheckFailReason::TypeNotMatch),
     }
 }
@@ -180,6 +202,12 @@ fn fast_eq_check(a: &LuaType, b: &LuaType) -> bool {
         | (LuaType::Unknown, LuaType::Unknown)
         | (LuaType::Any, LuaType::Any) => true,
         (LuaType::Ref(type_id_left), LuaType::Ref(type_id_right)) => type_id_left == type_id_right,
+        (LuaType::Union(u), LuaType::Ref(type_id_right)) => {
+            if let LuaUnionType::Nullable(LuaType::Ref(type_id_left)) = u.deref() {
+                return type_id_left == type_id_right;
+            }
+            false
+        }
         _ => false,
     }
 }
@@ -204,6 +232,12 @@ fn escape_type(db: &DbIndex, typ: &LuaType) -> Option<LuaType> {
             return Some(union);
         }
         LuaType::TypeGuard(_) => return Some(LuaType::Boolean),
+        LuaType::ModuleRef(file_id) => {
+            let module_info = db.get_module_index().get_module(*file_id)?;
+            if let Some(export_type) = &module_info.export_type {
+                return Some(export_type.clone());
+            }
+        }
         _ => {}
     }
 

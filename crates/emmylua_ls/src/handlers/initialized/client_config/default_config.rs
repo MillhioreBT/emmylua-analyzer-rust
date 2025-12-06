@@ -21,7 +21,7 @@ pub async fn get_client_config_default(
         .clone();
     let main_workspace_folder = workspace_folders.first();
     let client = context.client();
-    let scope_uri = main_workspace_folder.map(|p| file_path_to_uri(p).unwrap());
+    let scope_uri = main_workspace_folder.and_then(|p| file_path_to_uri(&p.root));
 
     let mut configs = Vec::new();
     let mut used_scope = None;
@@ -32,10 +32,19 @@ pub async fn get_client_config_default(
                 section: Some(scope.to_string()),
             }],
         };
+        log::info!("fetching client config for scope {scope:?}");
         let cancel_token = time_cancel_token(Duration::from_secs(5));
-        let fetched_configs: Vec<_> = client
+        let fetched_configs: Vec<_> = match client
             .get_configuration::<Value>(params, cancel_token)
-            .await?
+            .await
+        {
+            Some(configs) => configs,
+            None => {
+                log::warn!("failed to fetch client config for scope {scope:?}");
+                continue;
+            }
+        };
+        let fetched_configs: Vec<_> = fetched_configs
             .into_iter()
             .filter(|config| !config.is_null())
             .collect();

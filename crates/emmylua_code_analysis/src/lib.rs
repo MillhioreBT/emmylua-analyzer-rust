@@ -48,7 +48,6 @@ pub struct EmmyLuaAnalysis {
     pub compilation: LuaCompilation,
     pub diagnostic: LuaDiagnostic,
     pub emmyrc: Arc<Emmyrc>,
-    lib_workspace_counter: u32,
 }
 
 impl EmmyLuaAnalysis {
@@ -58,7 +57,6 @@ impl EmmyLuaAnalysis {
             compilation: LuaCompilation::new(emmyrc.clone()),
             diagnostic: LuaDiagnostic::new(),
             emmyrc,
-            lib_workspace_counter: 2,
         }
     }
 
@@ -99,15 +97,11 @@ impl EmmyLuaAnalysis {
     }
 
     pub fn add_library_workspace(&mut self, root: PathBuf) {
+        let module_index = self.compilation.get_db_mut().get_module_index_mut();
         let id = WorkspaceId {
-            id: self.lib_workspace_counter,
+            id: module_index.next_library_workspace_id(),
         };
-        self.lib_workspace_counter += 1;
-
-        self.compilation
-            .get_db_mut()
-            .get_module_index_mut()
-            .add_workspace_root(root, id);
+        module_index.add_workspace_root(root, id);
     }
 
     pub fn update_file_by_uri(&mut self, uri: &Uri, text: Option<String>) -> Option<FileId> {

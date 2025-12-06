@@ -121,7 +121,7 @@ mod test {
     fn test_issue_93() {
         let mut ws = VirtualWorkspace::new_with_init_std_lib();
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
         local text    --- @type string[]?
         if staged then
@@ -167,7 +167,7 @@ mod test {
     fn test_issue_162() {
         let mut ws = VirtualWorkspace::new();
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
             --- @class Foo
             --- @field a? fun()
@@ -240,7 +240,7 @@ print(a.field)
         let mut ws = VirtualWorkspace::new();
 
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
         --- @class A
         --- @field b integer
@@ -1089,7 +1089,7 @@ end
             "#,
         );
         assert!(ws.check_code_for(
-            DiagnosticCode::ParamTypeNotMatch,
+            DiagnosticCode::ParamTypeMismatch,
             r#"
                 ---@param target A | B
                 function test(target)
@@ -1458,5 +1458,22 @@ _2 = a[1]
         let e = ws.expr_ty("e");
         let e_expected = ws.ty("string");
         assert_eq!(e, e_expected);
+    }
+
+    #[test]
+    fn test_issue_868() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.check_code_for(
+            DiagnosticCode::AssignTypeMismatch,
+            r#"
+            local a --- @type string|{foo:boolean, bar:string}
+
+            if a.foo then
+                --- @type string
+                local _ = a.bar
+            end
+            "#,
+        );
     }
 }

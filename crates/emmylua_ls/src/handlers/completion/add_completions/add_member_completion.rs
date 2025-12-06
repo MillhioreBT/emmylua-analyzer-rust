@@ -1,6 +1,6 @@
 use emmylua_code_analysis::{
-    DbIndex, LuaMemberInfo, LuaMemberKey, LuaSemanticDeclId, LuaType, LuaTypeDeclId, SemanticModel,
-    try_extract_signature_id_from_field,
+    DbIndex, LuaAliasCallKind, LuaMemberInfo, LuaMemberKey, LuaSemanticDeclId, LuaType,
+    SemanticModel, get_keyof_members, try_extract_signature_id_from_field,
 };
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaAstToken, LuaFuncStat, LuaGeneralToken, LuaIndexExpr,
@@ -44,6 +44,26 @@ pub fn add_member_completion(
         CompletionTriggerStatus::Dot => match member_key {
             LuaMemberKey::Name(name) => name.to_string(),
             LuaMemberKey::Integer(index) => format!("[{}]", index),
+            LuaMemberKey::ExprType(typ) => {
+                if let LuaType::Call(alias_call) = typ {
+                    if alias_call.get_call_kind() == LuaAliasCallKind::KeyOf
+                        && alias_call.get_operands().len() == 1
+                    {
+                        let members = get_keyof_members(
+                            builder.semantic_model.get_db(),
+                            &alias_call.get_operands()[0],
+                        )
+                        .unwrap_or_default();
+                        let member_keys = members.iter().map(|m| m.key.clone()).collect::<Vec<_>>();
+                        for key in member_keys {
+                            let mut member_info = member_info.clone();
+                            member_info.key = key;
+                            add_member_completion(builder, member_info, status, None);
+                        }
+                    }
+                }
+                return None;
+            }
             _ => return None,
         },
         CompletionTriggerStatus::Colon => match member_key {
@@ -360,7 +380,7 @@ pub fn get_index_alias_name(
     };
 
     let alias_label = common_property
-        .find_attribute_use(LuaTypeDeclId::new("index_alias"))?
+        .find_attribute_use("index_alias")?
         .args
         .first()
         .and_then(|(_, typ)| typ.as_ref())

@@ -8,12 +8,16 @@ use crate::{
 };
 
 pub fn check_array_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_base: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
 ) -> TypeCheckResult {
-    let source_base = TypeOps::Union.apply(context.db, source_base, &LuaType::Nil);
+    let source_base = if context.db.get_emmyrc().strict.array_index {
+        TypeOps::Union.apply(context.db, source_base, &LuaType::Nil)
+    } else {
+        source_base.clone()
+    };
 
     match compact_type {
         LuaType::Array(compact_array_type) => {
@@ -87,7 +91,7 @@ pub fn check_array_type_compact(
 }
 
 fn check_array_type_compact_ref_def(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_base: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -110,7 +114,7 @@ fn check_array_type_compact_ref_def(
 }
 
 fn check_array_type_compact_table(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source_base: &LuaType,
     table_owner: LuaMemberOwner,
     check_guard: TypeCheckGuard,

@@ -69,6 +69,7 @@ impl LuaTypeIndex {
         self.file_using_namespace.get(file_id)
     }
 
+    /// return previous FileId if exist
     pub fn add_type_decl(&mut self, file_id: FileId, type_decl: LuaTypeDecl) {
         let id = type_decl.get_id();
         self.file_types.entry(file_id).or_default().push(id.clone());
@@ -188,6 +189,56 @@ impl LuaTypeIndex {
             .map(|supers| supers.iter().map(|s| &s.value))
     }
 
+    /// Get all direct subclasses of a given type
+    /// Returns a vector of type declarations that directly inherit from the given type
+    pub fn get_sub_types(&self, decl_id: &LuaTypeDeclId) -> Vec<&LuaTypeDecl> {
+        let mut sub_types = Vec::new();
+
+        // Iterate through all types and check their super types
+        for (type_id, supers) in &self.supers {
+            for super_filed in supers {
+                // Check if this super type references our target type
+                if let LuaType::Ref(super_id) = &super_filed.value {
+                    if super_id == decl_id {
+                        // Found a subclass
+                        if let Some(sub_decl) = self.full_name_type_map.get(type_id) {
+                            sub_types.push(sub_decl);
+                        }
+                        break; // No need to check other supers of this type
+                    }
+                }
+            }
+        }
+
+        sub_types
+    }
+
+    /// Get all subclasses (direct and indirect) of a given type recursively
+    /// Returns a vector of type declarations in the inheritance hierarchy
+    pub fn get_all_sub_types(&self, decl_id: &LuaTypeDeclId) -> Vec<&LuaTypeDecl> {
+        let mut all_sub_types = Vec::new();
+        let mut visited = HashSet::new();
+        let mut queue = vec![decl_id.clone()];
+
+        while let Some(current_id) = queue.pop() {
+            if !visited.insert(current_id.clone()) {
+                continue;
+            }
+
+            // Find direct subclasses of current_id
+            let direct_subs = self.get_sub_types(&current_id);
+            for sub_decl in direct_subs {
+                let sub_id = sub_decl.get_id();
+                if !visited.contains(&sub_id) {
+                    all_sub_types.push(sub_decl);
+                    queue.push(sub_id);
+                }
+            }
+        }
+
+        all_sub_types
+    }
+
     pub fn get_type_decl(&self, decl_id: &LuaTypeDeclId) -> Option<&LuaTypeDecl> {
         self.full_name_type_map.get(decl_id)
     }
@@ -302,12 +353,17 @@ fn get_real_type_with_depth<'a>(
 
 // 第一个参数是否不应该视为 self
 pub fn first_param_may_not_self(typ: &LuaType) -> bool {
-    if typ.is_table() || matches!(typ, LuaType::Ref(_) | LuaType::Def(_) | LuaType::Any) {
-        return false;
+    if typ.is_table()
+        || matches!(
+            typ,
+            LuaType::TplRef(_) | LuaType::StrTplRef(_) | LuaType::Any
+        )
+    {
+        return true;
     }
+
     if let LuaType::Union(u) = typ {
         return u.into_vec().iter().any(first_param_may_not_self);
     }
-
-    true
+    false
 }

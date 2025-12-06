@@ -19,7 +19,7 @@ use super::{
 
 // all is duck typing
 pub fn check_complex_type_compact(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
@@ -131,7 +131,7 @@ pub fn check_complex_type_compact(
 
 // too complex
 fn check_union_type_compact_union(
-    context: &TypeCheckContext,
+    context: &mut TypeCheckContext,
     source: &LuaType,
     compact_union: &LuaUnionType,
     check_guard: TypeCheckGuard,

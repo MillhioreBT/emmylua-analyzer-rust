@@ -44,6 +44,10 @@ pub fn check_reach_reason(
             let signature = db.get_signature_index().get(signature_id)?;
             Some(signature.is_resolve_return())
         }
+        InferFailReason::UnResolveModuleExport(file_id) => {
+            let module = db.get_module_index().get_module(*file_id)?;
+            Some(module.export_type.is_some())
+        }
     }
 }
 
@@ -102,6 +106,12 @@ pub fn resolve_as_any(db: &mut DbIndex, reason: &InferFailReason, loop_count: us
                     attributes: None,
                 }];
                 signature.resolve_return = SignatureReturnStatus::InferResolve;
+            }
+        }
+        InferFailReason::UnResolveModuleExport(file_id) => {
+            let module = db.get_module_index_mut().get_module_mut(*file_id)?;
+            if module.export_type.is_none() {
+                module.export_type = Some(LuaType::Any);
             }
         }
     }
