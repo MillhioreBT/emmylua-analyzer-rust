@@ -175,7 +175,7 @@ fn parse_global_name_list(p: &mut LuaParser) -> ParseResult {
         }
     }
 
-    if p.current_token() == LuaTokenKind::TkEq {
+    if p.current_token() == LuaTokenKind::TkAssign {
         p.bump();
         match parse_expr_list_impl(p) {
             Ok(_) => {}
