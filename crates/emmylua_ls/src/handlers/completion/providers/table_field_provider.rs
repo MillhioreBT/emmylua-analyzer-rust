@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use emmylua_code_analysis::{InferGuard, LuaMemberInfo, LuaMemberKey, LuaType, get_real_type};
+use emmylua_code_analysis::{
+    InferGuard, LuaMemberInfo, LuaMemberKey, LuaType, get_real_type,
+    infer_table_field_value_should_be,
+};
 use emmylua_parser::{LuaAst, LuaAstNode, LuaKind, LuaTableExpr, LuaTableField, LuaTokenKind};
 use lsp_types::{CompletionItem, InsertTextFormat, InsertTextMode};
 use rowan::NodeOrToken;
@@ -210,29 +213,45 @@ fn add_table_field_value_completion(builder: &mut CompletionBuilder) -> Option<(
         return None;
     }
     // 仅在 value 为空的时候触发
-    let parent = builder.trigger_token.prev_token()?.parent()?;
-    let node = LuaAst::cast(parent)?;
-    match node {
-        LuaAst::LuaTableField(field) => {
-            let table_expr = field.get_parent::<LuaTableExpr>()?;
-            let table_type = builder
-                .semantic_model
-                .infer_table_should_be(table_expr.clone())?;
-            let key = builder
-                .semantic_model
-                .get_member_key(&field.get_field_key()?)?;
-            let member_infos = builder.semantic_model.get_member_infos(&table_type)?;
-            let member_info = member_infos.iter().find(|m| m.key == key)?;
+    let mut parent = if builder.trigger_token.kind() == LuaTokenKind::TkWhitespace.into() {
+        builder.trigger_token.prev_token()?.parent()?
+    } else {
+        builder.trigger_token.parent()?
+    };
+    for _ in 0..3 {
+        match LuaAst::cast(parent.clone())? {
+            LuaAst::LuaTableField(field) => {
+                if field.is_assign_field() {
+                    let table_expr = field.get_parent::<LuaTableExpr>()?;
+                    let table_type = builder
+                        .semantic_model
+                        .infer_table_should_be(table_expr.clone())?;
+                    let key = builder
+                        .semantic_model
+                        .get_member_key(&field.get_field_key()?)?;
+                    let member_infos = builder.semantic_model.get_member_infos(&table_type)?;
+                    let member_info = member_infos.iter().find(|m| m.key == key)?;
 
-            if add_field_value_completion(builder, member_info.clone()).is_some() {
-                // 如果添加了补全项, 则停止
-                builder.stop_here();
+                    if add_field_value_completion(builder, member_info.clone()).is_some() {
+                        // 如果添加了补全项, 则停止
+                        builder.stop_here();
+                    }
+                } else {
+                    let table_field_should = infer_table_field_value_should_be(
+                        builder.semantic_model.get_db(),
+                        &mut builder.semantic_model.get_cache().borrow_mut(),
+                        field,
+                    )
+                    .ok()?;
+                    dispatch_type(builder, table_field_should, &InferGuard::new())?;
+                }
+                return Some(());
             }
-
-            Some(())
+            _ => parent = parent.parent()?,
         }
-        _ => None,
     }
+
+    Some(())
 }
 
 fn add_field_value_completion(
