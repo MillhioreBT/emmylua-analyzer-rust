@@ -37,6 +37,14 @@ impl<'a> LuaLexer<'a> {
     pub fn tokenize(&mut self) -> Vec<LuaTokenData> {
         let mut tokens = vec![];
 
+        if self.state == LexerState::Normal && self.reader.current_char() == '#' {
+            self.reader.eat_while(|ch| ch != '\n' && ch != '\r');
+            tokens.push(LuaTokenData::new(
+                LuaTokenKind::TkShebang,
+                self.reader.current_range(),
+            ));
+        }
+
         while !self.reader.is_eof() {
             let kind = match self.state {
                 LexerState::Normal => self.lex(),
@@ -359,11 +367,7 @@ impl<'a> LuaLexer<'a> {
             }
             '#' => {
                 self.reader.bump();
-                if self.reader.current_char() != '!' {
-                    return LuaTokenKind::TkLen;
-                }
-                self.reader.eat_while(|ch| ch != '\n' && ch != '\r');
-                LuaTokenKind::TkShebang
+                LuaTokenKind::TkLen
             }
             '!' => {
                 if !self.support_non_std_symbol(LuaNonStdSymbol::Exclamation) {
