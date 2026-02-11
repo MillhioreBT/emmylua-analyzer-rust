@@ -385,9 +385,10 @@ function select(index, ...) end
 --- metatable has a `"__metatable"` field, raises an error.
 ---
 --- This function returns `table`.
----@param table table
+---@generic T: table
+---@param table T
 ---@param metatable std.metatable|table|nil
----@return table
+---@return T
 function setmetatable(table, metatable) end
 
 ---
