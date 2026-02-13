@@ -33,6 +33,7 @@ use resources::load_resource_std;
 use schema_to_emmylua::SchemaConverter;
 pub use semantic::*;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 pub use test_lib::VirtualWorkspace;
 use tokio_util::sync::CancellationToken;
@@ -122,6 +123,21 @@ impl EmmyLuaAnalysis {
         }
 
         Some(file_id)
+    }
+
+    pub fn update_remote_file_by_uri(&mut self, uri: &Uri, text: Option<String>) -> FileId {
+        let is_removed = text.is_none();
+        let fid = self
+            .compilation
+            .get_db_mut()
+            .get_vfs_mut()
+            .set_remote_file_content(uri, text);
+
+        self.compilation.remove_index(vec![fid]);
+        if !is_removed {
+            self.compilation.update_index(vec![fid]);
+        }
+        fid
     }
 
     pub fn update_file_by_path(&mut self, path: &PathBuf, text: Option<String>) -> Option<FileId> {
@@ -224,15 +240,9 @@ impl EmmyLuaAnalysis {
     }
 
     pub fn reindex(&mut self) {
-        let module = self.compilation.get_db().get_module_index();
-        let std_file_ids = module.get_std_file_ids();
-        let main_file_ids = module.get_main_workspace_file_ids();
-        let lib_file_ids = module.get_lib_file_ids();
+        let file_ids = self.compilation.get_db().get_vfs().get_all_file_ids();
         self.compilation.clear_index();
-
-        self.compilation.update_index(std_file_ids);
-        self.compilation.update_index(lib_file_ids);
-        self.compilation.update_index(main_file_ids);
+        self.compilation.update_index(file_ids);
     }
 
     /// 清理文件系统中不再存在的文件
@@ -241,7 +251,7 @@ impl EmmyLuaAnalysis {
 
         // 获取所有当前在VFS中的文件
         let vfs = self.compilation.get_db().get_vfs();
-        for file_id in vfs.get_all_file_ids() {
+        for file_id in vfs.get_all_local_file_ids() {
             if self
                 .compilation
                 .get_db()
@@ -307,18 +317,20 @@ impl EmmyLuaAnalysis {
             return;
         }
 
-        let work_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let converter = SchemaConverter::new(true);
         for (url, json_content) in url_contents {
-            let short_name = get_schema_short_name(&url);
+            // let short_name = get_schema_short_name(&url);
             match converter.convert_from_str(&json_content) {
                 Ok(convert_result) => {
-                    let path = work_dir.join(short_name);
-                    let Some(file_id) =
-                        self.update_file_by_path(&path, Some(convert_result.annotation_text))
-                    else {
-                        continue;
+                    let uri = match Uri::from_str(url.as_str()) {
+                        Ok(uri) => uri,
+                        Err(e) => {
+                            log::error!("Failed to convert URL to URI {:?}: {}", url, e);
+                            continue;
+                        }
                     };
+                    let file_id =
+                        self.update_remote_file_by_uri(&uri, Some(convert_result.annotation_text));
                     if let Some(f) = self
                         .compilation
                         .get_db_mut()

@@ -203,7 +203,8 @@ fn build_tokens_semantic_token(
         | LuaTokenKind::TkTagReturnCast
         | LuaTokenKind::TkTagExport
         | LuaTokenKind::TkLanguage
-        | LuaTokenKind::TkTagAttribute => {
+        | LuaTokenKind::TkTagAttribute
+        | LuaTokenKind::TKTagSchema => {
             builder.push_with_modifier(
                 token,
                 SemanticTokenType::KEYWORD,

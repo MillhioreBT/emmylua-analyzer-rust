@@ -135,7 +135,7 @@ pub enum LuaTokenKind {
     TkTagReturnCast, // return cast
     TkTagExport,     // export
     TkLanguage,      // language
-    TKSchema,        // schema
+    TKTagSchema,     // schema
     TkTagAttribute,  // attribute
     TkCallGeneric,   // call generic. function_name--[[@<type>]](...)
 

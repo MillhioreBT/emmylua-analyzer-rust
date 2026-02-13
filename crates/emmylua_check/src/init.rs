@@ -58,7 +58,7 @@ pub fn setup_logger(verbose: bool) {
     }
 }
 
-pub fn load_workspace(
+pub async fn load_workspace(
     main_path: PathBuf,
     cmd_workspace_folders: Vec<PathBuf>,
     config_paths: Option<Vec<PathBuf>>,
@@ -134,6 +134,10 @@ pub fn load_workspace(
         })
         .collect();
     analysis.update_files_by_path(files);
+
+    if analysis.check_schema_update() {
+        analysis.update_schema().await;
+    }
 
     Some(analysis)
 }
