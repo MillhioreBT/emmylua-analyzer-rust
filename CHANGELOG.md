@@ -2,6 +2,20 @@
 
 *All notable changes to the EmmyLua Analyzer Rust project will be documented in this file.*
 
+## [0.21.0] - 2026-2-13
+
+### ✨ Added
+- **Support @schema url annotation**: Added support for `@schema` annotation,
+which can be use to add completion and hover for json-schema-defined APIs. For example:
+```lua
+---@schema https://raw.githubusercontent.com/EmmyLuaLs/emmylua-analyzer-rust/refs/heads/main/crates/emmylua_code_analysis/resources/schema.json
+local c = {
+  -- will suggest `diagnostics` and more
+}
+
+```
+
+
 ## [0.20.0] - 2026-1-30
 ### ✨ Added
 - **Support .emmyrc.lua configuration file**: The language server and emmylua_check now support loading configuration from `.emmyrc.lua` in addition to `.emmyrc.json` and `.luarc.json`. Lua configuration is parsed using the [luars](https://github.com/CppCXY/lua-rs) library. A basic config looks like:
