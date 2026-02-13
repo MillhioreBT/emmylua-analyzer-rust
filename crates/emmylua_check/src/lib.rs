@@ -35,7 +35,9 @@ pub async fn run_check(cmd_args: CmdArgs) -> Result<(), Box<dyn Error + Sync + S
         workspaces.clone(),
         cmd_args.config,
         cmd_args.ignore,
-    ) {
+    )
+    .await
+    {
         Some(analysis) => analysis,
         None => {
             return Err("Failed to load workspace".into());

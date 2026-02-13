@@ -69,7 +69,11 @@ fn module_analyze(
             let mut context = AnalyzeContext::new(config);
             context.add_tree_chunk(in_filed_tree);
             return vec![(workspace_id, context)];
-        }
+        } else if db.get_vfs().is_remote_file(&file_id) {
+            let mut context = AnalyzeContext::new(config);
+            context.add_tree_chunk(in_filed_tree);
+            return vec![(WorkspaceId::REMOTE, context)];
+        };
 
         return vec![];
     }
@@ -95,6 +99,11 @@ fn module_analyze(
                 .entry(workspace_id)
                 .or_default()
                 .push(in_filed_tree);
+        } else if db.get_vfs().is_remote_file(&file_id) {
+            file_tree_map
+                .entry(WorkspaceId::REMOTE)
+                .or_default()
+                .push(in_filed_tree);
         }
     }
 
@@ -109,7 +118,7 @@ fn module_analyze(
     for (workspace_id, tree_list) in file_tree_map {
         let mut context = AnalyzeContext::new(config.clone());
         context.tree_list = tree_list;
-        if workspace_id.is_library() {
+        if workspace_id.is_library() || workspace_id.is_remote() {
             contexts.push((workspace_id, context));
         } else {
             main_vec.push((workspace_id, context));

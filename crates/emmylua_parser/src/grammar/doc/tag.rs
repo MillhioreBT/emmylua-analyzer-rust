@@ -60,7 +60,7 @@ fn parse_tag_detail(p: &mut LuaDocParser) -> DocParseResult {
         LuaTokenKind::TkTagAttribute => parse_tag_attribute(p),
         LuaTokenKind::TkDocAttributeUse => parse_tag_attribute_use(p, true),
         LuaTokenKind::TkCallGeneric => parse_tag_call_generic(p),
-        LuaTokenKind::TKSchema => parse_tag_schema(p),
+        LuaTokenKind::TKTagSchema => parse_tag_schema(p),
 
         // simple tag
         LuaTokenKind::TkTagVisibility => parse_tag_simple(p, LuaSyntaxKind::DocTagVisibility),

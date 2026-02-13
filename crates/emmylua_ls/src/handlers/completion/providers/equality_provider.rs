@@ -21,6 +21,7 @@ pub fn add_completion(builder: &mut CompletionBuilder) -> Option<()> {
     for typ in &types {
         dispatch_type(builder, typ.clone(), &InferGuard::new());
     }
+
     if !types.is_empty() && !builder.is_invoked() {
         builder.stop_here();
     }
@@ -124,6 +125,10 @@ fn get_token_should_type(builder: &mut CompletionBuilder) -> Option<Vec<LuaType>
             }
         }
         LuaAst::LuaTableField(table_field) => {
+            if table_field.is_value_field() {
+                return None;
+            }
+
             let typ = infer_table_field_value_should_be(
                 builder.semantic_model.get_db(),
                 &mut builder.semantic_model.get_cache().borrow_mut(),

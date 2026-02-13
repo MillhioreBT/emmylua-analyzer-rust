@@ -24,7 +24,8 @@ use crate::Emmyrc;
 pub struct Vfs {
     file_id_map: HashMap<PathBuf, u32>,
     file_path_map: HashMap<u32, PathBuf>,
-    file_data: Vec<Option<String>>,
+    remote_file_id_map: HashMap<Uri, FileId>,
+    file_data: Vec<Option<FileContent>>,
     line_index_map: HashMap<FileId, LineIndex>,
     tree_map: HashMap<FileId, LuaSyntaxTree>,
     emmyrc: Option<Arc<Emmyrc>>,
@@ -42,6 +43,7 @@ impl Vfs {
         Vfs {
             file_id_map: HashMap::new(),
             file_path_map: HashMap::new(),
+            remote_file_id_map: HashMap::new(),
             file_data: Vec::new(),
             line_index_map: HashMap::new(),
             tree_map: HashMap::new(),
@@ -66,6 +68,17 @@ impl Vfs {
             let id = self.file_data.len() as u32;
             self.file_id_map.insert(path.clone(), id);
             self.file_path_map.insert(id, path);
+            self.file_data.push(None);
+            FileId { id }
+        }
+    }
+
+    fn virtual_file_id(&mut self, uri: &Uri) -> FileId {
+        if let Some(id) = self.remote_file_id_map.get(uri) {
+            *id
+        } else {
+            let id = self.file_data.len() as u32;
+            self.remote_file_id_map.insert(uri.clone(), FileId { id });
             self.file_data.push(None);
             FileId { id }
         }
@@ -103,7 +116,35 @@ impl Vfs {
             self.line_index_map.remove(&fid);
             self.tree_map.remove(&fid);
         }
-        self.file_data[fid.id as usize] = data;
+        self.file_data[fid.id as usize] = data.map(|content| FileContent {
+            content,
+            is_remote: false,
+        });
+        fid
+    }
+
+    pub fn set_remote_file_content(&mut self, uri: &Uri, data: Option<String>) -> FileId {
+        let fid = self.virtual_file_id(&uri);
+        log::debug!("virtual file_id: {:?}, uri: {}", fid, uri.as_str());
+
+        if let Some(data) = &data {
+            let line_index = LineIndex::parse(&data);
+            let parse_config = self
+                .emmyrc
+                .as_ref()
+                .expect("emmyrc set")
+                .get_parse_config(&mut self.node_cache);
+            let tree = LuaParser::parse(&data, parse_config);
+            self.tree_map.insert(fid, tree);
+            self.line_index_map.insert(fid, line_index);
+        } else {
+            self.line_index_map.remove(&fid);
+            self.tree_map.remove(&fid);
+        }
+        self.file_data[fid.id as usize] = data.map(|content| FileContent {
+            content,
+            is_remote: true,
+        });
         fid
     }
 
@@ -126,7 +167,11 @@ impl Vfs {
 
     pub fn get_file_content(&self, id: &FileId) -> Option<&String> {
         let opt = &self.file_data[id.id as usize];
-        if let Some(s) = opt { Some(s) } else { None }
+        if let Some(s) = opt {
+            Some(&s.content)
+        } else {
+            None
+        }
     }
 
     pub fn get_document(&self, id: &FileId) -> Option<LuaDocument<'_>> {
@@ -150,18 +195,48 @@ impl Vfs {
         Some(errors.to_vec())
     }
 
+    pub fn get_all_local_file_ids(&self) -> Vec<FileId> {
+        self.file_data
+            .iter()
+            .enumerate()
+            .filter_map(|(fid, opt_content)| {
+                if let Some(content) = opt_content {
+                    if !content.is_remote {
+                        Some(FileId { id: fid as u32 })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     pub fn get_all_file_ids(&self) -> Vec<FileId> {
         self.file_data
             .iter()
             .enumerate()
-            .filter_map(|(id, _)| {
-                if id == FileId::VIRTUAL.id as usize {
-                    None
+            .filter_map(|(fid, opt_content)| {
+                if opt_content.is_some() {
+                    Some(FileId { id: fid as u32 })
                 } else {
-                    Some(FileId { id: id as u32 })
+                    None
                 }
             })
             .collect()
+    }
+
+    pub fn is_remote_file(&self, id: &FileId) -> bool {
+        if let Some(opt_content) = self.file_data.get(id.id as usize) {
+            if let Some(content) = opt_content {
+                content.is_remote
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     pub fn clear(&mut self) {
@@ -173,4 +248,10 @@ impl Vfs {
         self.emmyrc = None;
         self.node_cache = NodeCache::default();
     }
+}
+
+#[derive(Debug)]
+struct FileContent {
+    content: String,
+    is_remote: bool,
 }

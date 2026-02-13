@@ -21,9 +21,14 @@ pub struct WorkspaceId {
 impl WorkspaceId {
     pub const STD: WorkspaceId = WorkspaceId { id: 0 };
     pub const MAIN: WorkspaceId = WorkspaceId { id: 1 };
+    pub const REMOTE: WorkspaceId = WorkspaceId { id: 2 };
 
     pub fn is_library(&self) -> bool {
-        self.id > 1
+        self.id > 2
+    }
+
+    pub fn is_remote(&self) -> bool {
+        self.id == 2
     }
 
     pub fn is_main(&self) -> bool {
@@ -52,7 +57,8 @@ impl fmt::Display for WorkspaceId {
         match self.id {
             0 => write!(f, "std"),
             1 => write!(f, "main"),
-            _ => write!(f, "lib{}", self.id - 1),
+            2 => write!(f, "remote"),
+            _ => write!(f, "lib{}", self.id - 2),
         }
     }
 }

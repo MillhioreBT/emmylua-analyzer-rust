@@ -211,7 +211,7 @@ fn try_modify_require_path(
 ) -> Option<HashMap<Uri, Vec<TextEdit>>> {
     #[allow(clippy::mutable_key_type)]
     let mut changes: HashMap<Uri, Vec<TextEdit>> = HashMap::new();
-    for file_id in compilation.get_db().get_vfs().get_all_file_ids() {
+    for file_id in compilation.get_db().get_vfs().get_all_local_file_ids() {
         if compilation.get_db().get_module_index().is_std(&file_id) {
             continue;
         }
