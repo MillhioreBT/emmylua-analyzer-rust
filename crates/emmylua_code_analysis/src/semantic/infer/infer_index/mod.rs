@@ -568,6 +568,10 @@ fn infer_union_member(
         }
     }
 
+    if member_types.iter().all(|t| t.is_nil()) {
+        return Err(InferFailReason::FieldNotFound);
+    }
+
     Ok(LuaType::from_vec(member_types))
 }
 
