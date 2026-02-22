@@ -197,6 +197,10 @@ pub fn infer_member_by_member_key(
             let module_info = db.get_module_index().get_module(*file_id);
             if let Some(module_info) = module_info {
                 if let Some(export_type) = &module_info.export_type {
+                    if export_type.is_module_ref() {
+                        return Err(InferFailReason::RecursiveInfer);
+                    }
+
                     return infer_member_by_member_key(
                         db,
                         cache,

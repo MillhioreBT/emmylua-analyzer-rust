@@ -137,11 +137,15 @@ pub fn humanize_type(db: &DbIndex, ty: &LuaType, level: RenderLevel) -> String {
         LuaType::Never => "never".to_string(),
         LuaType::ModuleRef(file_id) => {
             if let Some(module_info) = db.get_module_index().get_module(*file_id) {
-                humanize_type(
-                    db,
-                    &module_info.export_type.clone().unwrap_or(LuaType::Any),
-                    level,
-                )
+                if let Some(export_type) = &module_info.export_type {
+                    if export_type.is_module_ref() {
+                        return "module 'recursive'".to_string();
+                    }
+
+                    humanize_type(db, export_type, level)
+                } else {
+                    "module 'unknown'".to_string()
+                }
             } else {
                 "module 'unknown'".to_string()
             }
