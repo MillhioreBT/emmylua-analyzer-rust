@@ -810,7 +810,7 @@ pub fn variadic_tpl_pattern_match(
                                     1 => {
                                         context.substitutor.insert_type(
                                             tpl_id,
-                                            constant_decay(types[0].clone()),
+                                            types[0].clone(),
                                             true,
                                         );
                                     }
