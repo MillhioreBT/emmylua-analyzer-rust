@@ -803,9 +803,7 @@ pub fn variadic_tpl_pattern_match(
                             LuaType::Variadic(variadic) => match variadic.deref() {
                                 VariadicType::Multi(types) => match types.len() {
                                     0 => {
-                                        context
-                                            .substitutor
-                                            .insert_type(tpl_id, LuaType::Nil, true);
+                                        context.substitutor.insert_type(tpl_id, LuaType::Nil, true);
                                     }
                                     1 => {
                                         context.substitutor.insert_type(
@@ -825,15 +823,11 @@ pub fn variadic_tpl_pattern_match(
                                     }
                                 },
                                 VariadicType::Base(base) => {
-                                    context
-                                        .substitutor
-                                        .insert_multi_base(tpl_id, base.clone());
+                                    context.substitutor.insert_multi_base(tpl_id, base.clone());
                                 }
                             },
                             arg => {
-                                context
-                                    .substitutor
-                                    .insert_type(tpl_id, arg.clone(), true);
+                                context.substitutor.insert_type(tpl_id, arg.clone(), true);
                             }
                         }
                     }
