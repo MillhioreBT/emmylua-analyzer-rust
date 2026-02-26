@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::VirtualWorkspace;
+    use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
     fn test_custom_binary() {
@@ -67,5 +67,36 @@ mod test {
         let ty = ws.expr_ty("c");
         let expected = ws.ty("number");
         assert_eq!(ty, expected);
+    }
+
+    #[test]
+    fn test_infer_expr_list_types_tolerates_infer_failures() {
+        let mut ws = VirtualWorkspace::new();
+        let code = r#"
+            local t ---@type { a: number }
+
+            ---@type string, string
+            local y, x
+
+            x, y = t.b, 1
+        "#;
+
+        assert!(!ws.check_code_for(DiagnosticCode::UndefinedField, code));
+        assert!(!ws.check_code_for(DiagnosticCode::AssignTypeMismatch, code));
+    }
+
+    #[test]
+    fn test_flow_assign_preserves_doc_type_on_infer_error() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            local t ---@type { a: number }
+            local x ---@type string
+            x = t.b
+            R = x
+        "#,
+        );
+
+        assert_eq!(ws.expr_ty("R"), ws.ty("nil"));
     }
 }
