@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{path::Path, sync::Arc};
 
     use crate::{
-        FileId, WorkspaceId,
+        Emmyrc, FileId, WorkspaceId,
         db_index::{module::LuaModuleIndex, traits::LuaIndex},
     };
 
@@ -166,5 +166,25 @@ mod tests {
         assert!(module_info.is_none());
         let module_node = m.find_module_node("test2.aaa");
         assert!(module_node.is_none());
+    }
+
+    #[test]
+    fn test_require_fuzzy_match_honors_segment_boundaries() {
+        let mut m = LuaModuleIndex::new();
+        m.update_config(Arc::new(Emmyrc::default()));
+        m.add_workspace_root(
+            Path::new("C:/Users/username/Documents").into(),
+            WorkspaceId::MAIN,
+        );
+
+        let file_id = FileId { id: 1 };
+        m.add_module_by_path(
+            file_id,
+            "C:/Users/username/Documents/nvim-cmp/lua/cmp/utils/event.lua",
+        );
+
+        assert!(m.find_module("pckr.event").is_none());
+        let module_info = m.find_module("event").unwrap();
+        assert_eq!(module_info.full_module_name, "nvim-cmp.lua.cmp.utils.event");
     }
 }

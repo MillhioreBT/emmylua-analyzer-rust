@@ -256,14 +256,16 @@ impl LuaModuleIndex {
 
     fn fuzzy_find_module(&self, module_path: &str, last_name: &str) -> Option<&ModuleInfo> {
         let file_ids = self.module_name_to_file_ids.get(last_name)?;
-        if file_ids.len() == 1 {
-            return self.file_module_map.get(&file_ids[0]);
-        }
+        let suffix_with_boundary = format!(".{}", module_path);
 
         // find the first matched module
         for file_id in file_ids {
             let module_info = self.file_module_map.get(file_id)?;
-            if module_info.full_module_name.ends_with(module_path) {
+            if module_info.full_module_name == module_path
+                || module_info
+                    .full_module_name
+                    .ends_with(&suffix_with_boundary)
+            {
                 return Some(module_info);
             }
         }
