@@ -5,12 +5,7 @@ use luars::{
 use serde_json::Value;
 
 pub fn load_lua_config(content: &str) -> Result<Value, String> {
-    let mut lua = LuaVM::new(SafeOption {
-        max_call_depth: 64,
-        max_stack_size: 256,
-        base_call_depth: 64,
-        max_memory_limit: 100 * 1024 * 1024, // 100 MB
-    });
+    let mut lua = LuaVM::new(SafeOption::default());
 
     let _ = lua.open_stdlibs(&[
         luars::Stdlib::Package,

@@ -2,7 +2,7 @@
 
 *All notable changes to the EmmyLua Analyzer Rust project will be documented in this file.*
 
-## [0.21.0] - 2026-2-13
+## [0.21.0] - 2026-2-27
 
 ### ✨ Added
 - **Support @schema url annotation**: Added support for `@schema` annotation,
@@ -14,6 +14,14 @@ local c = {
 }
 
 ```
+
+### 🔧 Changed
+
+- **Update luars to 0.11.0**: Updated the `luars` dependency to version 0.11.0, which includes various bug fixes and improvements to Lua parsing and execution.
+
+### 🐛 Fixed
+
+TODO
 
 
 ## [0.20.0] - 2026-1-30
