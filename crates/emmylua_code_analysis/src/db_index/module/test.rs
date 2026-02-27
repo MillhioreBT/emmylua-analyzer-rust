@@ -187,4 +187,27 @@ mod tests {
         let module_info = m.find_module("event").unwrap();
         assert_eq!(module_info.full_module_name, "nvim-cmp.lua.cmp.utils.event");
     }
+
+    #[test]
+    fn test_require_fuzzy_match_prefers_shortest_prefix_independent_of_insert_order() {
+        const PLUGIN_ENTRY: &str = "C:/Users/username/Documents/plugin/treesitter-context.lua";
+        const LUA_ENTRY: &str = "C:/Users/username/Documents/lua/treesitter-context.lua";
+
+        // Validate both insertion orders to ensure lookup does not depend on indexing order.
+        for paths in [[PLUGIN_ENTRY, LUA_ENTRY], [LUA_ENTRY, PLUGIN_ENTRY]] {
+            let mut m = LuaModuleIndex::new();
+            m.update_config(Arc::new(Emmyrc::default()));
+            m.add_workspace_root(
+                Path::new("C:/Users/username/Documents").into(),
+                WorkspaceId::MAIN,
+            );
+
+            for (file_id, path) in [FileId { id: 1 }, FileId { id: 2 }].into_iter().zip(paths) {
+                m.add_module_by_path(file_id, path);
+            }
+
+            let module_info = m.find_module("treesitter-context").unwrap();
+            assert_eq!(module_info.full_module_name, "lua.treesitter-context");
+        }
+    }
 }
