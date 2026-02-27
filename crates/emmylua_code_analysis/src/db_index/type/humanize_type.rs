@@ -1,20 +1,23 @@
 use std::collections::HashSet;
+use std::fmt::{self, Write};
 
 use itertools::Itertools;
 
 use crate::{
-    AsyncState, DbIndex, GenericTpl, LuaAliasCallType, LuaConditionalType, LuaFunctionType,
-    LuaGenericType, LuaInstanceType, LuaIntersectionType, LuaMemberKey, LuaMemberOwner,
-    LuaObjectType, LuaSignatureId, LuaStringTplType, LuaTupleType, LuaType, LuaTypeDeclId,
-    LuaUnionType, TypeSubstitutor, VariadicType,
+    AsyncState, DbIndex, LuaAliasCallType, LuaConditionalType, LuaFunctionType, LuaGenericType,
+    LuaIntersectionType, LuaMemberKey, LuaMemberOwner, LuaObjectType, LuaSignatureId,
+    LuaStringTplType, LuaTupleType, LuaType, LuaTypeDeclId, LuaUnionType, TypeSubstitutor,
+    VariadicType,
 };
 
 use super::{LuaAliasCallKind, LuaMultiLineUnion};
 
+// ─── RenderLevel ────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderLevel {
     Documentation,
-    // donot more than 255
+    // do not set more than 255
     CustomDetailed(u8),
     Detailed,
     Simple,
@@ -35,228 +38,1091 @@ impl RenderLevel {
             RenderLevel::Minimal => RenderLevel::Minimal,
         }
     }
-}
 
-fn hover_escape_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{1b}' => out.push_str("\\27"),
-            ch if ch.is_control() => {
-                let code = ch as u32;
-                if code <= 0xFF {
-                    out.push_str(&format!("\\x{code:02X}"));
-                } else {
-                    out.push_str(&format!("\\u{{{code:X}}}"));
-                }
-            }
-            _ => out.push(ch),
+    fn max_items(self) -> usize {
+        match self {
+            RenderLevel::Documentation => 500,
+            RenderLevel::CustomDetailed(n) => n as usize,
+            RenderLevel::Detailed => 10,
+            RenderLevel::Simple => 8,
+            RenderLevel::Normal => 4,
+            RenderLevel::Brief => 2,
+            RenderLevel::Minimal => 2,
         }
     }
 
-    out
-}
+    fn max_union_items(self) -> usize {
+        match self {
+            RenderLevel::Documentation => 500,
+            RenderLevel::CustomDetailed(n) => n as usize,
+            RenderLevel::Detailed => 8,
+            RenderLevel::Simple => 6,
+            RenderLevel::Normal => 4,
+            RenderLevel::Brief => 2,
+            RenderLevel::Minimal => 2,
+        }
+    }
 
-pub fn humanize_type(db: &DbIndex, ty: &LuaType, level: RenderLevel) -> String {
-    match ty {
-        LuaType::Any => "any".to_string(),
-        LuaType::Nil => "nil".to_string(),
-        LuaType::Boolean => "boolean".to_string(),
-        LuaType::Number => "number".to_string(),
-        LuaType::String => "string".to_string(),
-        LuaType::Table => "table".to_string(),
-        LuaType::Function => "function".to_string(),
-        LuaType::Thread => "thread".to_string(),
-        LuaType::Userdata => "userdata".to_string(),
-        LuaType::IntegerConst(i) => i.to_string(),
-        LuaType::FloatConst(f) => {
-            let s = f.to_string();
-            // 如果字符串不包含小数点，添加 ".0"
-            if !s.contains('.') {
-                format!("{}.0", s)
-            } else {
-                s
-            }
+    fn max_display_count(self) -> Option<usize> {
+        match self {
+            RenderLevel::Documentation => Some(500),
+            RenderLevel::CustomDetailed(n) => Some(n as usize),
+            RenderLevel::Detailed => Some(12),
+            _ => None,
         }
-        LuaType::TableConst(v) => {
-            let member_owner = LuaMemberOwner::Element(v.clone());
-            humanize_table_const_type(db, member_owner, level)
-        }
-        LuaType::Global => "global".to_string(),
-        LuaType::Def(id) => humanize_def_type(db, id, level),
-        LuaType::Union(union) => humanize_union_type(db, union, level),
-        LuaType::Tuple(tuple) => humanize_tuple_type(db, tuple, level),
-        LuaType::Unknown => "unknown".to_string(),
-        LuaType::Integer => "integer".to_string(),
-        LuaType::Io => "io".to_string(),
-        LuaType::SelfInfer => "self".to_string(),
-        LuaType::BooleanConst(b) => b.to_string(),
-        LuaType::StringConst(s) => format!("\"{}\"", hover_escape_string(s)),
-        LuaType::DocStringConst(s) => format!("\"{}\"", hover_escape_string(s)),
-        LuaType::DocIntegerConst(i) => i.to_string(),
-        LuaType::DocBooleanConst(b) => b.to_string(),
-        LuaType::Ref(id) => {
-            if let Some(type_decl) = db.get_type_index().get_type_decl(id) {
-                let name = type_decl.get_full_name().to_string();
-                humanize_simple_type(db, id, &name, level).unwrap_or(name)
-            } else {
-                id.get_name().to_string()
-            }
-        }
-        LuaType::Array(arr_inner) => humanize_array_type(db, arr_inner.get_base(), level),
-        LuaType::Call(alias_call) => humanize_call_type(db, alias_call, level),
-        LuaType::DocFunction(lua_func) => humanize_doc_function_type(db, lua_func, level),
-        LuaType::Object(object) => humanize_object_type(db, object, level),
-        LuaType::Intersection(inter) => humanize_intersect_type(db, inter, level),
-        LuaType::Generic(generic) => humanize_generic_type(db, generic, level),
-        LuaType::TableGeneric(table_generic_params) => {
-            humanize_table_generic_type(db, table_generic_params, level)
-        }
-        LuaType::TplRef(tpl) => humanize_tpl_ref_type(tpl),
-        LuaType::StrTplRef(str_tpl) => humanize_str_tpl_ref_type(str_tpl),
-        LuaType::Variadic(multi) => humanize_variadic_type(db, multi, level),
-        LuaType::Instance(ins) => humanize_instance_type(db, ins, level),
-        LuaType::Signature(signature_id) => humanize_signature_type(db, signature_id, level),
-        LuaType::Namespace(ns) => format!("{{ {} }}", ns),
-        LuaType::MultiLineUnion(multi_union) => {
-            humanize_multi_line_union_type(db, multi_union, level)
-        }
-        LuaType::TypeGuard(inner) => {
-            let type_str = humanize_type(db, inner, level.next_level());
-            format!("TypeGuard<{}>", type_str)
-        }
-        LuaType::ConstTplRef(const_tpl) => humanize_const_tpl_ref_type(const_tpl),
-        LuaType::Language(s) => s.to_string(),
-        LuaType::Conditional(c) => humanize_conditional_type(db, c, level),
-        LuaType::ConditionalInfer(s) => s.to_string(),
-        LuaType::Never => "never".to_string(),
-        LuaType::ModuleRef(file_id) => {
-            if let Some(module_info) = db.get_module_index().get_module(*file_id) {
-                if let Some(export_type) = &module_info.export_type {
-                    if export_type.is_module_ref() {
-                        return "module 'recursive'".to_string();
-                    }
-
-                    humanize_type(db, export_type, level)
-                } else {
-                    "module 'unknown'".to_string()
-                }
-            } else {
-                "module 'unknown'".to_string()
-            }
-        }
-        _ => "unknown".to_string(),
     }
 }
 
-fn humanize_def_type(db: &DbIndex, id: &LuaTypeDeclId, level: RenderLevel) -> String {
-    let type_decl = match db.get_type_index().get_type_decl(id) {
-        Some(type_decl) => type_decl,
-        None => return id.get_name().to_string(),
-    };
+// ─── TypeHumanizer ──────────────────────────────────────────────────────────
 
-    let full_name = type_decl.get_full_name();
-    let generic = match db.get_type_index().get_generic_params(id) {
-        Some(generic) => generic,
-        None => {
-            return humanize_simple_type(db, id, full_name, level).unwrap_or(full_name.to_string());
-        }
-    };
+const DEFAULT_MAX_DEPTH: u8 = 12;
 
-    let generic_names = generic
-        .iter()
-        .map(|it| it.name.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("{}<{}>", full_name, generic_names)
-}
-
-fn humanize_simple_type(
-    db: &DbIndex,
-    id: &LuaTypeDeclId,
-    name: &str,
+/// Core writer-based type humanizer. Avoids intermediate `String` allocations
+/// and prevents infinite recursion through depth tracking and cycle detection.
+pub struct TypeHumanizer<'a> {
+    db: &'a DbIndex,
     level: RenderLevel,
-) -> Option<String> {
-    let max_display_count = match level {
-        RenderLevel::Documentation => 500,
-        RenderLevel::CustomDetailed(n) => n as usize,
-        RenderLevel::Detailed => 12,
-        _ => return Some(name.to_string()),
-    };
+    depth: u8,
+    max_depth: u8,
+    /// Tracks visited `LuaTypeDeclId`s to break cycles from recursive aliases / refs.
+    visited: HashSet<LuaTypeDeclId>,
+}
 
-    let member_owner = LuaMemberOwner::Type(id.clone());
-    let member_index = db.get_member_index();
-    let members = member_index.get_sorted_members(&member_owner)?;
-    let mut member_vec = Vec::new();
-    let mut function_vec = Vec::new();
-    for member in members {
-        let member_key = member.get_key();
-        let type_cache = db.get_type_index().get_type_cache(&member.get_id().into());
-        let type_cache = match type_cache {
-            Some(type_cache) => type_cache,
-            None => &super::LuaTypeCache::InferType(LuaType::Any),
-        };
-        if type_cache.is_function() {
-            function_vec.push(member_key);
-        } else {
-            member_vec.push((member_key, type_cache.as_type()));
-        }
-    }
-
-    if member_vec.is_empty() && function_vec.is_empty() {
-        return Some(name.to_string());
-    }
-    let all_count = member_vec.len() + function_vec.len();
-
-    let mut member_strings = String::new();
-    let mut count = 0;
-    for (member_key, typ) in member_vec {
-        let member_string = build_table_member_string(
-            member_key,
-            typ,
-            humanize_type(db, typ, level.next_level()),
+impl<'a> TypeHumanizer<'a> {
+    pub fn new(db: &'a DbIndex, level: RenderLevel) -> Self {
+        Self {
+            db,
             level,
-        );
-
-        member_strings.push_str(&format!("    {},\n", member_string));
-        count += 1;
-        if count >= max_display_count {
-            break;
+            depth: 0,
+            max_depth: DEFAULT_MAX_DEPTH,
+            visited: HashSet::new(),
         }
     }
-    if count < all_count {
-        for function_key in function_vec {
-            let member_string = build_table_member_string(
-                function_key,
-                &LuaType::Function,
-                "function".to_string(),
-                level,
-            );
 
-            member_strings.push_str(&format!("    {},\n", member_string));
+    pub fn with_max_depth(mut self, max_depth: u8) -> Self {
+        self.max_depth = max_depth;
+        self
+    }
+
+    // ─── depth guard ────────────────────────────────────────────────
+
+    /// Try to enter a deeper recursion level. Returns `None` if depth limit
+    /// is reached; the caller should write `"..."` and return. Otherwise
+    /// returns a token that must be passed to `leave_guard` when done.
+    fn guard(&mut self) -> Option<DepthGuardToken> {
+        if self.depth >= self.max_depth {
+            return None;
+        }
+        self.depth += 1;
+        Some(DepthGuardToken)
+    }
+
+    fn leave_guard(&mut self, _token: DepthGuardToken) {
+        self.depth = self.depth.saturating_sub(1);
+    }
+
+    /// The child level (one step less detailed) for nested types.
+    fn child_level(&self) -> RenderLevel {
+        self.level.next_level()
+    }
+
+    // ─── public entry point ─────────────────────────────────────────
+
+    /// Write the humanized representation of `ty` into `w`.
+    pub fn write_type<W: Write>(&mut self, ty: &LuaType, w: &mut W) -> fmt::Result {
+        let token = match self.guard() {
+            Some(t) => t,
+            None => return w.write_str("..."),
+        };
+
+        let result = self.write_type_inner(ty, w);
+
+        self.leave_guard(token);
+        result
+    }
+
+    // ─── main dispatcher ────────────────────────────────────────────
+
+    fn write_type_inner<W: Write>(&mut self, ty: &LuaType, w: &mut W) -> fmt::Result {
+        match ty {
+            LuaType::Any => w.write_str("any"),
+            LuaType::Nil => w.write_str("nil"),
+            LuaType::Boolean => w.write_str("boolean"),
+            LuaType::Number => w.write_str("number"),
+            LuaType::String => w.write_str("string"),
+            LuaType::Table => w.write_str("table"),
+            LuaType::Function => w.write_str("function"),
+            LuaType::Thread => w.write_str("thread"),
+            LuaType::Userdata => w.write_str("userdata"),
+            LuaType::IntegerConst(i) => write!(w, "{}", i),
+            LuaType::FloatConst(f) => {
+                let s = f.to_string();
+                if !s.contains('.') {
+                    write!(w, "{}.0", s)
+                } else {
+                    w.write_str(&s)
+                }
+            }
+            LuaType::TableConst(v) => {
+                let member_owner = LuaMemberOwner::Element(v.clone());
+                self.write_table_const_type(member_owner, w)
+            }
+            LuaType::Global => w.write_str("global"),
+            LuaType::Def(id) => self.write_def_type(id, w),
+            LuaType::Union(union) => self.write_union_type(union, w),
+            LuaType::Tuple(tuple) => self.write_tuple_type(tuple, w),
+            LuaType::Unknown => w.write_str("unknown"),
+            LuaType::Integer => w.write_str("integer"),
+            LuaType::Io => w.write_str("io"),
+            LuaType::SelfInfer => w.write_str("self"),
+            LuaType::BooleanConst(b) => write!(w, "{}", b),
+            LuaType::StringConst(s) => {
+                w.write_char('"')?;
+                write_hover_escape_string(s, w)?;
+                w.write_char('"')
+            }
+            LuaType::DocStringConst(s) => {
+                w.write_char('"')?;
+                write_hover_escape_string(s, w)?;
+                w.write_char('"')
+            }
+            LuaType::DocIntegerConst(i) => write!(w, "{}", i),
+            LuaType::DocBooleanConst(b) => write!(w, "{}", b),
+            LuaType::Ref(id) => self.write_ref_type(id, w),
+            LuaType::Array(arr_inner) => self.write_array_type(arr_inner.get_base(), w),
+            LuaType::Call(alias_call) => self.write_call_type(alias_call, w),
+            LuaType::DocFunction(lua_func) => self.write_doc_function_type(lua_func, w),
+            LuaType::Object(object) => self.write_object_type(object, w),
+            LuaType::Intersection(inter) => self.write_intersect_type(inter, w),
+            LuaType::Generic(generic) => self.write_generic_type(generic, w),
+            LuaType::TableGeneric(table_generic_params) => {
+                self.write_table_generic_type(table_generic_params, w)
+            }
+            LuaType::TplRef(tpl) => w.write_str(tpl.get_name()),
+            LuaType::StrTplRef(str_tpl) => self.write_str_tpl_ref_type(str_tpl, w),
+            LuaType::Variadic(multi) => self.write_variadic_type(multi, w),
+            LuaType::Instance(ins) => self.write_type_inner(ins.get_base(), w),
+            LuaType::Signature(signature_id) => self.write_signature_type(signature_id, w),
+            LuaType::Namespace(ns) => write!(w, "{{ {} }}", ns),
+            LuaType::MultiLineUnion(multi_union) => {
+                self.write_multi_line_union_type(multi_union, w)
+            }
+            LuaType::TypeGuard(inner) => {
+                w.write_str("TypeGuard<")?;
+                let saved = self.level;
+                self.level = self.child_level();
+                self.write_type(inner, w)?;
+                self.level = saved;
+                w.write_char('>')
+            }
+            LuaType::ConstTplRef(const_tpl) => w.write_str(const_tpl.get_name()),
+            LuaType::Language(s) => w.write_str(s),
+            LuaType::Conditional(c) => self.write_conditional_type(c, w),
+            LuaType::ConditionalInfer(s) => w.write_str(s),
+            LuaType::Never => w.write_str("never"),
+            LuaType::ModuleRef(file_id) => self.write_module_ref(*file_id, w),
+            _ => w.write_str("unknown"),
+        }
+    }
+
+    // ─── Ref ────────────────────────────────────────────────────────
+
+    fn write_ref_type<W: Write>(&mut self, id: &LuaTypeDeclId, w: &mut W) -> fmt::Result {
+        if let Some(type_decl) = self.db.get_type_index().get_type_decl(id) {
+            let name = type_decl.get_full_name().to_string();
+            match self.write_simple_type(id, &name, w) {
+                Ok(true) => Ok(()),
+                Ok(false) => w.write_str(&name),
+                Err(e) => Err(e),
+            }
+        } else {
+            w.write_str(id.get_name())
+        }
+    }
+
+    // ─── Def ────────────────────────────────────────────────────────
+
+    fn write_def_type<W: Write>(&mut self, id: &LuaTypeDeclId, w: &mut W) -> fmt::Result {
+        let type_decl = match self.db.get_type_index().get_type_decl(id) {
+            Some(type_decl) => type_decl,
+            None => return w.write_str(id.get_name()),
+        };
+
+        let full_name = type_decl.get_full_name().to_string();
+        let generic = match self.db.get_type_index().get_generic_params(id) {
+            Some(generic) => generic,
+            None => {
+                return match self.write_simple_type(id, &full_name, w) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => w.write_str(&full_name),
+                    Err(e) => Err(e),
+                };
+            }
+        };
+
+        w.write_str(&full_name)?;
+        w.write_char('<')?;
+        for (i, param) in generic.iter().enumerate() {
+            if i > 0 {
+                w.write_str(", ")?;
+            }
+            w.write_str(&param.name)?;
+        }
+        w.write_char('>')
+    }
+
+    // ─── Simple (expanded struct view) ──────────────────────────────
+
+    /// Tries to write an expanded view of a named type (struct-like fields).
+    /// Returns `Ok(true)` if it wrote something, `Ok(false)` if the caller
+    /// should fall back to writing the plain name.
+    fn write_simple_type<W: Write>(
+        &mut self,
+        id: &LuaTypeDeclId,
+        name: &str,
+        w: &mut W,
+    ) -> Result<bool, fmt::Error> {
+        let max_display_count = match self.level.max_display_count() {
+            Some(n) => n,
+            None => {
+                w.write_str(name)?;
+                return Ok(true);
+            }
+        };
+
+        // cycle detection
+        if !self.visited.insert(id.clone()) {
+            w.write_str(name)?;
+            return Ok(true);
+        }
+
+        let member_owner = LuaMemberOwner::Type(id.clone());
+        let member_index = self.db.get_member_index();
+        let members = match member_index.get_sorted_members(&member_owner) {
+            Some(m) => m,
+            None => {
+                self.visited.remove(id);
+                return Ok(false);
+            }
+        };
+
+        let mut member_vec = Vec::new();
+        let mut function_vec = Vec::new();
+        for member in members {
+            let member_key = member.get_key();
+            let type_cache = self
+                .db
+                .get_type_index()
+                .get_type_cache(&member.get_id().into());
+            let type_cache = match type_cache {
+                Some(type_cache) => type_cache,
+                None => &super::LuaTypeCache::InferType(LuaType::Any),
+            };
+            if type_cache.is_function() {
+                function_vec.push(member_key);
+            } else {
+                member_vec.push((member_key, type_cache.as_type()));
+            }
+        }
+
+        if member_vec.is_empty() && function_vec.is_empty() {
+            self.visited.remove(id);
+            w.write_str(name)?;
+            return Ok(true);
+        }
+
+        let all_count = member_vec.len() + function_vec.len();
+
+        w.write_str(name)?;
+        w.write_str(" {\n")?;
+
+        let saved = self.level;
+        self.level = self.child_level();
+
+        let mut count = 0;
+        for (member_key, typ) in &member_vec {
+            w.write_str("    ")?;
+            self.write_table_member_field(member_key, typ, saved, w)?;
+            w.write_str(",\n")?;
             count += 1;
             if count >= max_display_count {
                 break;
             }
         }
+        if count < all_count {
+            for function_key in &function_vec {
+                w.write_str("    ")?;
+                write_member_key_and_separator(function_key, saved, w)?;
+                w.write_str("function,\n")?;
+                count += 1;
+                if count >= max_display_count {
+                    break;
+                }
+            }
+        }
+        if count >= max_display_count {
+            writeln!(w, "    ...(+{})", all_count - max_display_count)?;
+        }
+
+        self.level = saved;
+        self.visited.remove(id);
+
+        w.write_char('}')?;
+        Ok(true)
     }
-    if count >= max_display_count {
-        member_strings.push_str(&format!("    ...(+{})\n", all_count - max_display_count));
+
+    // ─── Union ──────────────────────────────────────────────────────
+
+    fn write_union_type<W: Write>(&mut self, union: &LuaUnionType, w: &mut W) -> fmt::Result {
+        let types = union.into_vec();
+        let num = self.level.max_union_items();
+
+        let saved = self.level;
+        self.level = self.child_level();
+
+        // First pass: build dedup keys and collect unique types
+        let mut seen = HashSet::new();
+        let mut unique_types: Vec<(&LuaType, String)> = Vec::new();
+        let mut has_nil = false;
+        let mut has_function = false;
+
+        for ty in types.iter() {
+            if ty.is_nil() {
+                has_nil = true;
+                continue;
+            } else if ty.is_function() {
+                has_function = true;
+            }
+            let mut key = String::new();
+            let _ = self.write_type(ty, &mut key);
+            if seen.insert(key.clone()) {
+                unique_types.push((ty, key));
+            }
+        }
+
+        self.level = saved;
+
+        let total = unique_types.len();
+        let show_dots = total > num;
+        let needs_parens = total > 1 || (total == 1 && has_function && has_nil);
+
+        if needs_parens {
+            w.write_char('(')?;
+        }
+
+        // Second pass: write unique types directly (reuse cached keys)
+        for (i, (_, key)) in unique_types.iter().take(num).enumerate() {
+            if i > 0 {
+                w.write_char('|')?;
+            }
+            w.write_str(key)?;
+        }
+
+        if show_dots {
+            w.write_str("...")?;
+        }
+
+        if needs_parens {
+            w.write_char(')')?;
+        }
+
+        if has_nil {
+            w.write_char('?')?;
+        }
+
+        Ok(())
     }
-    Some(format!("{} {{\n{}}}", name, member_strings))
+
+    // ─── MultiLineUnion ─────────────────────────────────────────────
+
+    fn write_multi_line_union_type<W: Write>(
+        &mut self,
+        multi_union: &LuaMultiLineUnion,
+        w: &mut W,
+    ) -> fmt::Result {
+        let members = multi_union.get_unions();
+        let num = self.level.max_items();
+        let dots = if members.len() > num { "..." } else { "" };
+
+        w.write_char('(')?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, (ty, _)) in members.iter().take(num).enumerate() {
+            if i > 0 {
+                w.write_char('|')?;
+            }
+            self.write_type(ty, w)?;
+        }
+        self.level = saved;
+        w.write_str(dots)?;
+        w.write_char(')')?;
+
+        if saved != RenderLevel::Detailed {
+            return Ok(());
+        }
+
+        w.write_char('\n')?;
+        // detail lines
+        let saved_level = self.level;
+        self.level = RenderLevel::Minimal;
+        for (typ, description) in members {
+            w.write_str("    | ")?;
+            self.write_type(typ, w)?;
+            if let Some(desc) = description {
+                w.write_str(" -- ")?;
+                w.write_str(&desc.replace('\n', " "))?;
+            }
+            w.write_char('\n')?;
+        }
+        self.level = saved_level;
+        Ok(())
+    }
+
+    // ─── Tuple ──────────────────────────────────────────────────────
+
+    fn write_tuple_type<W: Write>(&mut self, tuple: &LuaTupleType, w: &mut W) -> fmt::Result {
+        let types = tuple.get_types();
+        let num = self.level.max_items();
+        let dots = types.len() > num;
+
+        w.write_char('(')?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, ty) in types.iter().take(num).enumerate() {
+            if i > 0 {
+                w.write_char(',')?;
+            }
+            self.write_type(ty, w)?;
+        }
+        self.level = saved;
+        if dots {
+            w.write_str("...")?;
+        }
+        w.write_char(')')
+    }
+
+    // ─── Array ──────────────────────────────────────────────────────
+
+    fn write_array_type<W: Write>(&mut self, inner: &LuaType, w: &mut W) -> fmt::Result {
+        let saved = self.level;
+        self.level = self.child_level();
+        self.write_type(inner, w)?;
+        self.level = saved;
+        w.write_str("[]")
+    }
+
+    // ─── Call (alias call) ──────────────────────────────────────────
+
+    fn write_call_type<W: Write>(&mut self, inner: &LuaAliasCallType, w: &mut W) -> fmt::Result {
+        let basic = match inner.get_call_kind() {
+            LuaAliasCallKind::Sub => "sub",
+            LuaAliasCallKind::Add => "add",
+            LuaAliasCallKind::KeyOf => "keyof",
+            LuaAliasCallKind::Extends => "extends",
+            LuaAliasCallKind::Select => "select",
+            LuaAliasCallKind::Unpack => "unpack",
+            LuaAliasCallKind::Index => "index",
+            LuaAliasCallKind::RawGet => "rawget",
+            LuaAliasCallKind::Merge => "Merge",
+        };
+        w.write_str(basic)?;
+        w.write_char('<')?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, ty) in inner.get_operands().iter().enumerate() {
+            if i > 0 {
+                w.write_char(',')?;
+            }
+            self.write_type(ty, w)?;
+        }
+        self.level = saved;
+        w.write_char('>')
+    }
+
+    // ─── DocFunction ────────────────────────────────────────────────
+
+    fn write_doc_function_type<W: Write>(
+        &mut self,
+        lua_func: &LuaFunctionType,
+        w: &mut W,
+    ) -> fmt::Result {
+        if self.level == RenderLevel::Minimal {
+            return w.write_str("fun(...) -> ...");
+        }
+
+        match lua_func.get_async_state() {
+            AsyncState::None => w.write_str("fun")?,
+            AsyncState::Async => w.write_str("async fun")?,
+            AsyncState::Sync => w.write_str("sync fun")?,
+        }
+
+        w.write_char('(')?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, param) in lua_func.get_params().iter().enumerate() {
+            if i > 0 {
+                w.write_str(", ")?;
+            }
+            w.write_str(&param.0)?;
+            if let Some(ty) = &param.1 {
+                w.write_str(": ")?;
+                self.write_type(ty, w)?;
+            }
+        }
+        self.level = saved;
+        w.write_char(')')?;
+
+        let ret_type = lua_func.get_ret();
+        let return_nil = match ret_type {
+            LuaType::Variadic(variadic) => matches!(variadic.get_type(0), Some(LuaType::Nil)),
+            _ => ret_type.is_nil(),
+        };
+
+        if return_nil {
+            return Ok(());
+        }
+
+        w.write_str(" -> ")?;
+        let saved = self.level;
+        self.level = self.child_level();
+        self.write_type(ret_type, w)?;
+        self.level = saved;
+        Ok(())
+    }
+
+    // ─── Object ─────────────────────────────────────────────────────
+
+    fn write_object_type<W: Write>(&mut self, object: &LuaObjectType, w: &mut W) -> fmt::Result {
+        if self.level == RenderLevel::Minimal {
+            return w.write_str("{...}");
+        }
+
+        let num = self.level.max_items();
+        let fields = object.get_fields();
+        let dots = fields.len() > num;
+
+        w.write_str("{ ")?;
+        let saved = self.level;
+        self.level = self.child_level();
+
+        for (i, field) in fields
+            .iter()
+            .sorted_by(|a, b| a.0.cmp(&b.0))
+            .take(num)
+            .enumerate()
+        {
+            if i > 0 {
+                w.write_str(", ")?;
+            }
+            match &field.0 {
+                LuaMemberKey::Integer(idx) => {
+                    write!(w, "[{}]: ", idx)?;
+                    self.write_type(field.1, w)?;
+                }
+                LuaMemberKey::Name(s) => {
+                    w.write_str(s)?;
+                    w.write_str(": ")?;
+                    self.write_type(field.1, w)?;
+                }
+                LuaMemberKey::None | LuaMemberKey::ExprType(_) => {
+                    self.write_type(field.1, w)?;
+                }
+            }
+        }
+
+        // index access
+        let access = object.get_index_access();
+        if !access.is_empty() {
+            if !fields.is_empty() {
+                w.write_str(", ")?;
+            }
+            for (i, (key, value)) in access.iter().enumerate() {
+                if i > 0 {
+                    w.write_char(',')?;
+                }
+                w.write_char('[')?;
+                self.write_type(key, w)?;
+                w.write_str("]: ")?;
+                self.write_type(value, w)?;
+            }
+        }
+
+        self.level = saved;
+
+        if dots {
+            w.write_str(", ...")?;
+        }
+        w.write_str(" }")
+    }
+
+    // ─── Intersection ───────────────────────────────────────────────
+
+    fn write_intersect_type<W: Write>(
+        &mut self,
+        inter: &LuaIntersectionType,
+        w: &mut W,
+    ) -> fmt::Result {
+        let types = inter.get_types();
+        let num = self.level.max_items();
+        let dots = types.len() > num;
+
+        w.write_char('(')?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, ty) in types.iter().take(num).enumerate() {
+            if i > 0 {
+                w.write_str(" & ")?;
+            }
+            self.write_type(ty, w)?;
+        }
+        self.level = saved;
+        if dots {
+            w.write_str(", ...")?;
+        }
+        w.write_char(')')
+    }
+
+    // ─── Generic ────────────────────────────────────────────────────
+
+    fn write_generic_type<W: Write>(&mut self, generic: &LuaGenericType, w: &mut W) -> fmt::Result {
+        let base_id = generic.get_base_type_id();
+        let type_decl = match self.db.get_type_index().get_type_decl(&base_id) {
+            Some(type_decl) => type_decl,
+            None => return w.write_str(base_id.get_name()),
+        };
+
+        let full_name = type_decl.get_full_name().to_string();
+
+        // Write base<params>
+        w.write_str(&full_name)?;
+        w.write_char('<')?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, ty) in generic.get_params().iter().enumerate() {
+            if i > 0 {
+                w.write_char(',')?;
+            }
+            self.write_type(ty, w)?;
+        }
+        self.level = saved;
+        w.write_char('>')?;
+
+        // For detailed+ levels, expand alias origin
+        if matches!(
+            self.level,
+            RenderLevel::Documentation | RenderLevel::CustomDetailed(_) | RenderLevel::Detailed
+        ) && type_decl.is_alias()
+        {
+            // cycle detection for alias expansion
+            if !self.visited.insert(base_id.clone()) {
+                return Ok(());
+            }
+
+            let substitutor = TypeSubstitutor::from_type_array(generic.get_params().clone());
+            if let Some(origin_type) = type_decl.get_alias_origin(self.db, Some(&substitutor)) {
+                w.write_str(" = ")?;
+                let saved = self.level;
+                self.level = self.child_level();
+                self.write_type(&origin_type, w)?;
+                self.level = saved;
+            }
+
+            self.visited.remove(&base_id);
+        }
+
+        Ok(())
+    }
+
+    // ─── TableConst ─────────────────────────────────────────────────
+
+    fn write_table_const_type<W: Write>(
+        &mut self,
+        member_owned: LuaMemberOwner,
+        w: &mut W,
+    ) -> fmt::Result {
+        match self.level {
+            RenderLevel::Detailed | RenderLevel::Simple => {
+                if self
+                    .write_table_const_detail_or_simple(member_owned, w)
+                    .is_ok()
+                {
+                    Ok(())
+                } else {
+                    w.write_str("table")
+                }
+            }
+            _ => w.write_str("table"),
+        }
+    }
+
+    fn write_table_const_detail_or_simple<W: Write>(
+        &mut self,
+        member_owned: LuaMemberOwner,
+        w: &mut W,
+    ) -> Result<(), fmt::Error> {
+        let member_index = self.db.get_member_index();
+        let members = match member_index.get_sorted_members(&member_owned) {
+            Some(m) => m,
+            None => return Err(fmt::Error),
+        };
+
+        let is_detailed = self.level == RenderLevel::Detailed;
+
+        if is_detailed {
+            w.write_str("{\n")?;
+        } else {
+            w.write_str("{ ")?;
+        }
+
+        let saved = self.level;
+        self.level = self.child_level();
+
+        let mut total_length = 0usize;
+        let mut total_line = 0usize;
+        let mut first = true;
+
+        for member in members {
+            let key = member.get_key();
+            let type_cache = self
+                .db
+                .get_type_index()
+                .get_type_cache(&member.get_id().into());
+            let type_cache = match type_cache {
+                Some(tc) => tc,
+                None => &super::LuaTypeCache::InferType(LuaType::Any),
+            };
+
+            if is_detailed {
+                w.write_str("    ")?;
+                self.write_table_member_field(key, type_cache.as_type(), saved, w)?;
+                w.write_str(",\n")?;
+                total_line += 1;
+                if total_line >= 12 {
+                    w.write_str("    ...\n")?;
+                    break;
+                }
+            } else {
+                // Simple: track character length for truncation
+                let mut tmp = String::new();
+                self.write_table_member_field(key, type_cache.as_type(), saved, &mut tmp)?;
+                let member_string_len = tmp.chars().count();
+
+                if !first {
+                    w.write_str(", ")?;
+                    total_length += 2;
+                }
+                first = false;
+
+                total_length += member_string_len;
+                w.write_str(&tmp)?;
+                if total_length > 54 {
+                    w.write_str(", ...")?;
+                    break;
+                }
+            }
+        }
+
+        self.level = saved;
+
+        if is_detailed {
+            w.write_char('}')
+        } else {
+            w.write_str(" }")
+        }
+    }
+
+    // ─── TableGeneric ───────────────────────────────────────────────
+
+    fn write_table_generic_type<W: Write>(&mut self, params: &[LuaType], w: &mut W) -> fmt::Result {
+        if self.level == RenderLevel::Minimal {
+            return w.write_str("table<...>");
+        }
+
+        let num = self.level.max_items();
+        let dots = params.len() > num;
+
+        w.write_str("table<")?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, ty) in params.iter().take(num).enumerate() {
+            if i > 0 {
+                w.write_char(',')?;
+            }
+            self.write_type(ty, w)?;
+        }
+        self.level = saved;
+        if dots {
+            w.write_str(", ...")?;
+        }
+        w.write_char('>')
+    }
+
+    // ─── StrTplRef ──────────────────────────────────────────────────
+
+    fn write_str_tpl_ref_type<W: Write>(
+        &mut self,
+        str_tpl: &LuaStringTplType,
+        w: &mut W,
+    ) -> fmt::Result {
+        let prefix = str_tpl.get_prefix();
+        if prefix.is_empty() {
+            w.write_str(str_tpl.get_name())
+        } else {
+            write!(w, "{}`{}`", prefix, str_tpl.get_name())
+        }
+    }
+
+    // ─── Variadic ───────────────────────────────────────────────────
+
+    fn write_variadic_type<W: Write>(&mut self, multi: &VariadicType, w: &mut W) -> fmt::Result {
+        match multi {
+            VariadicType::Base(base) => {
+                self.write_type(base, w)?;
+                w.write_str(" ...")
+            }
+            VariadicType::Multi(types) => {
+                if self.level == RenderLevel::Minimal {
+                    return w.write_str("multi<...>");
+                }
+
+                let max_num = self.level.max_items();
+                let dots = types.len() > max_num;
+
+                w.write_char('(')?;
+                let saved = self.level;
+                self.level = self.child_level();
+                for (i, ty) in types.iter().take(max_num).enumerate() {
+                    if i > 0 {
+                        w.write_char(',')?;
+                    }
+                    self.write_type(ty, w)?;
+                }
+                self.level = saved;
+                if dots {
+                    w.write_str(", ...")?;
+                }
+                w.write_char(')')
+            }
+        }
+    }
+
+    // ─── Signature ──────────────────────────────────────────────────
+
+    fn write_signature_type<W: Write>(
+        &mut self,
+        signature_id: &LuaSignatureId,
+        w: &mut W,
+    ) -> fmt::Result {
+        if self.level == RenderLevel::Minimal {
+            return w.write_str("fun(...) -> ...");
+        }
+
+        let signature = match self.db.get_signature_index().get(signature_id) {
+            Some(sig) => sig,
+            None => return w.write_str("unknown"),
+        };
+
+        // generics
+        let generics = &signature.generic_params;
+        if !generics.is_empty() {
+            w.write_str("fun<")?;
+            for (i, gp) in generics.iter().enumerate() {
+                if i > 0 {
+                    w.write_str(", ")?;
+                }
+                w.write_str(&gp.name)?;
+            }
+            w.write_char('>')?;
+        } else {
+            w.write_str("fun")?;
+        }
+
+        w.write_char('(')?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, param) in signature.get_type_params().iter().enumerate() {
+            if i > 0 {
+                w.write_str(", ")?;
+            }
+            w.write_str(&param.0)?;
+            if let Some(ty) = &param.1 {
+                w.write_str(": ")?;
+                self.write_type(ty, w)?;
+            }
+        }
+        self.level = saved;
+        w.write_char(')')?;
+
+        // return type
+        let ret_type = signature.get_return_type();
+        let return_nil = match ret_type {
+            LuaType::Variadic(variadic) => matches!(variadic.get_type(0), Some(LuaType::Nil)),
+            _ => ret_type.is_nil(),
+        };
+
+        if return_nil {
+            return Ok(());
+        }
+
+        let rets: Vec<_> = signature.return_docs.iter().collect();
+        if rets.is_empty() {
+            return Ok(());
+        }
+
+        w.write_str(" -> ")?;
+        let saved = self.level;
+        self.level = self.child_level();
+        for (i, ret) in rets.iter().enumerate() {
+            if i > 0 {
+                w.write_char(',')?;
+            }
+            self.write_type(&ret.type_ref, w)?;
+        }
+        self.level = saved;
+        Ok(())
+    }
+
+    // ─── Conditional ────────────────────────────────────────────────
+
+    fn write_conditional_type<W: Write>(
+        &mut self,
+        conditional: &LuaConditionalType,
+        w: &mut W,
+    ) -> fmt::Result {
+        let saved = self.level;
+        self.level = self.child_level();
+        self.write_type(conditional.get_condition(), w)?;
+        w.write_str(" and ")?;
+        self.write_type(conditional.get_true_type(), w)?;
+        w.write_str(" or ")?;
+        self.write_type(conditional.get_false_type(), w)?;
+        self.level = saved;
+        Ok(())
+    }
+
+    // ─── ModuleRef ──────────────────────────────────────────────────
+
+    fn write_module_ref<W: Write>(&mut self, file_id: crate::FileId, w: &mut W) -> fmt::Result {
+        if let Some(module_info) = self.db.get_module_index().get_module(file_id) {
+            if let Some(export_type) = &module_info.export_type {
+                if export_type.is_module_ref() {
+                    return w.write_str("module 'recursive'");
+                }
+                let export_type = export_type.clone();
+                self.write_type(&export_type, w)
+            } else {
+                w.write_str("module 'unknown'")
+            }
+        } else {
+            w.write_str("module 'unknown'")
+        }
+    }
+
+    // ─── helper: write a table member (key: type) ───────────────────
+
+    fn write_table_member_field<W: Write>(
+        &mut self,
+        member_key: &LuaMemberKey,
+        ty: &LuaType,
+        parent_level: RenderLevel,
+        w: &mut W,
+    ) -> fmt::Result {
+        write_member_key_and_separator(member_key, parent_level, w)?;
+
+        if parent_level == RenderLevel::Detailed {
+            // Show "integer = 42" style for const types
+            match ty {
+                LuaType::IntegerConst(_) | LuaType::DocIntegerConst(_) => {
+                    w.write_str("integer = ")?;
+                    self.write_type(ty, w)
+                }
+                LuaType::FloatConst(_) => {
+                    w.write_str("number = ")?;
+                    self.write_type(ty, w)
+                }
+                LuaType::StringConst(_) | LuaType::DocStringConst(_) => {
+                    w.write_str("string = ")?;
+                    self.write_type(ty, w)
+                }
+                LuaType::BooleanConst(_) => {
+                    w.write_str("boolean = ")?;
+                    self.write_type(ty, w)
+                }
+                _ => self.write_type(ty, w),
+            }
+        } else {
+            self.write_type(ty, w)
+        }
+    }
 }
 
-fn humanize_union_type(db: &DbIndex, union: &LuaUnionType, level: RenderLevel) -> String {
-    format_union_type(union, level, |ty, level| {
-        humanize_type(db, ty, level.next_level())
-    })
+// ─── Free helper functions ──────────────────────────────────────────────────
+
+fn write_member_key_and_separator<W: Write>(
+    member_key: &LuaMemberKey,
+    level: RenderLevel,
+    w: &mut W,
+) -> fmt::Result {
+    let separator = if level == RenderLevel::Detailed {
+        ": "
+    } else {
+        " = "
+    };
+    match member_key {
+        LuaMemberKey::Name(name) => {
+            w.write_str(name)?;
+            w.write_str(separator)
+        }
+        LuaMemberKey::Integer(i) => {
+            write!(w, "[{}]", i)?;
+            w.write_str(separator)
+        }
+        LuaMemberKey::None | LuaMemberKey::ExprType(_) => Ok(()),
+    }
 }
 
+/// Write an escaped version of `s` directly into `w`.
+fn write_hover_escape_string<W: Write>(s: &str, w: &mut W) -> fmt::Result {
+    for ch in s.chars() {
+        match ch {
+            '\\' => w.write_str("\\\\")?,
+            '"' => w.write_str("\\\"")?,
+            '\n' => w.write_str("\\n")?,
+            '\r' => w.write_str("\\r")?,
+            '\t' => w.write_str("\\t")?,
+            '\u{1b}' => w.write_str("\\27")?,
+            ch if ch.is_control() => {
+                let code = ch as u32;
+                if code <= 0xFF {
+                    write!(w, "\\x{code:02X}")?;
+                } else {
+                    write!(w, "\\u{{{code:X}}}")?;
+                }
+            }
+            _ => w.write_char(ch)?,
+        }
+    }
+    Ok(())
+}
+
+/// Depth-guard token. Just a marker type; actual depth tracking is done in
+/// `TypeHumanizer::guard` / `leave_guard`.
+struct DepthGuardToken;
+
+// ─── Public backward-compatible API ─────────────────────────────────────────
+
+/// Humanize a type into a display string. This is the primary backward-compatible
+/// entry point. Internally uses `TypeHumanizer` for efficient, depth-bounded rendering.
+pub fn humanize_type(db: &DbIndex, ty: &LuaType, level: RenderLevel) -> String {
+    let mut humanizer = TypeHumanizer::new(db, level);
+    let mut buf = String::new();
+    let _ = humanizer.write_type(ty, &mut buf);
+    buf
+}
+
+/// Format a union type using a custom type formatter closure.
+/// This keeps backward compatibility for callers (e.g. inlay hints, hover)
+/// that need to inject their own formatting logic per union member.
 pub fn format_union_type<F>(
     union: &LuaUnionType,
     level: RenderLevel,
@@ -266,16 +1132,8 @@ where
     F: FnMut(&LuaType, RenderLevel) -> String,
 {
     let types = union.into_vec();
-    let num = match level {
-        RenderLevel::Documentation => 500,
-        RenderLevel::CustomDetailed(n) => n as usize,
-        RenderLevel::Detailed => 8,
-        RenderLevel::Simple => 6,
-        RenderLevel::Normal => 4,
-        RenderLevel::Brief => 2,
-        RenderLevel::Minimal => 2,
-    };
-    // 需要确保顺序
+    let num = level.max_union_items();
+
     let mut seen = HashSet::new();
     let mut type_strings = Vec::new();
     let mut has_nil = false;
@@ -304,529 +1162,5 @@ where
         }
     } else {
         format!("({}{}){}", type_str, dots, if has_nil { "?" } else { "" })
-    }
-}
-
-fn humanize_multi_line_union_type(
-    db: &DbIndex,
-    multi_union: &LuaMultiLineUnion,
-    level: RenderLevel,
-) -> String {
-    let members = multi_union.get_unions();
-    let num = match level {
-        RenderLevel::Documentation => 500,
-        RenderLevel::CustomDetailed(n) => n as usize,
-        RenderLevel::Detailed => 10,
-        RenderLevel::Simple => 8,
-        RenderLevel::Normal => 4,
-        RenderLevel::Brief => 2,
-        RenderLevel::Minimal => 2,
-    };
-    let dots = if members.len() > num { "..." } else { "" };
-
-    let type_str = members
-        .iter()
-        .take(num)
-        .map(|(ty, _)| humanize_type(db, ty, level.next_level()))
-        .collect::<Vec<_>>()
-        .join("|");
-
-    let mut text = format!("({}{})", type_str, dots);
-    if level != RenderLevel::Detailed {
-        return text;
-    }
-
-    text.push('\n');
-    for (typ, description) in members {
-        let type_humanize_text = humanize_type(db, typ, RenderLevel::Minimal);
-        if let Some(description) = description {
-            text.push_str(&format!(
-                "    | {} -- {}\n",
-                type_humanize_text,
-                description.replace('\n', " ")
-            ));
-        } else {
-            text.push_str(&format!("    | {}\n", type_humanize_text));
-        }
-    }
-
-    text
-}
-
-fn humanize_tuple_type(db: &DbIndex, tuple: &LuaTupleType, level: RenderLevel) -> String {
-    let types = tuple.get_types();
-    let num = match level {
-        RenderLevel::Documentation => 500,
-        RenderLevel::CustomDetailed(n) => n as usize,
-        RenderLevel::Detailed => 10,
-        RenderLevel::Simple => 8,
-        RenderLevel::Normal => 4,
-        RenderLevel::Brief => 2,
-        RenderLevel::Minimal => 2,
-    };
-
-    let dots = if types.len() > num { "..." } else { "" };
-
-    let type_str = types
-        .iter()
-        .take(num)
-        .map(|ty| humanize_type(db, ty, level.next_level()))
-        .collect::<Vec<_>>()
-        .join(",");
-    format!("({}{})", type_str, dots)
-}
-
-fn humanize_array_type(db: &DbIndex, inner: &LuaType, level: RenderLevel) -> String {
-    let element_type = humanize_type(db, inner, level.next_level());
-    format!("{}[]", element_type)
-}
-
-#[allow(unused)]
-fn humanize_call_type(db: &DbIndex, inner: &LuaAliasCallType, level: RenderLevel) -> String {
-    let basic = match inner.get_call_kind() {
-        LuaAliasCallKind::Sub => "sub",
-        LuaAliasCallKind::Add => "add",
-        LuaAliasCallKind::KeyOf => "keyof",
-        LuaAliasCallKind::Extends => "extends",
-        LuaAliasCallKind::Select => "select",
-        LuaAliasCallKind::Unpack => "unpack",
-        LuaAliasCallKind::Index => "index",
-        LuaAliasCallKind::RawGet => "rawget",
-        LuaAliasCallKind::Merge => "Merge",
-    };
-    let operands = inner
-        .get_operands()
-        .iter()
-        .map(|ty| humanize_type(db, ty, level.next_level()))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    format!("{}<{}>", basic, operands)
-}
-
-fn humanize_doc_function_type(
-    db: &DbIndex,
-    lua_func: &LuaFunctionType,
-    level: RenderLevel,
-) -> String {
-    if level == RenderLevel::Minimal {
-        return "fun(...) -> ...".to_string();
-    }
-
-    let prev = match lua_func.get_async_state() {
-        AsyncState::None => "fun",
-        AsyncState::Async => "async fun",
-        AsyncState::Sync => "sync fun",
-    };
-    let params = lua_func
-        .get_params()
-        .iter()
-        .map(|param| {
-            let name = param.0.clone();
-            if let Some(ty) = &param.1 {
-                format!("{}: {}", name, humanize_type(db, ty, level.next_level()))
-            } else {
-                name.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let ret_type = lua_func.get_ret();
-    let return_nil = match ret_type {
-        LuaType::Variadic(variadic) => matches!(variadic.get_type(0), Some(LuaType::Nil)),
-        _ => ret_type.is_nil(),
-    };
-
-    if return_nil {
-        return format!("{}({})", prev, params);
-    }
-
-    let ret_str = humanize_type(db, ret_type, level.next_level());
-
-    format!("{}({}) -> {}", prev, params, ret_str)
-}
-
-fn humanize_object_type(db: &DbIndex, object: &LuaObjectType, level: RenderLevel) -> String {
-    let num = match level {
-        RenderLevel::Documentation => 500,
-        RenderLevel::CustomDetailed(n) => n as usize,
-        RenderLevel::Detailed => 10,
-        RenderLevel::Simple => 8,
-        RenderLevel::Normal => 4,
-        RenderLevel::Brief => 2,
-        RenderLevel::Minimal => {
-            return "{...}".to_string();
-        }
-    };
-
-    let dots = if object.get_fields().len() > num {
-        ", ..."
-    } else {
-        ""
-    };
-
-    let fields = object
-        .get_fields()
-        .iter()
-        .sorted_by(|a, b| a.0.cmp(b.0))
-        .take(num)
-        .map(|field| {
-            let name = field.0.clone();
-            let ty_str = humanize_type(db, field.1, level.next_level());
-            match name {
-                LuaMemberKey::Integer(i) => format!("[{}]: {}", i, ty_str),
-                LuaMemberKey::Name(s) => format!("{}: {}", s, ty_str),
-                LuaMemberKey::None => ty_str,
-                LuaMemberKey::ExprType(_) => ty_str,
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let access = object
-        .get_index_access()
-        .iter()
-        .map(|(key, value)| {
-            let key_str = humanize_type(db, key, level.next_level());
-            let value_str = humanize_type(db, value, level.next_level());
-            format!("[{}]: {}", key_str, value_str)
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-
-    if access.is_empty() {
-        return format!("{{ {}{} }}", fields, dots);
-    } else if fields.is_empty() {
-        return format!("{{ {}{} }}", access, dots);
-    }
-    format!("{{ {}, {}{} }}", fields, access, dots)
-}
-
-fn humanize_intersect_type(
-    db: &DbIndex,
-    inter: &LuaIntersectionType,
-    level: RenderLevel,
-) -> String {
-    let num = match level {
-        RenderLevel::Documentation => 500,
-        RenderLevel::CustomDetailed(n) => n as usize,
-        RenderLevel::Detailed => 10,
-        RenderLevel::Simple => 8,
-        RenderLevel::Normal => 4,
-        RenderLevel::Brief => 2,
-        RenderLevel::Minimal => 2,
-    };
-
-    let types = inter.get_types();
-    let dots = if types.len() > num { ", ..." } else { "" };
-
-    let type_str = types
-        .iter()
-        .take(num)
-        .map(|ty| humanize_type(db, ty, level.next_level()))
-        .collect::<Vec<_>>()
-        .join(" & ");
-    format!("({}{})", type_str, dots)
-}
-
-fn humanize_generic_type(db: &DbIndex, generic: &LuaGenericType, level: RenderLevel) -> String {
-    let base_id = generic.get_base_type_id();
-    let type_decl = match db.get_type_index().get_type_decl(&base_id) {
-        Some(type_decl) => type_decl,
-        None => return base_id.get_name().to_string(),
-    };
-
-    let full_name = type_decl.get_full_name();
-
-    let generic_inst_params = generic
-        .get_params()
-        .iter()
-        .map(|ty| humanize_type(db, ty, level.next_level()))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let generic_base = format!("{}<{}>", full_name, generic_inst_params);
-    if matches!(
-        level,
-        RenderLevel::Documentation | RenderLevel::CustomDetailed(_) | RenderLevel::Detailed
-    ) && type_decl.is_alias()
-    {
-        let substituor = TypeSubstitutor::from_type_array(generic.get_params().clone());
-        if let Some(origin_type) = type_decl.get_alias_origin(db, Some(&substituor)) {
-            // prevent infinite recursion
-            let origin_type_str = humanize_type(db, &origin_type, level.next_level());
-            return format!("{} = {}", generic_base, origin_type_str);
-        }
-    }
-
-    generic_base
-}
-
-fn humanize_table_const_type_detail_and_simple(
-    db: &DbIndex,
-    member_owned: LuaMemberOwner,
-    level: RenderLevel,
-) -> Option<String> {
-    let member_index = db.get_member_index();
-    let members = member_index.get_sorted_members(&member_owned)?;
-
-    let mut total_length = 0;
-    let mut total_line = 0;
-    let mut members_string = String::new();
-    for member in members {
-        let key = member.get_key();
-        let type_cache = db.get_type_index().get_type_cache(&member.get_id().into());
-        let type_cache = match type_cache {
-            Some(type_cache) => type_cache,
-            None => &super::LuaTypeCache::InferType(LuaType::Any),
-        };
-        let member_string = build_table_member_string(
-            key,
-            type_cache.as_type(),
-            humanize_type(db, type_cache.as_type(), level.next_level()),
-            level,
-        );
-
-        match level {
-            RenderLevel::Detailed => {
-                total_line += 1;
-                members_string.push_str(&format!("    {},\n", member_string));
-                if total_line >= 12 {
-                    members_string.push_str("    ...\n");
-                    break;
-                }
-            }
-            RenderLevel::Simple => {
-                let member_string_len = member_string.chars().count();
-                if total_length != 0 {
-                    members_string.push_str(", ");
-                    total_length += 2; // account for ", "
-                }
-
-                total_length += member_string_len;
-                members_string.push_str(&member_string);
-                if total_length > 54 {
-                    members_string.push_str(", ...");
-                    break;
-                }
-            }
-            _ => return None,
-        }
-    }
-
-    match level {
-        RenderLevel::Detailed => Some(format!("{{\n{}}}", members_string)),
-        RenderLevel::Simple => Some(format!("{{ {} }}", members_string)),
-        _ => None,
-    }
-}
-
-fn humanize_table_const_type(
-    db: &DbIndex,
-    member_owned: LuaMemberOwner,
-    level: RenderLevel,
-) -> String {
-    match level {
-        RenderLevel::Detailed | RenderLevel::Simple => {
-            humanize_table_const_type_detail_and_simple(db, member_owned, level)
-                .unwrap_or("table".to_string())
-        }
-        _ => "table".to_string(),
-    }
-}
-
-fn humanize_table_generic_type(
-    db: &DbIndex,
-    table_generic_params: &[LuaType],
-    level: RenderLevel,
-) -> String {
-    let num = match level {
-        RenderLevel::Documentation => 500,
-        RenderLevel::CustomDetailed(n) => n as usize,
-        RenderLevel::Detailed => 10,
-        RenderLevel::Simple => 8,
-        RenderLevel::Normal => 4,
-        RenderLevel::Brief => 2,
-        RenderLevel::Minimal => {
-            return "table<...>".to_string();
-        }
-    };
-
-    let dots = if table_generic_params.len() > num {
-        ", ..."
-    } else {
-        ""
-    };
-
-    let generic_params = table_generic_params
-        .iter()
-        .take(num)
-        .map(|ty| humanize_type(db, ty, level.next_level()))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    format!("table<{}{}>", generic_params, dots)
-}
-
-fn humanize_tpl_ref_type(tpl: &GenericTpl) -> String {
-    tpl.get_name().to_string()
-}
-
-fn humanize_const_tpl_ref_type(const_tpl: &GenericTpl) -> String {
-    const_tpl.get_name().to_string()
-}
-
-fn humanize_conditional_type(
-    db: &DbIndex,
-    conditional: &LuaConditionalType,
-    level: RenderLevel,
-) -> String {
-    let check_type = humanize_type(db, conditional.get_condition(), level.next_level());
-    let true_type = humanize_type(db, conditional.get_true_type(), level.next_level());
-    let false_type = humanize_type(db, conditional.get_false_type(), level.next_level());
-
-    format!("{} and {} or {}", check_type, true_type, false_type)
-}
-
-fn humanize_str_tpl_ref_type(str_tpl: &LuaStringTplType) -> String {
-    let prefix = str_tpl.get_prefix();
-    if prefix.is_empty() {
-        str_tpl.get_name().to_string()
-    } else {
-        format!("{}`{}`", prefix, str_tpl.get_name())
-    }
-}
-
-fn humanize_variadic_type(db: &DbIndex, multi: &VariadicType, level: RenderLevel) -> String {
-    match multi {
-        VariadicType::Base(base) => {
-            let base_str = humanize_type(db, base, level);
-            format!("{} ...", base_str)
-        }
-        VariadicType::Multi(types) => {
-            let max_num = match level {
-                RenderLevel::Documentation => 500,
-                RenderLevel::CustomDetailed(n) => n as usize,
-                RenderLevel::Detailed => 10,
-                RenderLevel::Simple => 8,
-                RenderLevel::Normal => 4,
-                RenderLevel::Brief => 2,
-                RenderLevel::Minimal => {
-                    return "multi<...>".to_string();
-                }
-            };
-
-            let dots = if types.len() > max_num { ", ..." } else { "" };
-            let type_str = types
-                .iter()
-                .take(max_num)
-                .map(|ty| humanize_type(db, ty, level.next_level()))
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("({}{})", type_str, dots)
-        }
-    }
-}
-
-fn humanize_instance_type(db: &DbIndex, ins: &LuaInstanceType, level: RenderLevel) -> String {
-    humanize_type(db, ins.get_base(), level)
-}
-
-fn humanize_signature_type(
-    db: &DbIndex,
-    signature_id: &LuaSignatureId,
-    level: RenderLevel,
-) -> String {
-    if level == RenderLevel::Minimal {
-        return "fun(...) -> ...".to_string();
-    }
-
-    let signature = match db.get_signature_index().get(signature_id) {
-        Some(sig) => sig,
-        None => return "unknown".to_string(),
-    };
-
-    let params = signature
-        .get_type_params()
-        .iter()
-        .map(|param| {
-            let name = param.0.clone();
-            if let Some(ty) = &param.1 {
-                format!("{}: {}", name, humanize_type(db, ty, level.next_level()))
-            } else {
-                name.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let generics = signature
-        .generic_params
-        .iter()
-        .map(|generic_param| generic_param.name.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let generic_str = if generics.is_empty() {
-        "".to_string()
-    } else {
-        format!("<{}>", generics)
-    };
-
-    let ret_str = {
-        let ret_type = signature.get_return_type();
-        let return_nil = match ret_type {
-            LuaType::Variadic(variadic) => matches!(variadic.get_type(0), Some(LuaType::Nil)),
-            _ => ret_type.is_nil(),
-        };
-
-        if return_nil {
-            "".to_string()
-        } else {
-            let rets = signature
-                .return_docs
-                .iter()
-                .map(|ret| humanize_type(db, &ret.type_ref, level.next_level()))
-                .collect::<Vec<_>>();
-            if rets.is_empty() {
-                "".to_string()
-            } else {
-                format!(" -> {}", rets.join(","))
-            }
-        }
-    };
-
-    format!("fun{}({}){}", generic_str, params, ret_str)
-}
-
-fn build_table_member_string(
-    member_key: &LuaMemberKey,
-    ty: &LuaType,
-    member_value_string: String,
-    level: RenderLevel,
-) -> String {
-    let (member_value, separator) = if level == RenderLevel::Detailed {
-        let val = match ty {
-            LuaType::IntegerConst(_) | LuaType::DocIntegerConst(_) => {
-                format!("integer = {member_value_string}")
-            }
-            LuaType::FloatConst(_) => format!("number = {member_value_string}"),
-            LuaType::StringConst(_) | LuaType::DocStringConst(_) => {
-                format!("string = {member_value_string}")
-            }
-            LuaType::BooleanConst(_) => format!("boolean = {member_value_string}"),
-            _ => member_value_string,
-        };
-        (val, ": ")
-    } else {
-        (member_value_string, " = ")
-    };
-
-    match member_key {
-        LuaMemberKey::Name(name) => format!("{name}{separator}{member_value}"),
-        LuaMemberKey::Integer(i) => format!("[{i}]{separator}{member_value}"),
-        LuaMemberKey::None => member_value,
-        LuaMemberKey::ExprType(_) => member_value,
     }
 }
