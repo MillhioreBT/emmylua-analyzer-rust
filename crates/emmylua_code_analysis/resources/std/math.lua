@@ -17,7 +17,7 @@
 math = {}
 
 ---
---- Returns the absolute value of `x`. (integer/float)
+--- Returns the maximum value between `x` and `-x`. (integer/float)
 ---@overload fun(x:integer):integer
 ---@param x number
 ---@return number
@@ -160,11 +160,29 @@ function math.rad(x) end
 ---@return integer
 function math.random(m, n) end
 
+---@version 5.1, 5.2, 5.3
 ---
 --- Sets `x` as the "seed" for the pseudo-random generator: equal seeds
 --- produce equal sequences of numbers.
 ---@param x integer
 function math.randomseed(x) end
+
+---@version > 5.3
+---
+--- When called with at least one argument, the integer parameters `x` and `y`
+--- are joined into a 128-bit seed that is used to reinitialize the pseudo-random
+--- generator; equal seeds produce equal sequences of numbers. The default for
+--- `y` is zero.
+---
+--- When called with no arguments, Lua generates a seed with a weak attempt
+--- for randomness.
+---
+--- This function returns the two seed components that were effectively used,
+--- so that setting them again repeats the sequence.
+---@param x? integer
+---@param y? integer
+---@return integer, integer
+function math.randomseed(x, y) end
 
 ---
 --- Returns the sine of `x` (assumed to be in radians).
@@ -198,7 +216,7 @@ function math.tointeger(x) end
 --- Returns "`integer`" if `x` is an integer, "`float`" if it is a float, or
 --- **nil** if `x` is not a number.
 ---@param x any
----@return 'integer'|'float'|'nil'
+---@return 'integer'|'float'|nil
 function math.type(x) end
 
 ---@version >5.3

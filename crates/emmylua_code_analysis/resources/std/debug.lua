@@ -40,9 +40,11 @@ function debug.getfenv(o) end
 --- Returns the current hook settings of the thread, as three values: the
 --- current hook function, the current hook mask, and the current hook count
 --- (as set by the `debug.sethook` function).
----@overload fun():thread
+---@overload fun():function?, string, integer
 ---@param thread thread
----@return thread
+---@return function? hook
+---@return string mask
+---@return integer count
 function debug.gethook(thread) end
 
 ---@class debuglib.DebugInfo
@@ -65,7 +67,7 @@ function debug.gethook(thread) end
 
 ---@alias debuglib.InfoWhat
 ---|+"n"     # `name`, `namewhat`
----|+"S"     # `source`, `short_src`, `linedefined`, `lalinedefined`, `what`
+---|+"S"     # `source`, `short_src`, `linedefined`, `lastlinedefined`, `what`
 ---|+"l"     # `currentline`
 ---|+"t"     # `istailcall`
 ---|+"u"     # `nups`, `nparams`, `isvararg`
@@ -177,8 +179,8 @@ function debug.getregistry() end
 --- no known names (variables from chunks saved without debug information).
 ---@param f function
 ---@param up integer
----@return string name
----@return any    value
+---@return string? name
+---@return any?    value
 ---@nodiscard
 function debug.getupvalue(f, up) end
 
@@ -254,12 +256,12 @@ function debug.sethook(thread, hook, mask, count) end
 --- raises an error when called with a `level` out of range. (You can call
 --- `getinfo` to check whether the level is valid.) Otherwise, it returns the
 --- name of the local variable.
----@overload fun(level:integer, var:string, value:any):string
+---@overload fun(level:integer, var:string, value:any):string?
 ---@param thread thread
 ---@param level integer
 ---@param var string
 ---@param value any
----@return string
+---@return string?
 function debug.setlocal(thread, level, var, value) end
 
 ---
@@ -279,7 +281,7 @@ function debug.setmetatable(value, meta) end
 ---@param f fun():any
 ---@param up integer
 ---@param value any
----@return string
+---@return string?
 function debug.setupvalue(f, up, value) end
 
 --- Sets the given `value` as the `n`-th associated to the given `udata`.
@@ -289,22 +291,40 @@ function debug.setupvalue(f, up, value) end
 ---@param udata userdata
 ---@param value any
 ---@param n integer
----@return userdata
+---@return userdata?
 function debug.setuservalue(udata, value, n) end
 
---- Generates a traceback of the call stack.
---- When called with no arguments, returns a traceback of the current thread.
---- When the first argument is a thread, the traceback is generated for that thread;
---- the optional second argument (if a string) is prepended to the traceback, and the
---- optional third argument sets the level where the traceback should start (default is 1).
---- When the first argument is not a thread and not nil, it is treated as an optional message.
---- In that case, the traceback is generated for the current thread and the second argument,
---- if provided, specifies the starting level.
+---@version 5.1
+---
+--- Returns a string with a traceback of the call stack. An optional message
+--- string is appended at the beginning of the traceback. An optional level
+--- number tells at which level to start the traceback (default is 1, the
+--- function calling traceback).
 ---@overload fun(): string
 ---@overload fun(message?: string, level?: integer): string
----@param thread? thread|integer  Optional thread or nil. If not a thread, it is interpreted as the message.
----@param message? string Optional message to prepend to the traceback. If not a string (or nil), it is returned as is.
----@param level? integer  Optional level from which to start the traceback (default is 1).
+---@param thread? thread
+---@param message? string
+---@param level? integer
+---@return string
+function debug.traceback(thread, message, level) end
+
+---@version > 5.2
+---
+--- If message is present but is neither a string nor nil, this function
+--- returns message without further processing. Otherwise, it returns a string
+--- with a traceback of the call stack. The optional message string is appended
+--- at the beginning of the traceback. An optional level number tells at which
+--- level to start the traceback (default is 1, the function calling traceback).
+---@generic T
+---@overload fun(): string
+---@overload fun(message?: string, level?: integer): string
+---@overload fun(message: T, level?: integer): T
+---@overload fun(thread: thread): string
+---@overload fun(thread: thread, message?: string, level?: integer): string
+---@overload fun(thread: thread, message: T, level?: integer): T
+---@param thread? thread
+---@param message? string|T
+---@param level? integer
 ---@return string
 function debug.traceback(thread, message, level) end
 

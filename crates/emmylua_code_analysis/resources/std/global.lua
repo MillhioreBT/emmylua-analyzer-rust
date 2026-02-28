@@ -84,7 +84,7 @@ function collectgarbage(opt, ...) end
 --- `dofile` propagates the error to its caller (that is, `dofile` does not run
 --- in protected mode).
 ---@param filename? string
----@return table
+---@return any ...
 function dofile(filename) end
 
 ---
@@ -299,6 +299,7 @@ function rawlen(v) end
 ---@param table table
 ---@param index any
 ---@param value any
+---@return table
 function rawset(table, index, value) end
 
 ---
@@ -469,8 +470,9 @@ function unpack(list, i, j) end
 
 ---@version > 5.4
 ---
----@param message string
-function warn(message) end
+---@param msg1 string
+---@param ... string
+function warn(msg1, ...) end
 
 ---@type string[]
 arg = {}

@@ -32,7 +32,7 @@ function coroutine.create(f) end
 ---@param co? thread
 ---@return boolean
 ---@nodiscard
-function coroutine.isyieldable() end
+function coroutine.isyieldable(co) end
 
 ---@version > 5.4
 ---
@@ -61,10 +61,18 @@ function coroutine.close(co) end
 ---@return any ...
 function coroutine.resume(co, val1, ...) end
 
+---@version 5.1
+---
+--- Returns the running coroutine, or nil when called by the main thread.
+---@return thread?
+---@nodiscard
+function coroutine.running() end
+
+---@version > 5.2
 ---
 --- Returns the running coroutine plus a boolean, true when the running
 --- coroutine is the main one.
----@return thread, string
+---@return thread, boolean
 ---@nodiscard
 function coroutine.running() end
 
