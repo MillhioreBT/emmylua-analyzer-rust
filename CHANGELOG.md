@@ -2,9 +2,10 @@
 
 *All notable changes to the EmmyLua Analyzer Rust project will be documented in this file.*
 
-## [0.21.0] - 2026-2-27
+## [0.21.0] - 2026-3-2
 
 ### ✨ Added
+
 - **Support @schema url annotation**: Added support for `@schema` annotation,
 which can be use to add completion and hover for json-schema-defined APIs. For example:
 ```lua
@@ -21,8 +22,16 @@ local c = {
 
 ### 🐛 Fixed
 
-TODO
-
+- fix package.searchpath returns nil+error if none succeeds
+- fix module recursive
+- fix shebang support
+- fix global declaration support
+- fix select(n, func()) correctly narrows type when func returns multiple values
+- fix resolve alias-call returns and simplify flow assignments
+- fix the next returned by pairs should accept 2 arguments
+- fix enforce segment-boundary fuzzy require matching
+- fix stabilize fuzzy require resolution across duplicate suffix matches
+- fix package.searchpath returns nil+error if none succeeds
 
 ## [0.20.0] - 2026-1-30
 ### ✨ Added
