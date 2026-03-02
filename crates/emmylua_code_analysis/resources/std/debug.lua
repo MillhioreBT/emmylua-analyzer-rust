@@ -294,7 +294,7 @@ function debug.setupvalue(f, up, value) end
 ---@return userdata?
 function debug.setuservalue(udata, value, n) end
 
----@version 5.1
+---@version 5.1, JIT
 ---
 --- Returns a string with a traceback of the call stack. An optional message
 --- string is appended at the beginning of the traceback. An optional level
