@@ -167,7 +167,7 @@ function math.random(m, n) end
 ---@param x integer
 function math.randomseed(x) end
 
----@version > 5.3
+---@version > 5.4
 ---
 --- When called with at least one argument, the integer parameters `x` and `y`
 --- are joined into a 128-bit seed that is used to reinitialize the pseudo-random
