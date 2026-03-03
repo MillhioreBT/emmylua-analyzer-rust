@@ -84,7 +84,7 @@ function collectgarbage(opt, ...) end
 --- `dofile` propagates the error to its caller (that is, `dofile` does not run
 --- in protected mode).
 ---@param filename? string
----@return table
+---@return any ...
 function dofile(filename) end
 
 ---
@@ -299,6 +299,7 @@ function rawlen(v) end
 ---@param table table
 ---@param index any
 ---@param value any
+---@return table
 function rawset(table, index, value) end
 
 ---
@@ -469,8 +470,15 @@ function unpack(list, i, j) end
 
 ---@version > 5.4
 ---
----@param message string
-function warn(message) end
+--- Emits a warning with a message composed by the concatenation of all its arguments (which should be strings).
+---
+--- By convention, a one-piece message starting with '@' is intended to be a control message,
+--- which is a message to the warning system itself. In particular,
+--- the standard warning function in Lua recognizes the control messages "@off", to stop the emission of warnings,
+--- and "@on", to (re)start the emission; it ignores unknown control messages.
+---@param msg1 string|number
+---@param ... string|number
+function warn(msg1, ...) end
 
 ---@type string[]
 arg = {}

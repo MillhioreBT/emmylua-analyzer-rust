@@ -132,17 +132,15 @@ function os.execute(command) end
 ---
 --- If the optional second argument `close` is true, closes the Lua state before
 --- exiting.
----@param code integer
+---@param code? boolean|integer
 ---@param close? boolean
----@return integer
 function os.exit(code, close) end
 
 ---@version 5.1
 ---
 --- Calls the C function exit, with an optional `code`, to terminate the host
 --- program. The default value for `code` is the success code.
----@param code integer
----@return integer
+---@param code? integer
 function os.exit(code) end
 
 ---
