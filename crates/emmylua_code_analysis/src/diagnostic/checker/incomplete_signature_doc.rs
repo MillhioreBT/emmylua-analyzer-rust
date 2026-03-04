@@ -63,12 +63,7 @@ fn check_doc(
             )
         };
         if let Some(stat) = closure_expr.get_parent::<LuaStat>() {
-            context.add_diagnostic(
-                code,
-                stat.get_range(),
-                message.to_string(),
-                None,
-            );
+            context.add_diagnostic(code, stat.get_range(), message.to_string(), None);
         }
         return Some(());
     }
