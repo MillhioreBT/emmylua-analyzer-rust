@@ -27,6 +27,15 @@ mod tests {
         assert!(!ws.check_code_for(
             DiagnosticCode::IncompleteSignatureDoc,
             r#"
+            local function do_add(x, y)
+                return x + y
+            end
+            "#
+        ));
+
+        assert!(!ws.check_code_for(
+            DiagnosticCode::IncompleteSignatureDoc,
+            r#"
             ---@param p number
             local function FLPR3(p, e)
                 return 0
@@ -44,14 +53,6 @@ mod tests {
             "#
         ));
 
-        assert!(ws.check_code_for(
-            DiagnosticCode::IncompleteSignatureDoc,
-            r#"
-            local function FLPR3(p)
-                return 0
-            end
-            "#
-        ));
         assert!(ws.check_code_for(
             DiagnosticCode::IncompleteSignatureDoc,
             r#"

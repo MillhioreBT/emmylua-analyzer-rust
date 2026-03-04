@@ -44,16 +44,29 @@ fn check_doc(
 
     let comment = get_closure_expr_comment(closure_expr);
 
-    if comment.is_none() && is_global {
+    let code = if is_global {
+        DiagnosticCode::MissingGlobalDoc
+    } else {
+        DiagnosticCode::IncompleteSignatureDoc
+    };
+
+    if comment.is_none() {
+        let message = if is_global {
+            t!(
+                "Missing comment for global function `%{name}`.",
+                name = function_name
+            )
+        } else {
+            t!(
+                "Missing comment for function `%{name}`.",
+                name = function_name
+            )
+        };
         if let Some(stat) = closure_expr.get_parent::<LuaStat>() {
             context.add_diagnostic(
-                DiagnosticCode::MissingGlobalDoc,
+                code,
                 stat.get_range(),
-                t!(
-                    "Missing comment for global function `%{name}`.",
-                    name = function_name
-                )
-                .to_string(),
+                message.to_string(),
                 None,
             );
         }
@@ -62,12 +75,6 @@ fn check_doc(
 
     let Some(comment) = comment else {
         return Some(());
-    };
-
-    let code = if is_global {
-        DiagnosticCode::MissingGlobalDoc
-    } else {
-        DiagnosticCode::IncompleteSignatureDoc
     };
 
     let doc_param_names: HashSet<String> = comment
