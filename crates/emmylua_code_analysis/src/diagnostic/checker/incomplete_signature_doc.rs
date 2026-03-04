@@ -86,11 +86,6 @@ fn check_doc(
         .map(|return_doc| return_doc.get_types().count())
         .sum();
 
-    // 如果文档中没有参数和返回值注解, 且不是全局函数, 则不检查
-    if doc_param_names.is_empty() && doc_return_len == 0 && !is_global {
-        return Some(());
-    }
-
     check_params(
         context,
         closure_expr,
