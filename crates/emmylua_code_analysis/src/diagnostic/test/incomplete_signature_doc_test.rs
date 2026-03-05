@@ -24,6 +24,33 @@ mod tests {
         let mut ws = VirtualWorkspace::new();
         ws.enable_full_diagnostic();
 
+        // TODO: closures are not detected as functions in the semantic model
+        // assert!(!ws.check_code_for(
+        //     DiagnosticCode::MissingGlobalDoc,
+        //     r#"
+        //     local c = function(x, y)
+        //         return x + y
+        //     end
+        //     "#
+        // ));
+
+        assert!(!ws.check_code_for(
+            DiagnosticCode::IncompleteSignatureDoc,
+            r#"
+            local function do_add(x, y)
+                return x + y
+            end
+            "#
+        ));
+
+        assert!(!ws.check_code_for(
+            DiagnosticCode::IncompleteSignatureDoc,
+            r#"
+            local function noop()
+            end
+            "#
+        ));
+
         assert!(!ws.check_code_for(
             DiagnosticCode::IncompleteSignatureDoc,
             r#"
@@ -44,18 +71,10 @@ mod tests {
             "#
         ));
 
-        assert!(ws.check_code_for(
+        assert!(!ws.check_code_for(
             DiagnosticCode::IncompleteSignatureDoc,
             r#"
-            local function FLPR3(p)
-                return 0
-            end
-            "#
-        ));
-        assert!(ws.check_code_for(
-            DiagnosticCode::IncompleteSignatureDoc,
-            r#"
-            ---
+            --- function without param signature
             local function FLPR3(p)
                 return 0
             end

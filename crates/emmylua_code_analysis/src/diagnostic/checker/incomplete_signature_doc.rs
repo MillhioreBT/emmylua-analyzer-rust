@@ -44,30 +44,32 @@ fn check_doc(
 
     let comment = get_closure_expr_comment(closure_expr);
 
-    if comment.is_none() && is_global {
+    let code = if is_global {
+        DiagnosticCode::MissingGlobalDoc
+    } else {
+        DiagnosticCode::IncompleteSignatureDoc
+    };
+
+    if comment.is_none() {
+        let message = if is_global {
+            t!(
+                "Missing comment for global function `%{name}`.",
+                name = function_name
+            )
+        } else {
+            t!(
+                "Missing comment for function `%{name}`.",
+                name = function_name
+            )
+        };
         if let Some(stat) = closure_expr.get_parent::<LuaStat>() {
-            context.add_diagnostic(
-                DiagnosticCode::MissingGlobalDoc,
-                stat.get_range(),
-                t!(
-                    "Missing comment for global function `%{name}`.",
-                    name = function_name
-                )
-                .to_string(),
-                None,
-            );
+            context.add_diagnostic(code, stat.get_range(), message.to_string(), None);
         }
         return Some(());
     }
 
     let Some(comment) = comment else {
         return Some(());
-    };
-
-    let code = if is_global {
-        DiagnosticCode::MissingGlobalDoc
-    } else {
-        DiagnosticCode::IncompleteSignatureDoc
     };
 
     let doc_param_names: HashSet<String> = comment
@@ -83,11 +85,6 @@ fn check_doc(
         .children::<LuaDocTagReturn>()
         .map(|return_doc| return_doc.get_types().count())
         .sum();
-
-    // 如果文档中没有参数和返回值注解, 且不是全局函数, 则不检查
-    if doc_param_names.is_empty() && doc_return_len == 0 && !is_global {
-        return Some(());
-    }
 
     check_params(
         context,
