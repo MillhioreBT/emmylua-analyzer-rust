@@ -151,13 +151,17 @@ impl LuaDeclarationTree {
     {
         match scope.get_kind() {
             LuaScopeKind::LocalOrAssignStat => {
-                let parent = scope.get_parent();
-                if let Some(parent) = parent {
-                    let parent_scope = match self.scopes.get(parent.id as usize) {
-                        Some(scope) => scope,
-                        None => return,
-                    };
-                    self.walk_up(parent_scope, scope.get_position(), level, f);
+                if level == 0 {
+                    let parent = scope.get_parent();
+                    if let Some(parent) = parent {
+                        let parent_scope = match self.scopes.get(parent.id as usize) {
+                            Some(scope) => scope,
+                            None => return,
+                        };
+                        self.walk_up(parent_scope, scope.get_position(), level, f);
+                    }
+                } else {
+                    self.base_walk_up(scope, start_pos, level, f);
                 }
             }
             LuaScopeKind::Repeat => {

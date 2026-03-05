@@ -20,4 +20,20 @@ mod test {
             "#
         ));
     }
+
+    #[test]
+    fn test_globals() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        assert!(ws.check_code_for(
+            DiagnosticCode::UndefinedGlobal,
+            r#"
+            local fact = function(n)
+                if n == 0 then
+                    return 1
+                end
+                return n * fact(n - 1)
+            end
+            "#
+        ));
+    }
 }
