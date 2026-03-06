@@ -2,7 +2,7 @@
 
 *All notable changes to the EmmyLua Analyzer Rust project will be documented in this file.*
 
-## [0.21.0] - 2026-3-2
+## [0.21.0] - 2026-3-6
 
 ### ✨ Added
 
@@ -18,7 +18,7 @@ local c = {
 
 ### 🔧 Changed
 
-- **Update luars to 0.11.0**: Updated the `luars` dependency to version 0.11.0, which includes various bug fixes and improvements to Lua parsing and execution.
+- **Update luars to 0.14.2**: Updated the `luars` dependency to version 0.14.2, which includes various bug fixes and improvements to Lua parsing and execution.
 
 ### 🐛 Fixed
 
@@ -32,6 +32,7 @@ local c = {
 - fix enforce segment-boundary fuzzy require matching
 - fix stabilize fuzzy require resolution across duplicate suffix matches
 - fix package.searchpath returns nil+error if none succeeds
+- fix lua5.5 named vararg support: donot report syntax-error
 
 ## [0.20.0] - 2026-1-30
 ### ✨ Added
