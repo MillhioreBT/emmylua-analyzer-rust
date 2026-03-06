@@ -939,11 +939,17 @@ impl<'a> TypeHumanizer<'a> {
 
         w.write_char('(')?;
         let saved = self.level;
+        let is_vararg = signature.is_vararg;
+        let last_idx = signature.params.len();
         self.level = self.child_level();
         for (i, param) in signature.get_type_params().iter().enumerate() {
             if i > 0 {
                 w.write_str(", ")?;
             }
+            if i == last_idx - 1 && is_vararg {
+                w.write_str("...")?;
+            }
+
             w.write_str(&param.0)?;
             if let Some(ty) = &param.1 {
                 w.write_str(": ")?;

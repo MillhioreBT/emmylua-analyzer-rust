@@ -351,12 +351,18 @@ fn hover_doc_function_type(
         func_name.to_string()
     };
 
+    let is_vararg = func.is_variadic();
+    let last_idx = func.get_params().len().saturating_sub(1);
+
     let params = func
         .get_params()
         .iter()
         .enumerate()
         .map(|(index, param)| {
-            let name = param.0.clone();
+            let mut name = param.0.clone();
+            if is_vararg && index == last_idx && name != "..." {
+                name = format!("...{}", name);
+            }
             if index == 0 && is_method && !func.is_colon_define() {
                 "".to_string()
             } else if let Some(ty) = &param.1 {

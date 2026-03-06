@@ -173,6 +173,10 @@ fn check_call_expr(
     }
     // Check for redundant parameters
     else {
+        if func.is_variadic() {
+            return Some(());
+        }
+
         let mut min_call_args_count = call_args_count;
         if last_arg_is_dots {
             min_call_args_count = min_call_args_count.saturating_sub(1);
