@@ -36,7 +36,7 @@ impl LexerConfig {
 impl Default for LexerConfig {
     fn default() -> Self {
         LexerConfig {
-            language_level: LuaLanguageLevel::Lua54,
+            language_level: LuaLanguageLevel::Lua55,
             non_std_symbols: LuaNonStdSymbolSet::new(),
         }
     }
