@@ -749,6 +749,21 @@ impl LuaFunctionType {
             false
         }
     }
+
+    pub fn to_call_operator_func_type(&self) -> Arc<LuaFunctionType> {
+        let mut params = self.get_params().to_vec();
+        if params.first().is_some_and(|(name, _)| name == "@call_self") {
+            params.remove(0);
+        }
+
+        Arc::new(LuaFunctionType::new(
+            self.async_state,
+            false,
+            self.is_variadic,
+            params,
+            self.ret.clone(),
+        ))
+    }
 }
 
 impl From<LuaFunctionType> for LuaType {

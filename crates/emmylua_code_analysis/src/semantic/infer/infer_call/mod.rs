@@ -10,7 +10,7 @@ use super::{
 use crate::{
     CacheEntry, DbIndex, InFiled, LuaFunctionType, LuaGenericType, LuaInstanceType,
     LuaOperatorMetaMethod, LuaOperatorOwner, LuaSignature, LuaSignatureId, LuaType, LuaTypeDeclId,
-    LuaUnionType,
+    LuaUnionType, TypeVisitTrait,
 };
 use crate::{
     InferGuardRef,
@@ -295,7 +295,21 @@ fn infer_type_doc_function(
         let func = operator.get_operator_func(db);
         match func {
             LuaType::DocFunction(f) => {
-                if f.contain_self() {
+                let has_generic_tpl = {
+                    let mut has_generic_tpl = false;
+                    f.visit_type(&mut |t| {
+                        has_generic_tpl |= matches!(
+                            t,
+                            LuaType::TplRef(_) | LuaType::ConstTplRef(_) | LuaType::StrTplRef(_)
+                        );
+                    });
+                    has_generic_tpl
+                };
+
+                if has_generic_tpl {
+                    let result = instantiate_func_generic(db, cache, &f, call_expr.clone())?;
+                    overloads.push(Arc::new(result));
+                } else if f.contain_self() {
                     let mut substitutor = TypeSubstitutor::new();
                     let self_type = build_self_type(db, call_expr_type);
                     substitutor.add_self_type(self_type);
@@ -303,9 +317,6 @@ fn infer_type_doc_function(
                     {
                         overloads.push(f);
                     }
-                } else if f.contain_tpl() {
-                    let result = instantiate_func_generic(db, cache, &f, call_expr.clone())?;
-                    overloads.push(Arc::new(result));
                 } else {
                     overloads.push(f.clone());
                 }
