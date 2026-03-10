@@ -1,4 +1,5 @@
 mod async_state;
+mod return_rows;
 #[allow(clippy::module_inception)]
 mod signature;
 

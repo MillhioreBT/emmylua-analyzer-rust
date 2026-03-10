@@ -6,12 +6,13 @@ use std::{collections::HashMap, sync::Arc};
 use emmylua_parser::{LuaAstNode, LuaClosureExpr, LuaDocFuncType};
 use rowan::TextSize;
 
+use super::return_rows;
 use crate::db_index::signature::async_state::AsyncState;
 use crate::{
     FileId,
     db_index::{LuaFunctionType, LuaType},
 };
-use crate::{LuaAttributeUse, SemanticModel, VariadicType, first_param_may_not_self};
+use crate::{LuaAttributeUse, SemanticModel, first_param_may_not_self};
 
 #[derive(Debug)]
 pub struct LuaSignature {
@@ -113,19 +114,7 @@ impl LuaSignature {
     }
 
     pub fn get_return_type(&self) -> LuaType {
-        match self.return_docs.len() {
-            0 => LuaType::Nil,
-            1 => self.return_docs[0].type_ref.clone(),
-            _ => LuaType::Variadic(
-                VariadicType::Multi(
-                    self.return_docs
-                        .iter()
-                        .map(|info| info.type_ref.clone())
-                        .collect(),
-                )
-                .into(),
-            ),
-        }
+        return_rows::get_return_type(&self.return_docs, &self.return_overloads)
     }
 
     pub fn is_method(&self, semantic_model: &SemanticModel, owner_type: Option<&LuaType>) -> bool {
