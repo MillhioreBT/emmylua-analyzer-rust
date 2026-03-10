@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use emmylua_parser::{LuaAstNode, LuaClosureExpr, LuaDocTagParam, LuaDocTagReturn, LuaStat};
+use emmylua_parser::{
+    LuaAstNode, LuaClosureExpr, LuaDocTagParam, LuaDocTagReturn, LuaDocTagReturnOverload, LuaStat,
+};
 
 use crate::{DiagnosticCode, LuaSemanticDeclId, LuaType, SemanticDeclLevel, SemanticModel};
 
@@ -85,6 +87,12 @@ fn check_doc(
         .children::<LuaDocTagReturn>()
         .map(|return_doc| return_doc.get_types().count())
         .sum();
+    let doc_return_overload_max_len = comment
+        .children::<LuaDocTagReturnOverload>()
+        .map(|return_doc| return_doc.get_types().count())
+        .max()
+        .unwrap_or(0);
+    let doc_return_len = doc_return_len.max(doc_return_overload_max_len);
 
     check_params(
         context,
