@@ -200,6 +200,7 @@ fn get_type_at_name_ref(
         flow_node,
         decl_id,
         name_expr.get_position(),
+        None,
         condition_flow,
     )? {
         return Ok(ResultTypeOrContinue::Result(result_type));
@@ -224,6 +225,7 @@ fn get_type_at_name_ref(
         condition_flow,
     )
 }
+
 pub(super) fn always_literal_equal(left: &LuaType, right: &LuaType) -> bool {
     match (left, right) {
         (LuaType::Union(union), other) => union

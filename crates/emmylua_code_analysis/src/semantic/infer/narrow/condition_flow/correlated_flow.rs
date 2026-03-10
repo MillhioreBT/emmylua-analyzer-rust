@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-use super::InferConditionFlow;
+use super::{InferConditionFlow, always_literal_equal};
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::semantic::infer::narrow::condition_flow) fn narrow_var_from_return_overload_condition(
@@ -23,6 +23,7 @@ pub(in crate::semantic::infer::narrow::condition_flow) fn narrow_var_from_return
     flow_node: &FlowNode,
     discriminant_decl_id: LuaDeclId,
     condition_position: rowan::TextSize,
+    expected_discriminant: Option<&LuaType>,
     condition_flow: InferConditionFlow,
 ) -> Result<ResultTypeOrContinue, InferFailReason> {
     let Some(target_decl_id) = var_ref_id.get_decl_id_ref() else {
@@ -55,6 +56,7 @@ pub(in crate::semantic::infer::narrow::condition_flow) fn narrow_var_from_return
                 target_decl_id,
                 condition_position,
                 search_root_flow_id,
+                expected_discriminant,
                 condition_flow,
             )?;
         matching_target_types.extend(root_matching_target_types);
@@ -108,6 +110,7 @@ fn collect_correlated_types_from_search_root(
     target_decl_id: LuaDeclId,
     condition_position: rowan::TextSize,
     search_root_flow_id: FlowId,
+    expected_discriminant: Option<&LuaType>,
     condition_flow: InferConditionFlow,
 ) -> Result<(Vec<LuaType>, Option<LuaType>), InferFailReason> {
     let (discriminant_refs, discriminant_has_non_reference_origin) = tree
@@ -138,6 +141,7 @@ fn collect_correlated_types_from_search_root(
         root,
         &discriminant_refs,
         &target_refs,
+        expected_discriminant,
         condition_flow,
     )?;
     if root_matching_target_types.is_empty() {
@@ -196,6 +200,7 @@ fn collect_matching_correlated_types(
     root: &LuaChunk,
     discriminant_refs: &[crate::DeclMultiReturnRef],
     target_refs: &[crate::DeclMultiReturnRef],
+    expected_discriminant: Option<&LuaType>,
     condition_flow: InferConditionFlow,
 ) -> Result<(Vec<LuaType>, Vec<LuaType>, bool), InferFailReason> {
     let mut matching_target_types = Vec::new();
@@ -230,7 +235,12 @@ fn collect_matching_correlated_types(
                     overload,
                     discriminant_ref.return_index,
                 );
-                if overload_row_matches_discriminant(&discriminant_type, condition_flow) {
+                if overload_row_matches_discriminant(
+                    db,
+                    &discriminant_type,
+                    expected_discriminant,
+                    condition_flow,
+                ) {
                     return Some(crate::LuaSignature::get_overload_row_slot(
                         overload,
                         target_ref.return_index,
@@ -255,12 +265,24 @@ fn collect_matching_correlated_types(
 }
 
 fn overload_row_matches_discriminant(
+    db: &DbIndex,
     discriminant_type: &LuaType,
+    expected_discriminant: Option<&LuaType>,
     condition_flow: InferConditionFlow,
 ) -> bool {
-    match condition_flow {
-        InferConditionFlow::TrueCondition => !discriminant_type.is_always_falsy(),
-        InferConditionFlow::FalseCondition => !discriminant_type.is_always_truthy(),
+    match expected_discriminant {
+        None => match condition_flow {
+            InferConditionFlow::TrueCondition => !discriminant_type.is_always_falsy(),
+            InferConditionFlow::FalseCondition => !discriminant_type.is_always_truthy(),
+        },
+        Some(expected) => match condition_flow {
+            InferConditionFlow::TrueCondition => !TypeOps::Intersect
+                .apply(db, discriminant_type, expected)
+                .is_never(),
+            InferConditionFlow::FalseCondition => {
+                !always_literal_equal(discriminant_type, expected)
+            }
+        },
     }
 }
 

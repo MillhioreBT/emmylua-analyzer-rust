@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::VirtualWorkspace;
+    use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
     fn test_return_overload_narrow_after_not() {
@@ -72,6 +72,41 @@ mod test {
         );
 
         assert_eq!(ws.expr_ty("f"), ws.ty("integer|string"));
+    }
+
+    #[test]
+    fn test_return_overload_narrow_with_swapped_operand_eq() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            ---@generic T, E
+            ---@param ok boolean
+            ---@param success T
+            ---@param failure E
+            ---@return "ok"|"err"
+            ---@return T|E
+            ---@return_overload "ok", T
+            ---@return_overload "err", E
+            local function pick(ok, success, failure)
+                if ok then
+                    return "ok", success
+                end
+                return "err", failure
+            end
+
+            local cond ---@type boolean
+            local tag, result = pick(cond, 1, "error")
+
+            if "err" == tag then
+                error(result)
+            end
+
+            d = result
+            "#,
+        );
+
+        assert_eq!(ws.expr_ty("d"), ws.ty("integer"));
     }
 
     #[test]
@@ -319,6 +354,45 @@ mod test {
         );
 
         assert_eq!(ws.expr_ty("after_guard"), ws.ty("integer|string"));
+    }
+
+    #[test]
+    fn test_swapped_literal_eq_narrow_without_return_overload() {
+        let mut ws = VirtualWorkspace::new();
+
+        assert!(!ws.check_code_for(
+            DiagnosticCode::ReturnTypeMismatch,
+            r#"
+            ---@return "x"
+            local function test()
+                local a ---@type "x"|nil
+                if "x" == a then
+                    return a
+                end
+                return "x"
+            end
+            "#,
+        ));
+    }
+
+    #[test]
+    fn test_var_eq_var_narrow_right_operand_without_return_overload() {
+        let mut ws = VirtualWorkspace::new();
+
+        assert!(!ws.check_code_for(
+            DiagnosticCode::ReturnTypeMismatch,
+            r#"
+            ---@return "x"
+            local function test()
+                local a ---@type "x"
+                local b ---@type "x"|nil
+                if a == b then
+                    return b
+                end
+                return "x"
+            end
+            "#,
+        ));
     }
 
     #[test]
