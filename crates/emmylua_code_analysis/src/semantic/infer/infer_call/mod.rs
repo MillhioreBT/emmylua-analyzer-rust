@@ -815,4 +815,33 @@ mod tests {
 
         assert!(!matches!(second, Err(InferFailReason::RecursiveInfer)));
     }
+
+    #[test]
+    fn test_higher_order_call_with_unresolved_remaining_arg_should_not_hard_fail() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@generic T, R
+            ---@param f fun(...: T...): R...
+            ---@param ... T...
+            ---@return boolean, R...
+            local function wrap(f, ...) end
+
+            ---@generic U: string
+            ---@param x U
+            ---@return U
+            local function id(x) end
+
+            ---@class Box
+            ---@field value integer
+            ---@type Box
+            local box
+
+            ok, payload = wrap(id, box.missing)
+            "#,
+        );
+
+        assert_eq!(ws.expr_ty("ok"), ws.ty("boolean"));
+        assert_eq!(ws.expr_ty("payload"), ws.ty("string"));
+    }
 }
