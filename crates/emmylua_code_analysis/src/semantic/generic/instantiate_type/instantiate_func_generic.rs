@@ -276,11 +276,7 @@ fn infer_generic_types_from_call(
             (LuaType::Variadic(variadic), _) => {
                 let mut arg_types = vec![];
                 for arg_expr in &arg_exprs[i..] {
-                    let arg_type = match infer_expr(db, context.cache, arg_expr.clone()) {
-                        Ok(t) => t,
-                        Err(InferFailReason::FieldNotFound) => LuaType::Nil,
-                        Err(e) => return Err(e),
-                    };
+                    let arg_type = infer_expr(db, context.cache, arg_expr.clone())?;
                     arg_types.push(arg_type);
                 }
                 variadic_tpl_pattern_match(context, variadic, &arg_types)?;
@@ -296,21 +292,7 @@ fn infer_generic_types_from_call(
                 break;
             }
             _ => {
-                if let Err(err) = tpl_pattern_match(context, func_param_type, &arg_type) {
-                    let ignore_err = matches!(arg_type, LuaType::Signature(_))
-                        && matches!(
-                            func_param_type,
-                            LuaType::DocFunction(_) | LuaType::Signature(_)
-                        )
-                        && matches!(
-                            err,
-                            InferFailReason::UnResolveSignatureReturn(_)
-                                | InferFailReason::FieldNotFound
-                        );
-                    if !ignore_err {
-                        return Err(err);
-                    }
-                }
+                tpl_pattern_match(context, func_param_type, &arg_type)?;
             }
         }
     }

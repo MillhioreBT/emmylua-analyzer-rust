@@ -32,7 +32,11 @@ pub(super) fn get_return_type(
     }
 }
 
-fn row_to_return_type(mut row: Vec<LuaType>) -> LuaType {
+pub(crate) fn get_overload_row_slot(row: &[LuaType], idx: usize) -> LuaType {
+    get_overload_row_slot_if_present(row, idx).unwrap_or(LuaType::Nil)
+}
+
+pub(crate) fn row_to_return_type(mut row: Vec<LuaType>) -> LuaType {
     match row.len() {
         0 => LuaType::Nil,
         1 => row.pop().unwrap_or(LuaType::Nil),
@@ -40,7 +44,7 @@ fn row_to_return_type(mut row: Vec<LuaType>) -> LuaType {
     }
 }
 
-fn return_type_to_row(return_type: LuaType) -> Vec<LuaType> {
+pub(crate) fn return_type_to_row(return_type: LuaType) -> Vec<LuaType> {
     match return_type {
         LuaType::Variadic(variadic) => match variadic.as_ref() {
             VariadicType::Multi(types) => types.clone(),

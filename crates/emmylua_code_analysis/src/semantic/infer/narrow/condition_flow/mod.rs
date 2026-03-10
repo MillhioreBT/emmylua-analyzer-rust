@@ -1,11 +1,13 @@
 mod binary_flow;
 mod call_flow;
+mod correlated_flow;
 mod index_flow;
 
+use self::correlated_flow::narrow_var_from_return_overload_condition;
 use emmylua_parser::{LuaAstNode, LuaChunk, LuaExpr, LuaNameExpr, LuaUnaryExpr, UnaryOperator};
 
 use crate::{
-    DbIndex, FlowNode, FlowTree, InferFailReason, LuaInferCache,
+    DbIndex, FlowNode, FlowTree, InferFailReason, LuaInferCache, LuaType,
     semantic::infer::{
         VarRefId,
         narrow::{
@@ -189,6 +191,20 @@ fn get_type_at_name_ref(
         return Ok(ResultTypeOrContinue::Continue);
     };
 
+    if let ResultTypeOrContinue::Result(result_type) = narrow_var_from_return_overload_condition(
+        db,
+        tree,
+        cache,
+        root,
+        var_ref_id,
+        flow_node,
+        decl_id,
+        name_expr.get_position(),
+        condition_flow,
+    )? {
+        return Ok(ResultTypeOrContinue::Result(result_type));
+    }
+
     let Some(expr_ptr) = tree.get_decl_ref_expr(&decl_id) else {
         return Ok(ResultTypeOrContinue::Continue);
     };
@@ -207,6 +223,31 @@ fn get_type_at_name_ref(
         expr,
         condition_flow,
     )
+}
+pub(super) fn always_literal_equal(left: &LuaType, right: &LuaType) -> bool {
+    match (left, right) {
+        (LuaType::Union(union), other) => union
+            .into_vec()
+            .into_iter()
+            .all(|candidate| always_literal_equal(&candidate, other)),
+        (other, LuaType::Union(union)) => union
+            .into_vec()
+            .into_iter()
+            .all(|candidate| always_literal_equal(other, &candidate)),
+        (
+            LuaType::StringConst(l) | LuaType::DocStringConst(l),
+            LuaType::StringConst(r) | LuaType::DocStringConst(r),
+        ) => l == r,
+        (
+            LuaType::BooleanConst(l) | LuaType::DocBooleanConst(l),
+            LuaType::BooleanConst(r) | LuaType::DocBooleanConst(r),
+        ) => l == r,
+        (
+            LuaType::IntegerConst(l) | LuaType::DocIntegerConst(l),
+            LuaType::IntegerConst(r) | LuaType::DocIntegerConst(r),
+        ) => l == r,
+        _ => left == right,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

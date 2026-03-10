@@ -117,6 +117,18 @@ impl LuaSignature {
         return_rows::get_return_type(&self.return_docs, &self.return_overloads)
     }
 
+    pub(crate) fn get_overload_row_slot(row: &[LuaType], idx: usize) -> LuaType {
+        return_rows::get_overload_row_slot(row, idx)
+    }
+
+    pub(crate) fn row_to_return_type(row: Vec<LuaType>) -> LuaType {
+        return_rows::row_to_return_type(row)
+    }
+
+    pub(crate) fn return_type_to_row(return_type: LuaType) -> Vec<LuaType> {
+        return_rows::return_type_to_row(return_type)
+    }
+
     pub fn is_method(&self, semantic_model: &SemanticModel, owner_type: Option<&LuaType>) -> bool {
         if self.is_colon_define {
             return true;
