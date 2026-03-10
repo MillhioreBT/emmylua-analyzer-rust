@@ -1,35 +1,40 @@
-use std::collections::HashSet;
-use std::path::Path;
-use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+#[cfg(test)]
+mod tests;
 
-use super::{ClientProxy, FileDiagnostic, StatusBar};
-use crate::context::lsp_features::LspFeatures;
-use crate::handlers::{ClientConfig, init_analysis};
-use emmylua_code_analysis::{
-    EmmyLibraryItem, EmmyLuaAnalysis, Emmyrc, WorkspaceFolder, WorkspaceImport, load_configs,
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, AtomicU64, Ordering};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
-use emmylua_code_analysis::{update_code_style, uri_to_file_path};
-use log::{debug, info};
+
+use super::{ClientProxy, FileDiagnostic};
+use crate::context::ServerContextSnapshot;
+use crate::context::lsp_features::LspFeatures;
+use crate::handlers::{ClientConfig, init_analysis, register_files_watch};
+use emmylua_code_analysis::{
+    EmmyLuaAnalysis, Emmyrc, WorkspaceFolder, build_workspace_folders, find_library_exclude,
+    load_configs, read_file_with_encoding, update_code_style, uri_to_file_path,
+};
 use lsp_types::Uri;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
 use tokio_util::sync::CancellationToken;
-use wax::Pattern;
 
 pub struct WorkspaceManager {
     analysis: Arc<RwLock<EmmyLuaAnalysis>>,
     client: Arc<ClientProxy>,
-    status_bar: Arc<StatusBar>,
-    update_token: Arc<Mutex<Option<Arc<ReindexToken>>>>,
+    config_reload_token: Arc<PendingTask>,
+    reindex_token: Arc<PendingTask>,
+    reload_lock: Arc<AsyncMutex<()>>,
+    reload_generation: Arc<AtomicU64>,
     file_diagnostic: Arc<FileDiagnostic>,
     lsp_features: Arc<LspFeatures>,
     pub client_config: ClientConfig,
-    /// Client-provided workspace roots used for config scope and reindexing.
     pub workspace_folders: Vec<WorkspaceFolder>,
-    /// Expanded workspace roots used only for file matching and watching.
-    match_workspace_folders: Vec<WorkspaceFolder>,
     pub watcher: Option<notify::RecommendedWatcher>,
-    pub current_open_files: HashSet<Uri>,
+    open_file_texts: HashMap<Uri, String>,
+    open_file_state_version: u64,
     pub match_file_pattern: WorkspaceFileMatcher,
     workspace_diagnostic_level: Arc<AtomicU8>,
     workspace_version: Arc<AtomicI64>,
@@ -39,22 +44,23 @@ impl WorkspaceManager {
     pub fn new(
         analysis: Arc<RwLock<EmmyLuaAnalysis>>,
         client: Arc<ClientProxy>,
-        status_bar: Arc<StatusBar>,
         file_diagnostic: Arc<FileDiagnostic>,
         lsp_features: Arc<LspFeatures>,
     ) -> Self {
         Self {
             analysis,
             client,
-            status_bar,
-            client_config: ClientConfig::default(),
-            workspace_folders: Vec::new(),
-            match_workspace_folders: Vec::new(),
-            update_token: Arc::new(Mutex::new(None)),
+            config_reload_token: Arc::new(PendingTask::default()),
+            reindex_token: Arc::new(PendingTask::default()),
+            reload_lock: Arc::new(AsyncMutex::new(())),
+            reload_generation: Arc::new(AtomicU64::new(0)),
             file_diagnostic,
             lsp_features,
+            client_config: ClientConfig::default(),
+            workspace_folders: Vec::new(),
             watcher: None,
-            current_open_files: HashSet::new(),
+            open_file_texts: HashMap::new(),
+            open_file_state_version: 0,
             match_file_pattern: WorkspaceFileMatcher::default(),
             workspace_diagnostic_level: Arc::new(AtomicU8::new(
                 WorkspaceDiagnosticLevel::Fast.to_u8(),
@@ -80,55 +86,67 @@ impl WorkspaceManager {
         self.workspace_version.load(Ordering::Acquire)
     }
 
-    pub fn set_match_workspace_folders(&mut self, workspaces: Vec<WorkspaceFolder>) {
-        self.match_workspace_folders = workspaces;
+    pub fn update_match_state(&mut self, emmyrc: &Emmyrc) {
+        self.match_file_pattern = WorkspaceFileMatcher::new(&self.workspace_folders, emmyrc);
     }
 
-    pub fn file_match_workspaces(&self) -> &[WorkspaceFolder] {
-        if self.match_workspace_folders.is_empty() {
-            &self.workspace_folders
-        } else {
-            &self.match_workspace_folders
+    pub fn sync_open_file(&mut self, uri: Uri, text: String) {
+        self.open_file_texts.insert(uri, text);
+        self.open_file_state_version = self.open_file_state_version.wrapping_add(1);
+    }
+
+    pub fn close_open_file(&mut self, uri: &Uri) {
+        self.open_file_texts.remove(uri);
+        self.open_file_state_version = self.open_file_state_version.wrapping_add(1);
+    }
+
+    pub fn is_open_file(&self, uri: &Uri) -> bool {
+        self.open_file_texts.contains_key(uri)
+    }
+
+    pub fn workspace_open_files(&self) -> Vec<(Uri, String)> {
+        self.open_file_texts
+            .iter()
+            .filter(|(uri, _)| self.is_workspace_file(uri))
+            .map(|(uri, text)| (uri.clone(), text.clone()))
+            .collect()
+    }
+
+    fn workspace_open_files_snapshot(&self) -> OpenFilesSnapshot {
+        OpenFilesSnapshot {
+            version: self.open_file_state_version,
+            files: self.workspace_open_files(),
         }
     }
 
-    pub async fn add_update_emmyrc_task(&self, file_dir: PathBuf) {
-        let mut update_token = self.update_token.lock().await;
-        if let Some(token) = update_token.as_ref() {
-            token.cancel();
-            debug!("cancel update config: {:?}", file_dir);
+    pub fn add_update_emmyrc_task(&self, context: ServerContextSnapshot, config_path: PathBuf) {
+        let Some(config_root) = self.config_root() else {
+            return;
+        };
+        if config_path.parent() != Some(config_root.as_path()) {
+            return;
         }
 
-        let cancel_token = Arc::new(ReindexToken::new(Duration::from_secs(2)));
-        update_token.replace(cancel_token.clone());
-        drop(update_token);
+        let (cancel_token, cancelled_existing) =
+            self.config_reload_token.replace(CONFIG_RELOAD_DELAY);
+        if cancelled_existing {
+            log::debug!("cancel pending config reload: {:?}", config_path);
+        }
 
-        let analysis = self.analysis.clone();
         let workspace_folders = self.workspace_folders.clone();
-        let config_update_token = self.update_token.clone();
         let client_config = self.client_config.clone();
-        let status_bar = self.status_bar.clone();
-        let file_diagnostic = self.file_diagnostic.clone();
-        let lsp_features = self.lsp_features.clone();
+        let config_reload_token = self.config_reload_token.clone();
+        let reload_task_handles = self.reload_task_handles();
         tokio::spawn(async move {
-            cancel_token.wait_for_reindex().await;
+            cancel_token.wait().await;
             if cancel_token.is_cancelled() {
+                config_reload_token.clear(&cancel_token);
                 return;
             }
 
-            let emmyrc = load_emmy_config(Some(file_dir.clone()), client_config);
-            init_analysis(
-                &analysis,
-                &status_bar,
-                &file_diagnostic,
-                &lsp_features,
-                workspace_folders,
-                emmyrc,
-            )
-            .await;
-            // After completion, remove from HashMap
-            let mut tokens = config_update_token.lock().await;
-            tokens.take();
+            let emmyrc = load_emmy_config(Some(config_root), client_config);
+            spawn_workspace_reload_task(reload_task_handles, context, workspace_folders, emmyrc);
+            config_reload_token.clear(&cancel_token);
         });
     }
 
@@ -145,75 +163,39 @@ impl WorkspaceManager {
         update_code_style(&parent_dir, &file_normalized);
     }
 
-    pub fn add_reload_workspace_task(&self) -> Option<()> {
-        let config_root: Option<PathBuf> = self.workspace_folders.first().map(|wf| wf.root.clone());
-
-        let emmyrc = load_emmy_config(config_root, self.client_config.clone());
-        let analysis = self.analysis.clone();
-        let workspace_folders = self.workspace_folders.clone();
-        let status_bar = self.status_bar.clone();
-        let file_diagnostic = self.file_diagnostic.clone();
-        let lsp_features = self.lsp_features.clone();
-        let client = self.client.clone();
-        let workspace_diagnostic_status = self.workspace_diagnostic_level.clone();
-        tokio::spawn(async move {
-            // Perform reindex with minimal lock holding time
-            init_analysis(
-                &analysis,
-                &status_bar,
-                &file_diagnostic,
-                &lsp_features,
-                workspace_folders,
-                emmyrc,
-            )
-            .await;
-
-            // Cancel diagnostics and update status without holding analysis lock
-            file_diagnostic.cancel_workspace_diagnostic().await;
-            workspace_diagnostic_status
-                .store(WorkspaceDiagnosticLevel::Fast.to_u8(), Ordering::Release);
-
-            // Trigger diagnostics refresh
-            if lsp_features.supports_workspace_diagnostic() {
-                client.refresh_workspace_diagnostics();
-            } else {
-                file_diagnostic
-                    .add_workspace_diagnostic_task(500, true)
-                    .await;
-            }
-        });
-
-        Some(())
+    pub fn add_reload_workspace_task(&self, context: ServerContextSnapshot) {
+        let emmyrc = load_emmy_config(self.config_root(), self.client_config.clone());
+        spawn_workspace_reload_task(
+            self.reload_task_handles(),
+            context,
+            self.workspace_folders.clone(),
+            emmyrc,
+        );
     }
 
-    pub async fn extend_reindex_delay(&self) -> Option<()> {
-        let update_token = self.update_token.lock().await;
-        if let Some(token) = update_token.as_ref() {
-            token.set_resleep().await;
+    pub fn extend_reindex_delay(&self) {
+        if let Some(token) = self.reindex_token.current() {
+            token.set_resleep();
         }
-
-        Some(())
     }
 
-    pub async fn reindex_workspace(&self, delay: Duration) -> Option<()> {
+    pub fn reindex_workspace(&self, delay: Duration) {
         log::info!("reindex workspace with delay: {:?}", delay);
-        let mut update_token = self.update_token.lock().await;
-        if let Some(token) = update_token.as_ref() {
-            token.cancel();
+        let (cancel_token, cancelled_existing) = self.reindex_token.replace(delay);
+        if cancelled_existing {
             log::info!("cancel reindex workspace");
         }
 
-        let cancel_token = Arc::new(ReindexToken::new(delay));
-        update_token.replace(cancel_token.clone());
-        drop(update_token);
         let analysis = self.analysis.clone();
+        let client = self.client.clone();
         let file_diagnostic = self.file_diagnostic.clone();
         let lsp_features = self.lsp_features.clone();
-        let client = self.client.clone();
-        let workspace_diagnostic_status = self.workspace_diagnostic_level.clone();
+        let reindex_token = self.reindex_token.clone();
+        let workspace_diagnostic_level = self.workspace_diagnostic_level.clone();
         tokio::spawn(async move {
-            cancel_token.wait_for_reindex().await;
+            cancel_token.wait().await;
             if cancel_token.is_cancelled() {
+                reindex_token.clear(&cancel_token);
                 return;
             }
 
@@ -224,28 +206,20 @@ impl WorkspaceManager {
                 analysis.cleanup_nonexistent_files();
                 analysis.reindex();
                 // Release lock immediately after reindex
+                drop(analysis);
             }
 
-            // Cancel diagnostics and update status without holding analysis lock
-            file_diagnostic.cancel_workspace_diagnostic().await;
-            workspace_diagnostic_status
-                .store(WorkspaceDiagnosticLevel::Fast.to_u8(), Ordering::Release);
-
-            // Trigger diagnostics refresh
-            if lsp_features.supports_workspace_diagnostic() {
-                client.refresh_workspace_diagnostics();
-            } else {
-                file_diagnostic
-                    .add_workspace_diagnostic_task(500, true)
-                    .await;
-            }
+            refresh_workspace_diagnostics(
+                file_diagnostic,
+                lsp_features,
+                client,
+                workspace_diagnostic_level,
+            )
+            .await;
+            reindex_token.clear(&cancel_token);
         });
-
-        Some(())
     }
 
-    /// Returns whether the URI resolves to a file owned by one of the current
-    /// workspaces after applying workspace-specific filters.
     pub fn is_workspace_file(&self, uri: &Uri) -> bool {
         if self.workspace_folders.is_empty() {
             return true;
@@ -255,8 +229,7 @@ impl WorkspaceManager {
             return true;
         };
 
-        self.match_file_pattern
-            .is_match(self.file_match_workspaces(), &file_path)
+        self.match_file_pattern.is_match(&file_path)
     }
 
     pub async fn check_schema_update(&self) {
@@ -267,88 +240,46 @@ impl WorkspaceManager {
             write_analysis.update_schema().await;
         }
     }
-}
 
-pub fn load_emmy_config(config_root: Option<PathBuf>, client_config: ClientConfig) -> Arc<Emmyrc> {
-    // Config load priority.
-    // * Global `<os-specific home-dir>/.luarc.json`.
-    // * Global `<os-specific home-dir>/.emmyrc.json`.
-    // * Global `<os-specific config-dir>/emmylua_ls/.luarc.json`.
-    // * Global `<os-specific config-dir>/emmylua_ls/.emmyrc.json`.
-    // * Environment-specified config at the $EMMYLUALS_CONFIG path.
-    // * Local `.luarc.json`.
-    // * Local `.emmyrc.json`.
-    let luarc_file = ".luarc.json";
-    let emmyrc_file = ".emmyrc.json";
-    let emmyrc_lua_file = ".emmyrc.lua";
-    let mut config_files = Vec::new();
+    fn config_root(&self) -> Option<PathBuf> {
+        self.workspace_folders
+            .first()
+            .map(|workspace| workspace.root.clone())
+    }
 
-    let home_dir = dirs::home_dir();
-    if let Some(home_dir) = home_dir {
-        let global_luarc_path = home_dir.join(luarc_file);
-        if global_luarc_path.exists() {
-            info!("load config from: {:?}", global_luarc_path);
-            config_files.push(global_luarc_path);
-        }
-        let global_emmyrc_path = home_dir.join(emmyrc_file);
-        if global_emmyrc_path.exists() {
-            info!("load config from: {:?}", global_emmyrc_path);
-            config_files.push(global_emmyrc_path);
-        }
-        let global_emmyrc_lua_path = home_dir.join(emmyrc_lua_file);
-        if global_emmyrc_lua_path.exists() {
-            info!("load config from: {:?}", global_emmyrc_lua_path);
-            config_files.push(global_emmyrc_lua_path);
-        }
-    };
-
-    let emmylua_config_dir = "emmylua_ls";
-    let config_dir = dirs::config_dir().map(|path| path.join(emmylua_config_dir));
-    if let Some(config_dir) = config_dir {
-        let global_luarc_path = config_dir.join(luarc_file);
-        if global_luarc_path.exists() {
-            info!("load config from: {:?}", global_luarc_path);
-            config_files.push(global_luarc_path);
-        }
-        let global_emmyrc_path = config_dir.join(emmyrc_file);
-        if global_emmyrc_path.exists() {
-            info!("load config from: {:?}", global_emmyrc_path);
-            config_files.push(global_emmyrc_path);
-        }
-        let global_emmyrc_lua_path = config_dir.join(emmyrc_lua_file);
-        if global_emmyrc_lua_path.exists() {
-            info!("load config from: {:?}", global_emmyrc_lua_path);
-            config_files.push(global_emmyrc_lua_path);
-        }
-    };
-
-    std::env::var("EMMYLUALS_CONFIG")
-        .inspect(|path| {
-            let config_path = std::path::PathBuf::from(path);
-            if config_path.exists() {
-                info!("load config from: {:?}", config_path);
-                config_files.push(config_path);
-            }
-        })
-        .ok();
-
-    if let Some(config_root) = &config_root {
-        let luarc_path = config_root.join(luarc_file);
-        if luarc_path.exists() {
-            info!("load config from: {:?}", luarc_path);
-            config_files.push(luarc_path);
-        }
-        let emmyrc_path = config_root.join(emmyrc_file);
-        if emmyrc_path.exists() {
-            info!("load config from: {:?}", emmyrc_path);
-            config_files.push(emmyrc_path);
-        }
-        let emmyrc_lua_path = config_root.join(emmyrc_lua_file);
-        if emmyrc_lua_path.exists() {
-            info!("load config from: {:?}", emmyrc_lua_path);
-            config_files.push(emmyrc_lua_path);
+    fn reload_task_handles(&self) -> ReloadTaskHandles {
+        ReloadTaskHandles {
+            client: self.client.clone(),
+            file_diagnostic: self.file_diagnostic.clone(),
+            lsp_features: self.lsp_features.clone(),
+            reload_lock: self.reload_lock.clone(),
+            reload_generation: self.reload_generation.clone(),
+            workspace_diagnostic_level: self.workspace_diagnostic_level.clone(),
         }
     }
+}
+
+const CONFIG_FILE_NAMES: [&str; 3] = [".luarc.json", ".emmyrc.json", ".emmyrc.lua"];
+const CONFIG_RELOAD_DELAY: Duration = Duration::from_secs(2);
+
+pub fn load_emmy_config(config_root: Option<PathBuf>, client_config: ClientConfig) -> Arc<Emmyrc> {
+    let mut config_files = Vec::new();
+
+    extend_config_files(&mut config_files, dirs::home_dir());
+    extend_config_files(
+        &mut config_files,
+        dirs::config_dir().map(|path| path.join("emmylua_ls")),
+    );
+
+    if let Ok(path) = std::env::var("EMMYLUALS_CONFIG") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            log::info!("load config from: {:?}", path);
+            config_files.push(path);
+        }
+    }
+
+    extend_config_files(&mut config_files, config_root.clone());
 
     let mut emmyrc = load_configs(config_files, client_config.partial_emmyrcs.clone());
     merge_client_config(client_config, &mut emmyrc);
@@ -370,400 +301,276 @@ fn merge_client_config(client_config: ClientConfig, emmyrc: &mut Emmyrc) -> Opti
     Some(())
 }
 
-#[derive(Debug)]
-pub struct ReindexToken {
-    cancel_token: CancellationToken,
-    time_sleep: Duration,
-    need_re_sleep: Mutex<bool>,
+fn extend_config_files(config_files: &mut Vec<PathBuf>, dir: Option<PathBuf>) {
+    let Some(dir) = dir else {
+        return;
+    };
+
+    for file_name in CONFIG_FILE_NAMES {
+        let path = dir.join(file_name);
+        if path.exists() {
+            log::info!("load config from: {:?}", path);
+            config_files.push(path);
+        }
+    }
 }
 
-impl ReindexToken {
-    pub fn new(time_sleep: Duration) -> Self {
+#[derive(Debug)]
+struct DebounceToken {
+    cancel_token: CancellationToken,
+    time_sleep: Duration,
+    need_re_sleep: AtomicBool,
+}
+
+impl DebounceToken {
+    fn new(time_sleep: Duration) -> Self {
         Self {
             cancel_token: CancellationToken::new(),
             time_sleep,
-            need_re_sleep: Mutex::new(false),
+            need_re_sleep: AtomicBool::new(false),
         }
     }
 
-    pub async fn wait_for_reindex(&self) {
+    async fn wait(&self) {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(self.time_sleep) => {
-                    // 获取锁来安全地访问和修改 need_re_sleep
-                    let mut need_re_sleep = self.need_re_sleep.lock().await;
-                    if *need_re_sleep {
-                        *need_re_sleep = false;
-                    } else {
+                    if !self.need_re_sleep.swap(false, Ordering::AcqRel) {
                         break;
                     }
                 }
-                _ = self.cancel_token.cancelled() => {
-                    break;
-                }
+                _ = self.cancel_token.cancelled() => break,
             }
         }
     }
 
-    pub fn cancel(&self) {
+    fn cancel(&self) {
         self.cancel_token.cancel();
     }
 
-    pub fn is_cancelled(&self) -> bool {
+    fn is_cancelled(&self) -> bool {
         self.cancel_token.is_cancelled()
     }
 
-    pub async fn set_resleep(&self) {
-        // 获取锁来安全地修改 need_re_sleep
-        let mut need_re_sleep = self.need_re_sleep.lock().await;
-        *need_re_sleep = true;
+    fn set_resleep(&self) {
+        self.need_re_sleep.store(true, Ordering::Release);
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct WorkspaceFileMatcher {
-    include: Vec<String>,
-    exclude: Vec<String>,
-    exclude_dir: Vec<PathBuf>,
-    library_exclude: Vec<(PathBuf, Vec<String>, Vec<PathBuf>)>,
-}
+#[derive(Debug, Default)]
+struct PendingTask(Mutex<Option<Arc<DebounceToken>>>);
 
-impl WorkspaceFileMatcher {
-    /// Precomputes the effective file patterns for each workspace root.
-    pub fn new(
-        include: Vec<String>,
-        exclude: Vec<String>,
-        exclude_dir: Vec<PathBuf>,
-        emmyrc: &Emmyrc,
-    ) -> Self {
-        let library_exclude = emmyrc
-            .workspace
-            .library
-            .iter()
-            .filter_map(|lib| {
-                if let EmmyLibraryItem::Config(config) = lib {
-                    let mut merged_exclude = exclude.clone();
-                    merged_exclude.extend(config.ignore_globs.clone());
-                    merged_exclude.sort();
-                    merged_exclude.dedup();
-
-                    Some((
-                        PathBuf::from(&config.path),
-                        merged_exclude,
-                        config.ignore_dir.iter().map(PathBuf::from).collect(),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Self {
-            include,
-            exclude,
-            exclude_dir,
-            library_exclude,
-        }
+impl PendingTask {
+    fn current(&self) -> Option<Arc<DebounceToken>> {
+        self.0.lock().expect("update token mutex poisoned").clone()
     }
 
-    /// Returns whether `path` belongs to any configured workspace after the
-    /// most specific workspace's include and exclude rules are applied.
-    pub fn is_match(&self, workspaces: &[WorkspaceFolder], path: &Path) -> bool {
-        let Some((workspace, relative_path)) = select_workspace(workspaces, path) else {
-            return false;
-        };
-
-        let (exclude, exclude_dir) = self.exclude_for_workspace(workspace);
-        if exclude_dir.iter().any(|dir| path.starts_with(dir)) {
-            return false;
+    fn replace(&self, delay: Duration) -> (Arc<DebounceToken>, bool) {
+        let mut current = self.0.lock().expect("update token mutex poisoned");
+        let had_existing_token = current.is_some();
+        if let Some(token) = current.as_ref() {
+            token.cancel();
         }
 
-        if !exclude.is_empty() {
-            let exclude_matcher = wax::any(exclude.iter().map(|s| s.as_str()));
-            if let Ok(exclude_set) = exclude_matcher {
-                if exclude_set.is_match(relative_path.as_path()) {
-                    return false;
-                }
-            } else {
-                log::error!("Invalid exclude pattern");
-            }
-        }
-
-        let include_matcher = wax::any(self.include.iter().map(|s| s.as_str()));
-        if let Ok(include_set) = include_matcher {
-            return include_set.is_match(relative_path.as_path());
-        } else {
-            log::error!("Invalid include pattern");
-        }
-
-        true
+        let next = Arc::new(DebounceToken::new(delay));
+        current.replace(next.clone());
+        (next, had_existing_token)
     }
 
-    fn exclude_for_workspace(&self, workspace: &WorkspaceFolder) -> (&[String], &[PathBuf]) {
-        if workspace.is_library {
-            if let Some((_, exclude, exclude_dir)) = self
-                .library_exclude
-                .iter()
-                .find(|(root, _, _)| *root == workspace.root)
-            {
-                return (exclude, exclude_dir);
-            }
-
-            return (&self.exclude, &[]);
-        }
-
-        (&self.exclude, &self.exclude_dir)
-    }
-}
-
-impl Default for WorkspaceFileMatcher {
-    fn default() -> Self {
-        Self {
-            include: vec!["**/*.lua".to_string()],
-            exclude: Vec::new(),
-            exclude_dir: Vec::new(),
-            library_exclude: Vec::new(),
-        }
-    }
-}
-
-fn select_workspace<'a>(
-    workspaces: &'a [WorkspaceFolder],
-    path: &Path,
-) -> Option<(&'a WorkspaceFolder, PathBuf)> {
-    let mut selected = None;
-
-    for workspace in workspaces {
-        let Ok(relative_path) = path.strip_prefix(&workspace.root) else {
-            continue;
-        };
-
-        let Some(import_depth) = workspace_import_depth(&workspace.import, relative_path) else {
-            continue;
-        };
-
-        let candidate = (
-            workspace.root.components().count(),
-            import_depth,
-            usize::from(workspace.is_library),
-        );
-
-        let is_better = selected
+    fn clear(&self, finished_token: &Arc<DebounceToken>) {
+        let mut current = self.0.lock().expect("update token mutex poisoned");
+        if current
             .as_ref()
-            .map(|(_, _, current_score)| candidate > *current_score)
-            .unwrap_or(true);
-
-        if is_better {
-            selected = Some((workspace, relative_path.to_path_buf(), candidate));
+            .is_some_and(|token| Arc::ptr_eq(token, finished_token))
+        {
+            current.take();
         }
     }
-
-    selected.map(|(workspace, relative_path, _)| (workspace, relative_path))
 }
 
-/// Returns the depth of the matching import path for a workspace, if the file
-/// is inside that workspace's import scope.
-fn workspace_import_depth(import: &WorkspaceImport, relative_path: &Path) -> Option<usize> {
-    match import {
-        WorkspaceImport::All => Some(0),
-        WorkspaceImport::SubPaths(paths) => paths
-            .iter()
-            .filter(|path| relative_path.starts_with(path))
-            .map(|path| path.components().count())
-            .max(),
+async fn refresh_workspace_diagnostics(
+    file_diagnostic: Arc<FileDiagnostic>,
+    lsp_features: Arc<LspFeatures>,
+    client: Arc<ClientProxy>,
+    workspace_diagnostic_level: Arc<AtomicU8>,
+) {
+    file_diagnostic.cancel_workspace_diagnostic().await;
+    workspace_diagnostic_level.store(WorkspaceDiagnosticLevel::Fast.to_u8(), Ordering::Release);
+
+    if lsp_features.supports_workspace_diagnostic() {
+        client.refresh_workspace_diagnostics();
+    } else {
+        file_diagnostic
+            .add_workspace_diagnostic_task(500, true)
+            .await;
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use emmylua_code_analysis::{Emmyrc, calculate_include_and_exclude};
-    use lsp_server::Connection;
-    use lsp_types::ClientCapabilities;
-    use std::{
-        fs,
-        sync::Arc,
-        sync::atomic::{AtomicU64, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
+#[derive(Clone)]
+struct ReloadTaskHandles {
+    client: Arc<ClientProxy>,
+    file_diagnostic: Arc<FileDiagnostic>,
+    lsp_features: Arc<LspFeatures>,
+    reload_lock: Arc<AsyncMutex<()>>,
+    reload_generation: Arc<AtomicU64>,
+    workspace_diagnostic_level: Arc<AtomicU8>,
+}
+
+fn spawn_workspace_reload_task(
+    handles: ReloadTaskHandles,
+    context: ServerContextSnapshot,
+    workspace_folders: Vec<WorkspaceFolder>,
+    emmyrc: Arc<Emmyrc>,
+) {
+    let generation = handles.reload_generation.fetch_add(1, Ordering::AcqRel) + 1;
+    tokio::spawn(async move {
+        let _reload_guard = handles.reload_lock.lock().await;
+        if generation != handles.reload_generation.load(Ordering::Acquire) {
+            return;
+        }
+
+        apply_workspace_reload(context, workspace_folders, emmyrc).await;
+        if generation != handles.reload_generation.load(Ordering::Acquire) {
+            return;
+        }
+
+        refresh_workspace_diagnostics(
+            handles.file_diagnostic,
+            handles.lsp_features,
+            handles.client,
+            handles.workspace_diagnostic_level,
+        )
+        .await;
+    });
+}
+
+async fn apply_workspace_reload(
+    context: ServerContextSnapshot,
+    workspace_folders: Vec<WorkspaceFolder>,
+    emmyrc: Arc<Emmyrc>,
+) {
+    let open_files = {
+        let mut workspace_manager = context.workspace_manager().write().await;
+        workspace_manager.update_match_state(emmyrc.as_ref());
+        workspace_manager.workspace_open_files_snapshot()
     };
 
-    static TEST_WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    struct TestWorkspace {
-        root: PathBuf,
+    {
+        let mut analysis = context.analysis().write().await;
+        analysis.clear_non_std_workspaces();
     }
 
-    impl TestWorkspace {
-        fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let counter = TEST_WORKSPACE_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let root = std::env::temp_dir().join(format!(
-                "emmylua-workspace-matcher-{}-{}-{}",
-                std::process::id(),
-                unique,
-                counter,
-            ));
-            fs::create_dir_all(&root).unwrap();
-            Self { root }
+    init_analysis(
+        context.analysis(),
+        context.status_bar(),
+        context.file_diagnostic(),
+        context.lsp_features(),
+        workspace_folders,
+        emmyrc,
+        open_files.files.clone(),
+    )
+    .await;
+    sync_reloaded_open_files(context.clone(), open_files).await;
+
+    register_files_watch(context).await;
+}
+
+async fn sync_reloaded_open_files(
+    context: ServerContextSnapshot,
+    mut applied_snapshot: OpenFilesSnapshot,
+) {
+    loop {
+        let snapshot_update = {
+            let workspace_manager = context.workspace_manager().read().await;
+            let next_snapshot = workspace_manager.workspace_open_files_snapshot();
+            if next_snapshot.version == applied_snapshot.version {
+                None
+            } else {
+                let next_open_uris = next_snapshot
+                    .files
+                    .iter()
+                    .map(|(uri, _)| uri.clone())
+                    .collect::<HashSet<_>>();
+                let removed_actions = applied_snapshot
+                    .files
+                    .iter()
+                    .filter_map(|(uri, _)| {
+                        if next_open_uris.contains(uri) {
+                            return None;
+                        }
+
+                        if workspace_manager.is_workspace_file(uri)
+                            && let Some(path) = uri_to_file_path(uri)
+                            && path.exists()
+                        {
+                            return Some(OpenFileSyncAction::RestoreFromDisk(uri.clone(), path));
+                        }
+
+                        Some(OpenFileSyncAction::Remove(uri.clone()))
+                    })
+                    .collect::<Vec<_>>();
+                Some((next_snapshot, removed_actions))
+            }
+        };
+        let Some((next_snapshot, removed_actions)) = snapshot_update else {
+            return;
+        };
+
+        let removed_uris = apply_open_file_sync(
+            context.analysis(),
+            next_snapshot.files.clone(),
+            removed_actions,
+        )
+        .await;
+        if !context.lsp_features().supports_pull_diagnostic() {
+            for uri in removed_uris {
+                context.file_diagnostic().clear_push_file_diagnostics(uri);
+            }
         }
 
-        fn write_file(&self, relative_path: &str) -> PathBuf {
-            let path = self.root.join(relative_path);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(&path, "return true\n").unwrap();
-            path
+        applied_snapshot = next_snapshot;
+    }
+}
+
+async fn apply_open_file_sync(
+    analysis: &RwLock<EmmyLuaAnalysis>,
+    current_open_files: Vec<(Uri, String)>,
+    removed_actions: Vec<OpenFileSyncAction>,
+) -> Vec<Uri> {
+    if current_open_files.is_empty() && removed_actions.is_empty() {
+        return Vec::new();
+    }
+
+    let mut analysis = analysis.write().await;
+    let encoding = analysis.get_emmyrc().workspace.encoding.clone();
+    let mut updates = current_open_files
+        .into_iter()
+        .map(|(uri, text)| (uri, Some(text)))
+        .collect::<Vec<_>>();
+    let mut removed_uris = Vec::new();
+
+    for action in removed_actions {
+        match action {
+            OpenFileSyncAction::RestoreFromDisk(uri, path) => {
+                if let Some(text) = read_file_with_encoding(&path, &encoding) {
+                    updates.push((uri, Some(text)));
+                } else {
+                    analysis.remove_file_by_uri(&uri);
+                    removed_uris.push(uri);
+                }
+            }
+            OpenFileSyncAction::Remove(uri) => {
+                analysis.remove_file_by_uri(&uri);
+                removed_uris.push(uri);
+            }
         }
-
-        fn path(&self, relative_path: &str) -> PathBuf {
-            self.root.join(relative_path)
-        }
     }
 
-    impl Drop for TestWorkspace {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.root);
-        }
+    if !updates.is_empty() {
+        analysis.update_files_by_uri(updates);
     }
 
-    fn to_string(path: &Path) -> String {
-        path.to_string_lossy().to_string()
-    }
-
-    fn json_string(value: &str) -> String {
-        serde_json::to_string(value).unwrap()
-    }
-
-    fn emmyrc_from_json(json: &str) -> Emmyrc {
-        serde_json::from_str(json).unwrap()
-    }
-
-    fn new_workspace_manager() -> WorkspaceManager {
-        let (server, _client) = Connection::memory();
-        let client = Arc::new(ClientProxy::new(server));
-        let analysis = Arc::new(RwLock::new(EmmyLuaAnalysis::new()));
-        let status_bar = Arc::new(StatusBar::new(client.clone()));
-        let file_diagnostic = Arc::new(FileDiagnostic::new(
-            analysis.clone(),
-            status_bar.clone(),
-            client.clone(),
-        ));
-        let lsp_features = Arc::new(LspFeatures::new(ClientCapabilities::default()));
-
-        WorkspaceManager::new(analysis, client, status_bar, file_diagnostic, lsp_features)
-    }
-
-    #[test]
-    fn nested_library_overrides_parent_ignore_dir() {
-        let workspace = TestWorkspace::new();
-        let library_root = workspace.path(".test-deps/runtime/lua/vim");
-        let library_file = workspace.write_file(".test-deps/runtime/lua/vim/shared.lua");
-        let workspaces = vec![
-            WorkspaceFolder::new(workspace.root.clone(), false),
-            WorkspaceFolder::new(library_root.clone(), true),
-        ];
-
-        let emmyrc = emmyrc_from_json(&format!(
-            r#"{{
-                "workspace": {{
-                    "ignoreDir": [{}],
-                    "library": [{}]
-                }}
-            }}"#,
-            json_string(&to_string(&workspace.path(".test-deps"))),
-            json_string(&to_string(&library_root)),
-        ));
-        let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
-
-        let matcher = WorkspaceFileMatcher::new(include, exclude, exclude_dir, &emmyrc);
-
-        assert!(matcher.is_match(&workspaces, &library_file));
-    }
-
-    #[test]
-    fn most_specific_workspace_can_still_exclude_a_library_file() {
-        let workspace = TestWorkspace::new();
-        let library_root = workspace.path(".test-deps/runtime/lua/vim");
-        let library_file = workspace.write_file(".test-deps/runtime/lua/vim/tests/spec.lua");
-        let workspaces = vec![
-            WorkspaceFolder::new(workspace.root.clone(), false),
-            WorkspaceFolder::new(library_root.clone(), true),
-        ];
-
-        let emmyrc = emmyrc_from_json(&format!(
-            r#"{{
-                "workspace": {{
-                    "ignoreDir": [{}],
-                    "library": [{{
-                        "path": {},
-                        "ignoreDir": [{}]
-                    }}]
-                }}
-            }}"#,
-            json_string(&to_string(&workspace.path(".test-deps"))),
-            json_string(&to_string(&library_root)),
-            json_string(&to_string(&library_root.join("tests"))),
-        ));
-        let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
-
-        let matcher = WorkspaceFileMatcher::new(include, exclude, exclude_dir, &emmyrc);
-
-        assert!(!matcher.is_match(&workspaces, &library_file));
-    }
-
-    #[test]
-    fn real_workspaces_remain_separate_from_match_workspaces() {
-        let workspace = TestWorkspace::new();
-        let library_root = workspace.path(".test-deps/runtime/lua/vim");
-        let mut manager = new_workspace_manager();
-
-        manager.workspace_folders = vec![WorkspaceFolder::new(workspace.root.clone(), false)];
-        manager.set_match_workspace_folders(vec![
-            WorkspaceFolder::new(workspace.root.clone(), false),
-            WorkspaceFolder::new(library_root.clone(), true),
-        ]);
-
-        assert_eq!(manager.workspace_folders.len(), 1);
-        assert_eq!(manager.workspace_folders[0].root, workspace.root);
-        assert!(!manager.workspace_folders[0].is_library);
-        assert_eq!(manager.file_match_workspaces().len(), 2);
-        assert!(
-            manager
-                .file_match_workspaces()
-                .iter()
-                .any(|workspace| workspace.root == library_root && workspace.is_library)
-        );
-    }
-
-    #[test]
-    fn global_ignore_globs_still_apply_to_library_files() {
-        let workspace = TestWorkspace::new();
-        let library_root = workspace.path(".test-deps/runtime/lua/vim");
-        let library_file = workspace.write_file(".test-deps/runtime/lua/vim/tests/spec.skip.lua");
-        let workspaces = vec![
-            WorkspaceFolder::new(workspace.root.clone(), false),
-            WorkspaceFolder::new(library_root.clone(), true),
-        ];
-
-        let emmyrc = emmyrc_from_json(&format!(
-            r#"{{
-                "workspace": {{
-                    "ignoreDir": [{}],
-                    "ignoreGlobs": ["**/*.skip.lua"],
-                    "library": [{}]
-                }}
-            }}"#,
-            json_string(&to_string(&workspace.path(".test-deps"))),
-            json_string(&to_string(&library_root)),
-        ));
-        let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
-
-        let matcher = WorkspaceFileMatcher::new(include, exclude, exclude_dir, &emmyrc);
-
-        assert!(!matcher.is_match(&workspaces, &library_file));
-    }
+    removed_uris
 }
 
 #[repr(u8)]
@@ -786,4 +593,216 @@ impl WorkspaceDiagnosticLevel {
     pub fn to_u8(self) -> u8 {
         self as u8
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceFileMatcher {
+    include: Vec<String>,
+    entries: Vec<WorkspaceMatchEntry>,
+    watch_roots: HashSet<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct WorkspaceMatchEntry {
+    root: PathBuf,
+    is_library: bool,
+    exclude: Vec<String>,
+    exclude_dir: Vec<PathBuf>,
+}
+
+impl WorkspaceFileMatcher {
+    pub fn new(workspace_folders: &[WorkspaceFolder], emmyrc: &Emmyrc) -> Self {
+        let (include, exclude, exclude_dir) =
+            emmylua_code_analysis::calculate_include_and_exclude(emmyrc);
+        let mut entries = build_workspace_folders(workspace_folders, emmyrc)
+            .into_iter()
+            .flat_map(|workspace| {
+                WorkspaceMatchEntry::from_workspace(workspace, &exclude, &exclude_dir, emmyrc)
+            })
+            .collect::<Vec<_>>();
+
+        add_child_workspace_excludes(&mut entries);
+        let watch_roots = entries.iter().map(|entry| entry.root.clone()).collect();
+        entries.sort_by_key(|entry| {
+            std::cmp::Reverse((entry.root.components().count(), entry.is_library))
+        });
+
+        Self {
+            include,
+            entries,
+            watch_roots,
+        }
+    }
+
+    pub fn is_match(&self, path: &std::path::Path) -> bool {
+        let include_set = match wax::any(self.include.iter().map(|s| s.as_str())) {
+            Ok(include_set) => include_set,
+            Err(_) => {
+                log::error!("Invalid include pattern");
+                return true;
+            }
+        };
+
+        for entry in &self.entries {
+            let Ok(relative_path) = path.strip_prefix(&entry.root) else {
+                continue;
+            };
+
+            if entry.exclude_dir.iter().any(|dir| path.starts_with(dir)) {
+                continue;
+            }
+
+            if !entry.exclude.is_empty() {
+                match wax::any(entry.exclude.iter().map(|s| s.as_str())) {
+                    Ok(exclude_set) if wax::Pattern::is_match(&exclude_set, relative_path) => {
+                        continue;
+                    }
+                    Ok(_) => {}
+                    Err(_) => log::error!("Invalid exclude pattern"),
+                }
+            }
+
+            if wax::Pattern::is_match(&include_set, relative_path) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn watch_roots(&self) -> HashSet<PathBuf> {
+        self.watch_roots.clone()
+    }
+
+    pub fn source_file_globs(&self) -> &[String] {
+        &self.include
+    }
+}
+
+impl WorkspaceMatchEntry {
+    fn from_workspace(
+        workspace: WorkspaceFolder,
+        exclude: &[String],
+        exclude_dir: &[PathBuf],
+        emmyrc: &Emmyrc,
+    ) -> Vec<Self> {
+        let is_library = workspace.is_library;
+        let override_parent_ignore_dir = workspace.override_parent_ignore_dir;
+        let mut exclude = exclude.to_vec();
+        let mut exclude_dir = if workspace.overrides_parent_ignore_dir() {
+            exclude_dir
+                .iter()
+                .filter(|dir| match &workspace.import {
+                    emmylua_code_analysis::WorkspaceImport::All => !workspace.root.starts_with(dir),
+                    emmylua_code_analysis::WorkspaceImport::SubPaths(paths) => !paths
+                        .iter()
+                        .map(|path| workspace.root.join(path))
+                        .any(|path| path.starts_with(dir)),
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            exclude_dir.to_vec()
+        };
+        if is_library {
+            let (library_exclude, library_exclude_dir) = find_library_exclude(&workspace, emmyrc);
+            exclude.extend(library_exclude);
+            exclude.sort();
+            exclude.dedup();
+
+            exclude_dir.extend(library_exclude_dir);
+            exclude_dir.sort();
+            exclude_dir.dedup();
+        }
+        let roots = match workspace.import {
+            emmylua_code_analysis::WorkspaceImport::All => vec![workspace.root],
+            emmylua_code_analysis::WorkspaceImport::SubPaths(paths) => paths
+                .into_iter()
+                .map(|path| workspace.root.join(path))
+                .collect(),
+        };
+
+        roots
+            .into_iter()
+            .map(|root| {
+                Self::new(
+                    root,
+                    is_library,
+                    override_parent_ignore_dir,
+                    &exclude,
+                    &exclude_dir,
+                )
+            })
+            .collect()
+    }
+
+    fn new(
+        root: PathBuf,
+        is_library: bool,
+        override_parent_ignore_dir: bool,
+        exclude: &[String],
+        exclude_dir: &[PathBuf],
+    ) -> Self {
+        let exclude_dir = if is_library || override_parent_ignore_dir {
+            exclude_dir
+                .iter()
+                .filter(|dir| !root.starts_with(dir))
+                .cloned()
+                .collect()
+        } else {
+            exclude_dir.to_vec()
+        };
+
+        Self {
+            root,
+            is_library,
+            exclude: exclude.to_vec(),
+            exclude_dir,
+        }
+    }
+}
+
+fn add_child_workspace_excludes(entries: &mut [WorkspaceMatchEntry]) {
+    let roots = entries
+        .iter()
+        .map(|entry| entry.root.clone())
+        .collect::<Vec<_>>();
+    for (idx, entry) in entries.iter_mut().enumerate() {
+        for (other_idx, root) in roots.iter().enumerate() {
+            if idx == other_idx {
+                continue;
+            }
+
+            if let Ok(relative) = root.strip_prefix(&entry.root)
+                && relative.components().count() > 0
+            {
+                entry.exclude_dir.push(root.clone());
+            }
+        }
+
+        entry.exclude_dir.sort();
+        entry.exclude_dir.dedup();
+    }
+}
+
+impl Default for WorkspaceFileMatcher {
+    fn default() -> Self {
+        Self {
+            include: vec!["**/*.lua".to_string()],
+            entries: Vec::new(),
+            watch_roots: HashSet::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct OpenFilesSnapshot {
+    version: u64,
+    files: Vec<(Uri, String)>,
+}
+
+#[derive(Debug, Clone)]
+enum OpenFileSyncAction {
+    RestoreFromDisk(Uri, PathBuf),
+    Remove(Uri),
 }

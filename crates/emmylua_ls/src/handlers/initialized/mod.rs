@@ -8,8 +8,8 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{
     cmd_args::CmdArgs,
     context::{
-        FileDiagnostic, LspFeatures, ProgressTask, ServerContextSnapshot, StatusBar,
-        WorkspaceFileMatcher, get_client_id, load_emmy_config,
+        FileDiagnostic, LspFeatures, ProgressTask, ServerContextSnapshot, StatusBar, get_client_id,
+        load_emmy_config,
     },
     handlers::{
         initialized::std_i18n::try_generate_translated_std, text_document::register_files_watch,
@@ -19,8 +19,8 @@ use crate::{
 pub use client_config::{ClientConfig, get_client_config};
 use codestyle::load_editorconfig;
 use emmylua_code_analysis::{
-    EmmyLuaAnalysis, Emmyrc, WorkspaceFolder, calculate_include_and_exclude,
-    collect_workspace_files, uri_to_file_path,
+    EmmyLuaAnalysis, Emmyrc, WorkspaceFolder, build_workspace_folders, collect_workspace_files,
+    uri_to_file_path,
 };
 use lsp_types::InitializeParams;
 use tokio::sync::RwLock;
@@ -59,7 +59,6 @@ pub async fn initialized_handler(
         log::info!("set workspace folders: {:?}", workspace_folders);
         let mut workspace_manager = context.workspace_manager().write().await;
         workspace_manager.workspace_folders = workspace_folders.clone();
-        workspace_manager.set_match_workspace_folders(workspace_folders.clone());
         log::info!("workspace folders set");
     }
 
@@ -82,13 +81,7 @@ pub async fn initialized_handler(
     {
         let mut workspace_manager = context.workspace_manager().write().await;
         workspace_manager.client_config = client_config.clone();
-        workspace_manager.set_match_workspace_folders(build_match_file_workspaces(
-            &workspace_folders,
-            emmyrc.as_ref(),
-        ));
-        let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
-        workspace_manager.match_file_pattern =
-            WorkspaceFileMatcher::new(include, exclude, exclude_dir, emmyrc.as_ref());
+        workspace_manager.update_match_state(emmyrc.as_ref());
         log::info!("workspace manager updated with client config and watch file patterns")
     }
 
@@ -99,44 +92,12 @@ pub async fn initialized_handler(
         context.lsp_features(),
         workspace_folders,
         emmyrc.clone(),
+        Vec::new(),
     )
     .await;
 
-    register_files_watch(context.clone(), &params.capabilities).await;
+    register_files_watch(context.clone()).await;
     Some(())
-}
-
-/// Builds the workspace list used by file matching, including configured
-/// libraries and package directories that are indexed as library roots.
-fn build_match_file_workspaces(
-    workspace_folders: &[WorkspaceFolder],
-    emmyrc: &Emmyrc,
-) -> Vec<WorkspaceFolder> {
-    let mut match_workspaces = workspace_folders.to_vec();
-
-    for lib in &emmyrc.workspace.library {
-        let lib_path = PathBuf::from(lib.get_path().clone());
-        match_workspaces.push(WorkspaceFolder::new(lib_path, true));
-    }
-
-    for package_dir in &emmyrc.workspace.package_dirs {
-        let package_path = PathBuf::from(package_dir);
-        if let Some(parent) = package_path.parent() {
-            if let Some(name) = package_path.file_name() {
-                match_workspaces.push(WorkspaceFolder::with_sub_paths(
-                    parent.to_path_buf(),
-                    vec![PathBuf::from(name)],
-                    true,
-                ));
-            } else {
-                log::warn!("package dir {:?} has no file name", package_path);
-            }
-        } else {
-            log::warn!("package dir {:?} has no parent", package_path);
-        }
-    }
-
-    match_workspaces
 }
 
 pub async fn init_analysis(
@@ -146,6 +107,7 @@ pub async fn init_analysis(
     lsp_features: &LspFeatures,
     workspace_folders: Vec<WorkspaceFolder>,
     emmyrc: Arc<Emmyrc>,
+    open_files: Vec<(lsp_types::Uri, String)>,
 ) {
     let mut mut_analysis = analysis.write().await;
 
@@ -165,46 +127,14 @@ pub async fn init_analysis(
         Some("Loading workspace files".to_string()),
     );
 
-    let mut workspace_folders = workspace_folders;
-    for workspace_root in &workspace_folders {
-        log::info!("add workspace root: {:?}", workspace_root.root);
-        mut_analysis.add_main_workspace(workspace_root.root.clone());
-    }
-
-    for workspace_root in &emmyrc.workspace.workspace_roots {
-        log::info!("add workspace root: {:?}", workspace_root);
-        let root_path = PathBuf::from(workspace_root);
-        mut_analysis.add_main_workspace(root_path.clone());
-    }
-
-    for lib in &emmyrc.workspace.library {
-        log::info!("add library: {:?}", lib);
-        let lib_path = PathBuf::from(lib.get_path().clone());
-        mut_analysis.add_library_workspace(lib_path.clone());
-        workspace_folders.push(WorkspaceFolder::new(lib_path, true));
-    }
-
-    for package_dir in &emmyrc.workspace.package_dirs {
-        let package_path = PathBuf::from(package_dir);
-        if let Some(parent) = package_path.parent() {
-            if let Some(name) = package_path.file_name() {
-                let parent_path = parent.to_path_buf();
-                log::info!(
-                    "add package dir {:?} with parent workspace {:?}",
-                    package_path,
-                    parent_path
-                );
-                mut_analysis.add_library_workspace(parent_path.clone());
-                workspace_folders.push(WorkspaceFolder::with_sub_paths(
-                    parent_path,
-                    vec![PathBuf::from(name)],
-                    true,
-                ));
-            } else {
-                log::warn!("package dir {:?} has no file name", package_path);
-            }
+    let workspace_folders = build_workspace_folders(&workspace_folders, emmyrc.as_ref());
+    for workspace in &workspace_folders {
+        if workspace.is_library {
+            log::info!("add library workspace: {:?}", workspace.root);
+            mut_analysis.add_library_workspace(workspace.root.clone());
         } else {
-            log::warn!("package dir {:?} has no parent", package_path);
+            log::info!("add workspace root: {:?}", workspace.root);
+            mut_analysis.add_main_workspace(workspace.root.clone());
         }
     }
 
@@ -225,9 +155,8 @@ pub async fn init_analysis(
             None,
             Some(format!("Indexing {} files", file_count)),
         );
-
-        mut_analysis.update_files_by_path(files);
     }
+    let removed_uris = mut_analysis.reload_workspace_files(files, open_files);
 
     status_bar.update_progress_task(
         ProgressTask::LoadWorkspace,
@@ -244,6 +173,12 @@ pub async fn init_analysis(
     }
 
     drop(mut_analysis);
+
+    if !lsp_features.supports_pull_diagnostic() {
+        for uri in removed_uris {
+            file_diagnostic.clear_push_file_diagnostics(uri);
+        }
+    }
 
     if !lsp_features.supports_workspace_diagnostic() {
         file_diagnostic

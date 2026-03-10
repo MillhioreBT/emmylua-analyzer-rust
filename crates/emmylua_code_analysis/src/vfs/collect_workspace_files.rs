@@ -33,8 +33,55 @@ impl WorkspaceFolder {
     }
 }
 
+pub fn build_workspace_folders(
+    workspace_folders: &[WorkspaceFolder],
+    emmyrc: &Emmyrc,
+) -> Vec<WorkspaceFolder> {
+    let mut resolved = workspace_folders.to_vec();
+
+    resolved.extend(
+        emmyrc
+            .workspace
+            .workspace_roots
+            .iter()
+            .map(|root| WorkspaceFolder::new(PathBuf::from(root), false)),
+    );
+    resolved.extend(
+        emmyrc
+            .workspace
+            .library
+            .iter()
+            .map(|library| WorkspaceFolder::new(PathBuf::from(library.get_path()), true)),
+    );
+    resolved.extend(
+        emmyrc
+            .workspace
+            .package_dirs
+            .iter()
+            .filter_map(|package_dir| {
+                let package_path = PathBuf::from(package_dir);
+                let Some(parent) = package_path.parent() else {
+                    log::warn!("package dir {:?} has no parent", package_path);
+                    return None;
+                };
+                let Some(name) = package_path.file_name() else {
+                    log::warn!("package dir {:?} has no file name", package_path);
+                    return None;
+                };
+
+                Some(WorkspaceFolder::with_sub_paths(
+                    parent.to_path_buf(),
+                    vec![PathBuf::from(name)],
+                    true,
+                ))
+            }),
+    );
+
+    resolved
+}
+
 pub fn collect_workspace_files(
-    workspaces: &Vec<WorkspaceFolder>,
+    workspaces: &[WorkspaceFolder],
     emmyrc: &Emmyrc,
     extra_include: Option<Vec<String>>,
     extra_exclude: Option<Vec<String>>,
@@ -65,11 +112,17 @@ pub fn collect_workspace_files(
 
     for (idx, workspace) in workspaces.iter().enumerate() {
         // Build exclude_dirs for this workspace by finding child workspaces
-        let mut workspace_exclude_dir = if workspace.is_library {
-            Vec::new()
-        } else {
-            exclude_dir.clone()
-        };
+        let mut workspace_exclude_dir = exclude_dir
+            .iter()
+            .filter(|dir| match &workspace.import {
+                WorkspaceImport::All => !workspace.root.starts_with(dir),
+                WorkspaceImport::SubPaths(paths) => !paths
+                    .iter()
+                    .map(|path| workspace.root.join(path))
+                    .any(|path| path.starts_with(dir)),
+            })
+            .cloned()
+            .collect();
 
         // Find all other workspaces that are children of current workspace
         for (other_idx, other_workspace) in workspaces.iter().enumerate() {
@@ -230,7 +283,10 @@ pub fn calculate_include_and_exclude(emmyrc: &Emmyrc) -> (Vec<String>, Vec<Strin
     (include, exclude, exclude_dirs)
 }
 
-fn find_library_exclude(library: &WorkspaceFolder, emmyrc: &Emmyrc) -> (Vec<String>, Vec<PathBuf>) {
+pub fn find_library_exclude(
+    library: &WorkspaceFolder,
+    emmyrc: &Emmyrc,
+) -> (Vec<String>, Vec<PathBuf>) {
     let mut exclude = Vec::new();
     let mut exclude_dirs = Vec::new();
 
@@ -338,7 +394,7 @@ mod tests {
         ));
 
         let files = collect_workspace_files(
-            &vec![
+            &[
                 WorkspaceFolder::new(workspace.root.clone(), false),
                 WorkspaceFolder::new(library_root.clone(), true),
             ],
@@ -377,7 +433,7 @@ mod tests {
         ));
 
         let files = collect_workspace_files(
-            &vec![
+            &[
                 WorkspaceFolder::new(workspace.root.clone(), false),
                 WorkspaceFolder::new(library_root.clone(), true),
             ],
@@ -412,7 +468,95 @@ mod tests {
         ));
 
         let files = collect_workspace_files(
-            &vec![
+            &[
+                WorkspaceFolder::new(workspace.root.clone(), false),
+                WorkspaceFolder::new(library_root.clone(), true),
+            ],
+            &emmyrc,
+            None,
+            None,
+        );
+
+        let loaded = loaded_paths(files);
+        assert!(loaded.contains(&kept_file));
+        assert!(!loaded.contains(&ignored_file));
+    }
+
+    #[test]
+    fn configured_workspace_root_is_indexed_even_when_parent_is_globally_ignored() {
+        let workspace = TestWorkspace::new();
+        let main_file = workspace.write_file("lua/main.lua");
+        let configured_root = workspace.path(".generated/runtime");
+        let configured_file = workspace.write_file(".generated/runtime/shared.lua");
+
+        let emmyrc = emmyrc_from_json(&format!(
+            r#"{{
+                "workspace": {{
+                    "ignoreDir": [{}],
+                    "workspaceRoots": [{}]
+                }}
+            }}"#,
+            json_string(&to_string(&workspace.path(".generated"))),
+            json_string(&to_string(&configured_root)),
+        ));
+
+        let workspace_folders = build_workspace_folders(
+            &[WorkspaceFolder::new(workspace.root.clone(), false)],
+            &emmyrc,
+        );
+        let files = collect_workspace_files(&workspace_folders, &emmyrc, None, None);
+
+        let loaded = loaded_paths(files);
+        assert!(loaded.contains(&main_file));
+        assert!(loaded.contains(&configured_file));
+    }
+
+    #[test]
+    fn workspace_root_is_indexed_even_when_parent_is_globally_ignored() {
+        let workspace = TestWorkspace::new();
+        let nested_root = workspace.path("packages/app");
+        let nested_file = workspace.write_file("packages/app/init.lua");
+
+        let emmyrc = emmyrc_from_json(&format!(
+            r#"{{
+                "workspace": {{
+                    "ignoreDir": [{}]
+                }}
+            }}"#,
+            json_string(&to_string(&workspace.path("packages"))),
+        ));
+
+        let files = collect_workspace_files(
+            &[WorkspaceFolder::new(nested_root.clone(), false)],
+            &emmyrc,
+            None,
+            None,
+        );
+
+        let loaded = loaded_paths(files);
+        assert!(loaded.contains(&nested_file));
+    }
+
+    #[test]
+    fn nested_global_ignore_dirs_still_apply_inside_library_roots() {
+        let workspace = TestWorkspace::new();
+        let library_root = workspace.path("libs/runtime/lua/vim");
+        let kept_file = workspace.write_file("libs/runtime/lua/vim/keep.lua");
+        let ignored_file = workspace.write_file("libs/runtime/lua/vim/tests/spec.lua");
+
+        let emmyrc = emmyrc_from_json(&format!(
+            r#"{{
+                "workspace": {{
+                    "ignoreDir": [{}],
+                    "library": [{}]
+                }}
+            }}"#,
+            json_string(&to_string(&library_root.join("tests"))),
+            json_string(&to_string(&library_root)),
+        ));
+
+        let files = collect_workspace_files(
+            &[
                 WorkspaceFolder::new(workspace.root.clone(), false),
                 WorkspaceFolder::new(library_root.clone(), true),
             ],
