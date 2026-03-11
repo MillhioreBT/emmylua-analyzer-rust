@@ -5,7 +5,7 @@ use lsp_types::{
     FileEvent, FileSystemWatcher, GlobPattern, Registration, RegistrationParams, WatchKind,
 };
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
-use std::{sync::mpsc::channel, time::Duration};
+use std::{collections::HashSet, sync::mpsc::channel, time::Duration};
 
 use crate::{
     context::{ClientProxy, ServerContextSnapshot},
@@ -93,9 +93,15 @@ async fn register_files_watch_use_fsnotify(context: ServerContextSnapshot) -> Op
     };
 
     let mut workspace_manager = context.workspace_manager().write().await;
-    for workspace in &workspace_manager.workspace_folders {
-        if let Err(e) = watcher.watch(&workspace.root, RecursiveMode::Recursive) {
-            warn!("can not watch {:?}: {:?}", workspace.root, e);
+    let roots: HashSet<_> = workspace_manager
+        .file_match_workspaces()
+        .iter()
+        .map(|workspace| workspace.root.clone())
+        .collect();
+
+    for root in roots {
+        if let Err(e) = watcher.watch(&root, RecursiveMode::Recursive) {
+            warn!("can not watch {:?}: {:?}", root, e);
             return None;
         }
     }

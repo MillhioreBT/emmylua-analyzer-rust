@@ -59,6 +59,7 @@ pub async fn initialized_handler(
         log::info!("set workspace folders: {:?}", workspace_folders);
         let mut workspace_manager = context.workspace_manager().write().await;
         workspace_manager.workspace_folders = workspace_folders.clone();
+        workspace_manager.set_match_workspace_folders(workspace_folders.clone());
         log::info!("workspace folders set");
     }
 
@@ -81,9 +82,13 @@ pub async fn initialized_handler(
     {
         let mut workspace_manager = context.workspace_manager().write().await;
         workspace_manager.client_config = client_config.clone();
+        workspace_manager.set_match_workspace_folders(build_match_file_workspaces(
+            &workspace_folders,
+            emmyrc.as_ref(),
+        ));
         let (include, exclude, exclude_dir) = calculate_include_and_exclude(&emmyrc);
         workspace_manager.match_file_pattern =
-            WorkspaceFileMatcher::new(include, exclude, exclude_dir);
+            WorkspaceFileMatcher::new(include, exclude, exclude_dir, emmyrc.as_ref());
         log::info!("workspace manager updated with client config and watch file patterns")
     }
 
@@ -99,6 +104,39 @@ pub async fn initialized_handler(
 
     register_files_watch(context.clone(), &params.capabilities).await;
     Some(())
+}
+
+/// Builds the workspace list used by file matching, including configured
+/// libraries and package directories that are indexed as library roots.
+fn build_match_file_workspaces(
+    workspace_folders: &[WorkspaceFolder],
+    emmyrc: &Emmyrc,
+) -> Vec<WorkspaceFolder> {
+    let mut match_workspaces = workspace_folders.to_vec();
+
+    for lib in &emmyrc.workspace.library {
+        let lib_path = PathBuf::from(lib.get_path().clone());
+        match_workspaces.push(WorkspaceFolder::new(lib_path, true));
+    }
+
+    for package_dir in &emmyrc.workspace.package_dirs {
+        let package_path = PathBuf::from(package_dir);
+        if let Some(parent) = package_path.parent() {
+            if let Some(name) = package_path.file_name() {
+                match_workspaces.push(WorkspaceFolder::with_sub_paths(
+                    parent.to_path_buf(),
+                    vec![PathBuf::from(name)],
+                    true,
+                ));
+            } else {
+                log::warn!("package dir {:?} has no file name", package_path);
+            }
+        } else {
+            log::warn!("package dir {:?} has no parent", package_path);
+        }
+    }
+
+    match_workspaces
 }
 
 pub async fn init_analysis(

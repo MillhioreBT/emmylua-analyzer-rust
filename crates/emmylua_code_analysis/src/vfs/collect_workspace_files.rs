@@ -65,7 +65,11 @@ pub fn collect_workspace_files(
 
     for (idx, workspace) in workspaces.iter().enumerate() {
         // Build exclude_dirs for this workspace by finding child workspaces
-        let mut workspace_exclude_dir = exclude_dir.clone();
+        let mut workspace_exclude_dir = if workspace.is_library {
+            Vec::new()
+        } else {
+            exclude_dir.clone()
+        };
 
         // Find all other workspaces that are children of current workspace
         for (other_idx, other_workspace) in workspaces.iter().enumerate() {
@@ -242,4 +246,183 @@ fn find_library_exclude(library: &WorkspaceFolder, emmyrc: &Emmyrc) -> (Vec<Stri
     }
 
     (exclude, exclude_dirs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Emmyrc;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static TEST_WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TestWorkspace {
+        root: PathBuf,
+    }
+
+    impl TestWorkspace {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let counter = TEST_WORKSPACE_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "emmylua-collect-workspace-files-{}-{}-{}",
+                std::process::id(),
+                unique,
+                counter,
+            ));
+            fs::create_dir_all(&root).unwrap();
+            Self { root }
+        }
+
+        fn write_file(&self, relative_path: &str) -> PathBuf {
+            let path = self.root.join(relative_path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, "return true\n").unwrap();
+            path
+        }
+
+        fn path(&self, relative_path: &str) -> PathBuf {
+            self.root.join(relative_path)
+        }
+    }
+
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn loaded_paths(files: Vec<LuaFileInfo>) -> HashSet<PathBuf> {
+        files
+            .into_iter()
+            .map(|file| PathBuf::from(file.path))
+            .collect()
+    }
+
+    fn to_string(path: &Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+
+    fn json_string(value: &str) -> String {
+        serde_json::to_string(value).unwrap()
+    }
+
+    fn emmyrc_from_json(json: &str) -> Emmyrc {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn library_is_indexed_even_when_root_is_globally_ignored() {
+        let workspace = TestWorkspace::new();
+        let main_file = workspace.write_file("lua/main.lua");
+        let library_root = workspace.path(".test-deps/runtime/lua/vim");
+        let library_file = workspace.write_file(".test-deps/runtime/lua/vim/shared.lua");
+
+        let emmyrc = emmyrc_from_json(&format!(
+            r#"{{
+                "workspace": {{
+                    "ignoreDir": [{}],
+                    "library": [{}]
+                }}
+            }}"#,
+            json_string(&to_string(&workspace.path(".test-deps"))),
+            json_string(&to_string(&library_root)),
+        ));
+
+        let files = collect_workspace_files(
+            &vec![
+                WorkspaceFolder::new(workspace.root.clone(), false),
+                WorkspaceFolder::new(library_root.clone(), true),
+            ],
+            &emmyrc,
+            None,
+            None,
+        );
+
+        let loaded = loaded_paths(files);
+        assert!(loaded.contains(&main_file));
+        assert!(loaded.contains(&library_file));
+    }
+
+    #[test]
+    fn library_specific_ignores_still_apply() {
+        let workspace = TestWorkspace::new();
+        let library_root = workspace.path(".test-deps/runtime/lua/vim");
+        let kept_file = workspace.write_file(".test-deps/runtime/lua/vim/keep.lua");
+        let ignored_dir_file = workspace.write_file(".test-deps/runtime/lua/vim/tests/spec.lua");
+        let ignored_glob_file = workspace.write_file(".test-deps/runtime/lua/vim/async.spec.lua");
+
+        let emmyrc = emmyrc_from_json(&format!(
+            r#"{{
+                "workspace": {{
+                    "ignoreDir": [{}],
+                    "library": [{{
+                        "path": {},
+                        "ignoreDir": [{}],
+                        "ignoreGlobs": ["**/*.spec.lua"]
+                    }}]
+                }}
+            }}"#,
+            json_string(&to_string(&workspace.path(".test-deps"))),
+            json_string(&to_string(&library_root)),
+            json_string(&to_string(&library_root.join("tests"))),
+        ));
+
+        let files = collect_workspace_files(
+            &vec![
+                WorkspaceFolder::new(workspace.root.clone(), false),
+                WorkspaceFolder::new(library_root.clone(), true),
+            ],
+            &emmyrc,
+            None,
+            None,
+        );
+
+        let loaded = loaded_paths(files);
+        assert!(loaded.contains(&kept_file));
+        assert!(!loaded.contains(&ignored_dir_file));
+        assert!(!loaded.contains(&ignored_glob_file));
+    }
+
+    #[test]
+    fn global_ignore_globs_still_apply_to_libraries() {
+        let workspace = TestWorkspace::new();
+        let library_root = workspace.path(".test-deps/runtime/lua/vim");
+        let kept_file = workspace.write_file(".test-deps/runtime/lua/vim/keep.lua");
+        let ignored_file = workspace.write_file(".test-deps/runtime/lua/vim/tests/spec.skip.lua");
+
+        let emmyrc = emmyrc_from_json(&format!(
+            r#"{{
+                "workspace": {{
+                    "ignoreDir": [{}],
+                    "ignoreGlobs": ["**/*.skip.lua"],
+                    "library": [{}]
+                }}
+            }}"#,
+            json_string(&to_string(&workspace.path(".test-deps"))),
+            json_string(&to_string(&library_root)),
+        ));
+
+        let files = collect_workspace_files(
+            &vec![
+                WorkspaceFolder::new(workspace.root.clone(), false),
+                WorkspaceFolder::new(library_root.clone(), true),
+            ],
+            &emmyrc,
+            None,
+            None,
+        );
+
+        let loaded = loaded_paths(files);
+        assert!(loaded.contains(&kept_file));
+        assert!(!loaded.contains(&ignored_file));
+    }
 }
