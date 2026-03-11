@@ -80,164 +80,52 @@ pub fn build_workspace_folders(
     resolved
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkspaceFileMatcher {
+    include: Vec<String>,
+    entries: Vec<WorkspaceMatchEntry>,
+    watch_roots: HashSet<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct WorkspaceMatchEntry {
+    root: PathBuf,
+    is_library: bool,
+    exclude: Vec<String>,
+    exclude_dir: Vec<PathBuf>,
+}
+
 pub fn collect_workspace_files(
     workspaces: &[WorkspaceFolder],
     emmyrc: &Emmyrc,
     extra_include: Option<Vec<String>>,
     extra_exclude: Option<Vec<String>>,
 ) -> Vec<LuaFileInfo> {
+    let matcher = build_workspace_file_matcher(workspaces, emmyrc, extra_include, extra_exclude);
+    let encoding = &emmyrc.workspace.encoding;
     let mut files = Vec::new();
     let mut loaded_paths = HashSet::new(); // Track loaded file paths to avoid duplicates
-    let (mut match_pattern, mut exclude, exclude_dir) = calculate_include_and_exclude(emmyrc);
-    if let Some(extra_include) = extra_include {
-        match_pattern.extend_from_slice(&extra_include);
-        match_pattern.sort();
-        match_pattern.dedup();
-    }
-    if let Some(extra_exclude) = extra_exclude {
-        exclude.extend_from_slice(&extra_exclude);
-        exclude.sort();
-        exclude.dedup();
-    }
-
-    let encoding = &emmyrc.workspace.encoding;
 
     log::info!(
-        "collect_files from: {:?} match_pattern: {:?} exclude: {:?}, exclude_dir: {:?}",
+        "collect_files from: {:?} match_pattern: {:?}, entries: {:?}",
         workspaces,
-        match_pattern,
-        exclude,
-        exclude_dir
+        matcher.source_file_globs(),
+        matcher.entries
     );
 
-    for (idx, workspace) in workspaces.iter().enumerate() {
-        // Build exclude_dirs for this workspace by finding child workspaces
-        let mut workspace_exclude_dir = exclude_dir
-            .iter()
-            .filter(|dir| match &workspace.import {
-                WorkspaceImport::All => !workspace.root.starts_with(dir),
-                WorkspaceImport::SubPaths(paths) => !paths
-                    .iter()
-                    .map(|path| workspace.root.join(path))
-                    .any(|path| path.starts_with(dir)),
-            })
-            .cloned()
-            .collect();
-
-        // Find all other workspaces that are children of current workspace
-        for (other_idx, other_workspace) in workspaces.iter().enumerate() {
-            if idx != other_idx {
-                // Check if other_workspace is a child of current workspace
-                if let Ok(relative) = other_workspace.root.strip_prefix(&workspace.root) {
-                    if relative.components().count() > 0 {
-                        // other_workspace is a child, add it to exclude_dir
-                        workspace_exclude_dir.push(other_workspace.root.clone());
-                        log::debug!(
-                            "Excluding child workspace {:?} from parent {:?}",
-                            other_workspace.root,
-                            workspace.root
-                        );
-                    }
-                }
-            }
-        }
-
-        match &workspace.import {
-            WorkspaceImport::All => {
-                let loaded = if workspace.is_library {
-                    let (lib_exclude, lib_exclude_dir) = find_library_exclude(workspace, emmyrc);
-                    // Merge library exclude with workspace exclude
-                    let mut merged_exclude = exclude.clone();
-                    merged_exclude.extend(lib_exclude);
-                    merged_exclude.sort();
-                    merged_exclude.dedup();
-
-                    let mut merged_exclude_dir = workspace_exclude_dir.clone();
-                    merged_exclude_dir.extend(lib_exclude_dir);
-
-                    load_workspace_files(
-                        &workspace.root,
-                        &match_pattern,
-                        &merged_exclude,
-                        &merged_exclude_dir,
-                        Some(encoding),
-                    )
-                    .ok()
-                } else {
-                    load_workspace_files(
-                        &workspace.root,
-                        &match_pattern,
-                        &exclude,
-                        &workspace_exclude_dir,
-                        Some(encoding),
-                    )
-                    .ok()
-                };
-                if let Some(loaded) = loaded {
-                    for file in loaded {
-                        // Normalize path and check for duplicates
-                        let normalized_path = PathBuf::from(&file.path)
-                            .canonicalize()
-                            .unwrap_or_else(|_| PathBuf::from(&file.path));
-
-                        if loaded_paths.insert(normalized_path) {
-                            files.push(file);
-                        } else {
-                            log::debug!("Skipping duplicate file: {:?}", file.path);
-                        }
-                    }
-                }
-            }
-            WorkspaceImport::SubPaths(paths) => {
-                for sub in paths {
-                    let target = workspace.root.join(sub);
-                    let loaded = if workspace.is_library {
-                        let (lib_exclude, lib_exclude_dir) =
-                            find_library_exclude(workspace, emmyrc);
-                        // Merge library exclude with workspace exclude
-                        let mut merged_exclude = exclude.clone();
-                        merged_exclude.extend(lib_exclude);
-                        merged_exclude.sort();
-                        merged_exclude.dedup();
-
-                        let mut merged_exclude_dir = workspace_exclude_dir.clone();
-                        merged_exclude_dir.extend(lib_exclude_dir);
-
-                        load_workspace_files(
-                            &target,
-                            &match_pattern,
-                            &merged_exclude,
-                            &merged_exclude_dir,
-                            Some(encoding),
-                        )
-                        .ok()
-                    } else {
-                        load_workspace_files(
-                            &target,
-                            &match_pattern,
-                            &exclude,
-                            &workspace_exclude_dir,
-                            Some(encoding),
-                        )
-                        .ok()
-                    };
-                    if let Some(loaded) = loaded {
-                        for file in loaded {
-                            // Normalize path and check for duplicates
-                            let normalized_path = PathBuf::from(&file.path)
-                                .canonicalize()
-                                .unwrap_or_else(|_| PathBuf::from(&file.path));
-
-                            if loaded_paths.insert(normalized_path) {
-                                files.push(file);
-                            } else {
-                                log::debug!("Skipping duplicate file: {:?}", file.path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    for entry in &matcher.entries {
+        extend_loaded_files(
+            &mut files,
+            &mut loaded_paths,
+            load_workspace_files(
+                &entry.root,
+                matcher.source_file_globs(),
+                &entry.exclude,
+                &entry.exclude_dir,
+                Some(encoding),
+            )
+            .ok(),
+        );
     }
 
     log::info!("load files from workspace count: {:?}", files.len());
@@ -302,6 +190,212 @@ pub fn find_library_exclude(
     }
 
     (exclude, exclude_dirs)
+}
+
+fn build_workspace_file_matcher(
+    workspace_folders: &[WorkspaceFolder],
+    emmyrc: &Emmyrc,
+    extra_include: Option<Vec<String>>,
+    extra_exclude: Option<Vec<String>>,
+) -> WorkspaceFileMatcher {
+    let (include, mut entries) =
+        build_workspace_matcher_parts(workspace_folders, emmyrc, extra_include, extra_exclude);
+    let watch_roots = entries.iter().map(|entry| entry.root.clone()).collect();
+    entries.sort_by_key(|entry| {
+        std::cmp::Reverse((entry.root.components().count(), entry.is_library))
+    });
+
+    WorkspaceFileMatcher {
+        include,
+        entries,
+        watch_roots,
+    }
+}
+
+fn build_workspace_matcher_parts(
+    workspace_folders: &[WorkspaceFolder],
+    emmyrc: &Emmyrc,
+    extra_include: Option<Vec<String>>,
+    extra_exclude: Option<Vec<String>>,
+) -> (Vec<String>, Vec<WorkspaceMatchEntry>) {
+    let (mut include, mut exclude, exclude_dir) = calculate_include_and_exclude(emmyrc);
+    if let Some(extra_include) = extra_include {
+        include.extend(extra_include);
+        include.sort();
+        include.dedup();
+    }
+    if let Some(extra_exclude) = extra_exclude {
+        exclude.extend(extra_exclude);
+        exclude.sort();
+        exclude.dedup();
+    }
+
+    let mut entries = workspace_folders
+        .iter()
+        .cloned()
+        .flat_map(|workspace| {
+            WorkspaceMatchEntry::from_workspace(workspace, &exclude, &exclude_dir, emmyrc)
+        })
+        .collect::<Vec<_>>();
+    add_child_workspace_excludes(&mut entries);
+
+    (include, entries)
+}
+
+impl WorkspaceFileMatcher {
+    pub fn new(workspace_folders: &[WorkspaceFolder], emmyrc: &Emmyrc) -> Self {
+        let workspace_folders = build_workspace_folders(workspace_folders, emmyrc);
+        build_workspace_file_matcher(&workspace_folders, emmyrc, None, None)
+    }
+
+    pub fn is_match(&self, path: &std::path::Path) -> bool {
+        let include_set = match wax::any(self.include.iter().map(|s| s.as_str())) {
+            Ok(include_set) => include_set,
+            Err(_) => {
+                log::error!("Invalid include pattern");
+                return true;
+            }
+        };
+
+        for entry in &self.entries {
+            let Ok(relative_path) = path.strip_prefix(&entry.root) else {
+                continue;
+            };
+
+            if entry.exclude_dir.iter().any(|dir| path.starts_with(dir)) {
+                continue;
+            }
+
+            if !entry.exclude.is_empty() {
+                match wax::any(entry.exclude.iter().map(|s| s.as_str())) {
+                    Ok(exclude_set) if wax::Pattern::is_match(&exclude_set, relative_path) => {
+                        continue;
+                    }
+                    Ok(_) => {}
+                    Err(_) => log::error!("Invalid exclude pattern"),
+                }
+            }
+
+            if wax::Pattern::is_match(&include_set, relative_path) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn watch_roots(&self) -> HashSet<PathBuf> {
+        self.watch_roots.clone()
+    }
+
+    pub fn source_file_globs(&self) -> &[String] {
+        &self.include
+    }
+}
+
+impl WorkspaceMatchEntry {
+    fn from_workspace(
+        workspace: WorkspaceFolder,
+        exclude: &[String],
+        exclude_dir: &[PathBuf],
+        emmyrc: &Emmyrc,
+    ) -> Vec<Self> {
+        let is_library = workspace.is_library;
+        let mut exclude = exclude.to_vec();
+        let mut exclude_dir = exclude_dir.to_vec();
+        if is_library {
+            let (library_exclude, library_exclude_dir) = find_library_exclude(&workspace, emmyrc);
+            exclude.extend(library_exclude);
+            exclude.sort();
+            exclude.dedup();
+
+            exclude_dir.extend(library_exclude_dir);
+            exclude_dir.sort();
+            exclude_dir.dedup();
+        }
+        let roots = match workspace.import {
+            WorkspaceImport::All => vec![workspace.root],
+            WorkspaceImport::SubPaths(paths) => paths
+                .into_iter()
+                .map(|path| workspace.root.join(path))
+                .collect(),
+        };
+
+        roots
+            .into_iter()
+            .map(|root| Self::new(root, is_library, &exclude, &exclude_dir))
+            .collect()
+    }
+
+    fn new(root: PathBuf, is_library: bool, exclude: &[String], exclude_dir: &[PathBuf]) -> Self {
+        let exclude_dir = exclude_dir
+            .iter()
+            .filter(|dir| !root.starts_with(dir))
+            .cloned()
+            .collect();
+
+        Self {
+            root,
+            is_library,
+            exclude: exclude.to_vec(),
+            exclude_dir,
+        }
+    }
+}
+
+fn add_child_workspace_excludes(entries: &mut [WorkspaceMatchEntry]) {
+    let roots = entries
+        .iter()
+        .map(|entry| entry.root.clone())
+        .collect::<Vec<_>>();
+    for (idx, entry) in entries.iter_mut().enumerate() {
+        for (other_idx, root) in roots.iter().enumerate() {
+            if idx == other_idx {
+                continue;
+            }
+
+            if let Ok(relative) = root.strip_prefix(&entry.root)
+                && relative.components().count() > 0
+            {
+                entry.exclude_dir.push(root.clone());
+            }
+        }
+
+        entry.exclude_dir.sort();
+        entry.exclude_dir.dedup();
+    }
+}
+
+fn extend_loaded_files(
+    files: &mut Vec<LuaFileInfo>,
+    loaded_paths: &mut HashSet<PathBuf>,
+    loaded: Option<Vec<LuaFileInfo>>,
+) {
+    let Some(loaded) = loaded else {
+        return;
+    };
+
+    for file in loaded {
+        let normalized_path = PathBuf::from(&file.path)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(&file.path));
+
+        if loaded_paths.insert(normalized_path) {
+            files.push(file);
+        } else {
+            log::debug!("Skipping duplicate file: {:?}", file.path);
+        }
+    }
+}
+
+impl Default for WorkspaceFileMatcher {
+    fn default() -> Self {
+        Self {
+            include: vec!["**/*.lua".to_string()],
+            entries: Vec::new(),
+            watch_roots: HashSet::new(),
+        }
+    }
 }
 
 #[cfg(test)]

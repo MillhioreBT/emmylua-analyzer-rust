@@ -13,10 +13,10 @@ use std::{
 };
 
 use crate::{
-    context::{ClientProxy, ServerContextSnapshot, WorkspaceFileMatcher},
+    context::{ClientProxy, ServerContextSnapshot},
     handlers::text_document::on_did_change_watched_files,
 };
-use emmylua_code_analysis::WorkspaceFolder;
+use emmylua_code_analysis::{WorkspaceFileMatcher, WorkspaceFolder};
 
 const WATCH_FILES_REGISTRATION_ID: &str = "emmylua_watch_files";
 const WATCHED_CONFIG_GLOBS: [&str; 4] = [
