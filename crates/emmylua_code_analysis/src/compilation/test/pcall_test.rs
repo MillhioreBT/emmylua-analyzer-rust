@@ -62,7 +62,7 @@ mod test {
         );
 
         assert_eq!(ws.expr_ty("status"), ws.ty("true|false|string"));
-        assert_eq!(ws.expr_ty("payload"), ws.ty("string|integer"));
+        assert_eq!(ws.expr_ty("payload"), ws.ty("string|integer|nil"));
     }
 
     #[test]

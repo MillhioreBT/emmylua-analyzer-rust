@@ -27,7 +27,7 @@ mod test {
 
         assert_eq!(ws.expr_ty("ok"), ws.ty("false|true"));
         assert_eq!(ws.expr_ty("status"), ws.ty("false|string|true"));
-        assert_eq!(ws.expr_ty("payload"), ws.ty("integer|string"));
+        assert_eq!(ws.expr_ty("payload"), ws.ty("integer|string|nil"));
     }
 
     #[test]
@@ -56,8 +56,35 @@ mod test {
 
         assert_eq!(ws.expr_ty("ok"), ws.ty("false|true"));
         assert_eq!(ws.expr_ty("first"), ws.ty("integer|string"));
-        assert_eq!(ws.expr_ty("second"), ws.ty("string"));
-        assert_eq!(ws.expr_ty("third"), ws.ty("boolean"));
+        assert_eq!(ws.expr_ty("second"), ws.ty("string|nil"));
+        assert_eq!(ws.expr_ty("third"), ws.ty("boolean|nil"));
+    }
+
+    #[test]
+    fn test_return_overload_variadic_tpl_tail_pads_missing_slots_with_nil() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@generic T, R
+            ---@param f fun(...: T...): R...
+            ---@param ... T...
+            ---@return_overload true, R...
+            ---@return_overload false, string
+            local function wrap(f, ...)
+                return true, f(...)
+            end
+
+            ---@param n integer
+            ---@return integer, string, boolean
+            local function produce(n)
+                return n, tostring(n), n > 0
+            end
+
+            ok, first, second, third = wrap(produce, 1)
+            "#,
+        );
+
+        assert_eq!(ws.expr_ty("third"), ws.ty("boolean|nil"));
     }
 
     #[test]

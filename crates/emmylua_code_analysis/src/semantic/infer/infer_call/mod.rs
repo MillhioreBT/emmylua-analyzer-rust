@@ -641,15 +641,12 @@ pub(crate) fn unwrapp_return_type(
             return Ok(return_type);
         }
 
-        LuaType::Variadic(variadic) => {
+        ty if ty.contain_multi_return() => {
             if is_last_call_expr(&call_expr) {
-                return Ok(return_type);
+                return Ok(ty.clone());
             }
 
-            return match variadic.get_type(0) {
-                Some(ty) => Ok(ty.clone()),
-                None => Ok(LuaType::Nil),
-            };
+            return Ok(ty.get_result_slot_type(0).unwrap_or(LuaType::Nil));
         }
         LuaType::SelfInfer => {
             if let Some(self_type) = infer_self_type(db, cache, &call_expr) {

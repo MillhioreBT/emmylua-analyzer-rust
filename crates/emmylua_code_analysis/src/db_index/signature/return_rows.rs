@@ -86,12 +86,7 @@ fn rows_to_return_type(rows: &[&[LuaType]]) -> LuaType {
     } else {
         base_max_len
     };
-    let fill_missing_with_nil = |idx: usize| {
-        idx < base_max_len
-            || (idx >= base_max_len
-                && has_unbounded_variadic_tail
-                && !has_tpl_unbounded_variadic_tail)
-    };
+    let fill_missing_with_nil = |idx: usize| idx < base_max_len || has_unbounded_variadic_tail;
 
     let mut types = Vec::with_capacity(max_len);
     for idx in 0..max_len {
@@ -141,12 +136,7 @@ fn merge_return_rows(left_row: &[LuaType], right_row: &[LuaType]) -> LuaType {
     } else {
         base_max_len
     };
-    let fill_missing_with_nil = |idx: usize| {
-        idx < base_max_len
-            || (idx >= base_max_len
-                && has_unbounded_variadic_tail
-                && !has_tpl_unbounded_variadic_tail)
-    };
+    let fill_missing_with_nil = |idx: usize| idx < base_max_len || has_unbounded_variadic_tail;
 
     let mut types = Vec::with_capacity(max_len);
     for idx in 0..max_len {
