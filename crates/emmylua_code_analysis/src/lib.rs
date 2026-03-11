@@ -300,15 +300,18 @@ impl EmmyLuaAnalysis {
                     }
                 }
             } else {
-                let result = reqwest::get(url.as_str()).await;
-                if let Ok(response) = result {
-                    if let Ok(content) = response.text().await {
-                        url_contents.insert(url.clone(), content);
+                #[cfg(feature = "reqwest")]
+                {
+                    let result = reqwest::get(url.as_str()).await;
+                    if let Ok(response) = result {
+                        if let Ok(content) = response.text().await {
+                            url_contents.insert(url.clone(), content);
+                        } else {
+                            log::error!("Failed to read schema content from URL: {:?}", url);
+                        }
                     } else {
-                        log::error!("Failed to read schema content from URL: {:?}", url);
+                        log::error!("Failed to fetch schema from URL: {:?}", url);
                     }
-                } else {
-                    log::error!("Failed to fetch schema from URL: {:?}", url);
                 }
             }
         }
@@ -319,7 +322,6 @@ impl EmmyLuaAnalysis {
 
         let converter = SchemaConverter::new(true);
         for (url, json_content) in url_contents {
-            // let short_name = get_schema_short_name(&url);
             match converter.convert_from_str(&json_content) {
                 Ok(convert_result) => {
                     let uri = match Uri::from_str(url.as_str()) {

@@ -62,7 +62,7 @@ reqwest = { version = "0.13.1", default-features = false, features = [
   "charset",
   "system-proxy",
   "native-tls-vendored",
-] }
+]}
 
 # Lint configuration for the entire workspace
 [workspace.lints.clippy]
