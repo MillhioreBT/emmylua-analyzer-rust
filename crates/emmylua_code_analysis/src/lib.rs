@@ -109,6 +109,13 @@ impl EmmyLuaAnalysis {
         module_index.add_workspace_root(root, id);
     }
 
+    pub fn clear_non_std_workspaces(&mut self) {
+        self.compilation
+            .get_db_mut()
+            .get_module_index_mut()
+            .clear_non_std_workspaces();
+    }
+
     pub fn update_file_by_uri(&mut self, uri: &Uri, text: Option<String>) -> Option<FileId> {
         let is_removed = text.is_none();
         let file_id = self
@@ -218,6 +225,50 @@ impl EmmyLuaAnalysis {
             })
             .collect();
         self.update_files_by_uri(files)
+    }
+
+    pub fn reload_workspace_files(
+        &mut self,
+        files: Vec<(PathBuf, Option<String>)>,
+        open_files: Vec<(Uri, String)>,
+    ) -> Vec<Uri> {
+        let open_paths: HashSet<_> = open_files
+            .iter()
+            .filter_map(|(uri, _)| uri_to_file_path(uri))
+            .collect();
+        let mut kept_paths = open_paths.clone();
+        kept_paths.extend(files.iter().map(|(path, _)| path.clone()));
+
+        let stale_uris = {
+            let db = self.compilation.get_db();
+            let vfs = db.get_vfs();
+            let module_index = db.get_module_index();
+            vfs.get_all_local_file_ids()
+                .into_iter()
+                .filter(|file_id| !module_index.is_std(file_id))
+                .filter_map(|file_id| vfs.get_file_path(&file_id).cloned())
+                .filter(|path| !kept_paths.contains(path))
+                .filter_map(|path| file_path_to_uri(&path))
+                .collect::<Vec<_>>()
+        };
+        for uri in &stale_uris {
+            self.remove_file_by_uri(uri);
+        }
+
+        self.update_files_by_path(
+            files
+                .into_iter()
+                .filter(|(path, _)| !open_paths.contains(path))
+                .collect(),
+        );
+        self.update_files_by_uri(
+            open_files
+                .into_iter()
+                .map(|(uri, text)| (uri, Some(text)))
+                .collect(),
+        );
+        self.reindex();
+        stale_uris
     }
 
     pub fn update_config(&mut self, config: Arc<Emmyrc>) {
