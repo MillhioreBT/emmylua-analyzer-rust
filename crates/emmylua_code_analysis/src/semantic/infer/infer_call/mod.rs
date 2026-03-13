@@ -9,8 +9,8 @@ use super::{
 };
 use crate::{
     CacheEntry, DbIndex, InFiled, LuaFunctionType, LuaGenericType, LuaInstanceType,
-    LuaOperatorMetaMethod, LuaOperatorOwner, LuaSignature, LuaSignatureId, LuaType, LuaTypeDeclId,
-    LuaUnionType, TypeVisitTrait,
+    LuaIntersectionType, LuaOperatorMetaMethod, LuaOperatorOwner, LuaSignature, LuaSignatureId,
+    LuaType, LuaTypeDeclId, LuaUnionType, TypeVisitTrait,
 };
 use crate::{
     InferGuardRef,
@@ -86,6 +86,14 @@ pub fn infer_call_expr_func(
             cache,
             call_expr.clone(),
             &call_expr_type,
+            infer_guard,
+            args_count,
+        ),
+        LuaType::Intersection(intersection) => infer_intersection(
+            db,
+            cache,
+            intersection,
+            call_expr.clone(),
             infer_guard,
             args_count,
         ),
@@ -545,6 +553,48 @@ fn infer_union(
         return Err(InferFailReason::None);
     }
     resolve_signature(db, cache, all_overloads, call_expr, false, args_count)
+}
+
+fn infer_intersection(
+    db: &DbIndex,
+    cache: &mut LuaInferCache,
+    intersection: &LuaIntersectionType,
+    call_expr: LuaCallExpr,
+    infer_guard: &InferGuardRef,
+    args_count: Option<usize>,
+) -> InferCallFuncResult {
+    let mut overloads = Vec::new();
+    let mut need_resolve = None;
+
+    for ty in intersection.get_types() {
+        match infer_call_expr_func(
+            db,
+            cache,
+            call_expr.clone(),
+            ty.clone(),
+            infer_guard,
+            args_count,
+        ) {
+            Ok(func) => overloads.push(func),
+            Err(InferFailReason::RecursiveInfer) => return Err(InferFailReason::RecursiveInfer),
+            Err(reason) if reason.is_need_resolve() => {
+                if need_resolve.is_none() {
+                    need_resolve = Some(reason);
+                }
+            }
+            Err(_) => {}
+        }
+    }
+
+    if overloads.is_empty() {
+        return Err(need_resolve.unwrap_or(InferFailReason::None));
+    }
+
+    if overloads.len() == 1 {
+        return Ok(overloads.pop().expect("single callable member"));
+    }
+
+    resolve_signature(db, cache, overloads, call_expr, false, args_count)
 }
 
 pub(crate) fn unwrapp_return_type(
