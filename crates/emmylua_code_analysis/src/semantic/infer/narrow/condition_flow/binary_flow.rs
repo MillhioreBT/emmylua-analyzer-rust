@@ -1,5 +1,5 @@
 use emmylua_parser::{
-    BinaryOperator, LuaAstNode, LuaBinaryExpr, LuaCallExpr, LuaChunk, LuaExpr, LuaIndexMemberExpr,
+    BinaryOperator, LuaAstNode, LuaBinaryExpr, LuaChunk, LuaExpr, LuaIndexMemberExpr,
     LuaLiteralToken, UnaryOperator,
 };
 
@@ -236,78 +236,47 @@ fn maybe_type_guard_binary(
     right_expr: LuaExpr,
     condition_flow: InferConditionFlow,
 ) -> Result<ResultTypeOrContinue, InferFailReason> {
-    let mut type_guard_expr: Option<LuaCallExpr> = None;
-    let mut literal_string = String::new();
-    if let LuaExpr::CallExpr(call_expr) = left_expr {
-        if call_expr.is_type() {
-            type_guard_expr = Some(call_expr);
-            if let LuaExpr::LiteralExpr(literal_expr) = right_expr {
-                match literal_expr.get_literal() {
-                    Some(LuaLiteralToken::String(s)) => {
-                        literal_string = s.get_value();
-                    }
-                    _ => return Ok(ResultTypeOrContinue::Continue),
-                }
-            }
+    let (candidate_expr, literal_expr) = match (left_expr, right_expr) {
+        // If either side is a literal expression and the other side is a type guard call expression
+        // (or ref), we can narrow it
+        (candidate_expr, LuaExpr::LiteralExpr(literal_expr))
+        | (LuaExpr::LiteralExpr(literal_expr), candidate_expr) => {
+            (Some(candidate_expr), Some(literal_expr))
         }
-    } else if let LuaExpr::CallExpr(call_expr) = right_expr {
-        if call_expr.is_type() {
-            type_guard_expr = Some(call_expr);
-            if let LuaExpr::LiteralExpr(literal_expr) = left_expr {
-                match literal_expr.get_literal() {
-                    Some(LuaLiteralToken::String(s)) => {
-                        literal_string = s.get_value();
-                    }
-                    _ => return Ok(ResultTypeOrContinue::Continue),
-                }
-            }
-        }
+        _ => (None, None),
+    };
+
+    let (Some(candidate_expr), Some(LuaLiteralToken::String(literal_string))) =
+        (candidate_expr, literal_expr.and_then(|e| e.get_literal()))
+    else {
+        return Ok(ResultTypeOrContinue::Continue);
+    };
+
+    let candidate_expr = match candidate_expr {
         // may ref a type value
-    } else if let LuaExpr::NameExpr(name_expr) = left_expr
-        && let LuaExpr::LiteralExpr(literal_expr) = right_expr
-    {
-        let Some(decl_id) = db
+        LuaExpr::NameExpr(name_expr) => db
             .get_reference_index()
             .get_var_reference_decl(&cache.get_file_id(), name_expr.get_range())
-        else {
-            return Ok(ResultTypeOrContinue::Continue);
-        };
-
-        let Some(expr_ptr) = tree.get_decl_ref_expr(&decl_id) else {
-            return Ok(ResultTypeOrContinue::Continue);
-        };
-
-        let Some(expr) = expr_ptr.to_node(root) else {
-            return Ok(ResultTypeOrContinue::Continue);
-        };
-
-        if let LuaExpr::CallExpr(call_expr) = expr {
-            if call_expr.is_type() {
-                type_guard_expr = Some(call_expr);
-                match literal_expr.get_literal() {
-                    Some(LuaLiteralToken::String(s)) => {
-                        literal_string = s.get_value();
-                    }
-                    _ => return Ok(ResultTypeOrContinue::Continue),
-                }
-            }
-        } else {
-            return Ok(ResultTypeOrContinue::Continue);
-        }
-    }
-
-    let Some(type_guard_expr) = type_guard_expr else {
-        return Ok(ResultTypeOrContinue::Continue);
+            .and_then(|decl_id| tree.get_decl_ref_expr(&decl_id))
+            .and_then(|expr_ptr| expr_ptr.to_node(root)),
+        expr => Some(expr),
     };
-    if literal_string.is_empty() {
-        return Ok(ResultTypeOrContinue::Continue);
-    }
 
-    let Some(arg_list) = type_guard_expr.get_args_list() else {
+    let Some(type_guard_expr) = candidate_expr.and_then(|expr| match expr {
+        LuaExpr::CallExpr(call_expr) if call_expr.is_type() => Some(call_expr),
+        _ => None,
+    }) else {
         return Ok(ResultTypeOrContinue::Continue);
     };
 
-    let Some(arg) = arg_list.get_args().next() else {
+    let Some(narrow) = type_call_name_to_type(&literal_string.get_value()) else {
+        return Ok(ResultTypeOrContinue::Continue);
+    };
+
+    let Some(arg) = type_guard_expr
+        .get_args_list()
+        .and_then(|arg_list| arg_list.get_args().next())
+    else {
         return Ok(ResultTypeOrContinue::Continue);
     };
 
@@ -316,14 +285,39 @@ fn maybe_type_guard_binary(
         return Ok(ResultTypeOrContinue::Continue);
     };
 
-    if maybe_var_ref_id != *var_ref_id {
-        return Ok(ResultTypeOrContinue::Continue);
+    let antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
+    let antecedent_type =
+        get_type_at_flow(db, tree, cache, root, &maybe_var_ref_id, antecedent_flow_id)?;
+    let narrowed_discriminant_type = match condition_flow {
+        InferConditionFlow::TrueCondition => {
+            narrow_down_type(db, antecedent_type, narrow.clone(), None).unwrap_or(narrow)
+        }
+        InferConditionFlow::FalseCondition => TypeOps::Remove.apply(db, &antecedent_type, &narrow),
+    };
+
+    if maybe_var_ref_id == *var_ref_id {
+        Ok(ResultTypeOrContinue::Result(narrowed_discriminant_type))
+    } else {
+        let Some(discriminant_decl_id) = maybe_var_ref_id.get_decl_id_ref() else {
+            return Ok(ResultTypeOrContinue::Continue);
+        };
+        narrow_var_from_return_overload_condition(
+            db,
+            tree,
+            cache,
+            root,
+            var_ref_id,
+            flow_node,
+            discriminant_decl_id,
+            type_guard_expr.get_position(),
+            &narrowed_discriminant_type,
+        )
     }
+}
 
-    let anatecedent_flow_id = get_single_antecedent(tree, flow_node)?;
-    let antecedent_type = get_type_at_flow(db, tree, cache, root, var_ref_id, anatecedent_flow_id)?;
-
-    let narrow = match literal_string.as_str() {
+/// Maps the string result of Lua's builtin `type()` call to the corresponding `LuaType`.
+fn type_call_name_to_type(literal_string: &str) -> Option<LuaType> {
+    Some(match literal_string {
         "number" => LuaType::Number,
         "string" => LuaType::String,
         "boolean" => LuaType::Boolean,
@@ -332,20 +326,30 @@ fn maybe_type_guard_binary(
         "thread" => LuaType::Thread,
         "userdata" => LuaType::Userdata,
         "nil" => LuaType::Nil,
-        _ => {
-            // If the type is not recognized, we cannot narrow it
-            return Ok(ResultTypeOrContinue::Continue);
-        }
-    };
+        _ => return None,
+    })
+}
 
-    let result_type = match condition_flow {
+fn narrow_eq_condition(
+    db: &DbIndex,
+    antecedent_type: LuaType,
+    right_expr_type: LuaType,
+    condition_flow: InferConditionFlow,
+) -> LuaType {
+    match condition_flow {
         InferConditionFlow::TrueCondition => {
-            narrow_down_type(db, antecedent_type.clone(), narrow.clone(), None).unwrap_or(narrow)
-        }
-        InferConditionFlow::FalseCondition => TypeOps::Remove.apply(db, &antecedent_type, &narrow),
-    };
+            let left_maybe_type = TypeOps::Intersect.apply(db, &antecedent_type, &right_expr_type);
 
-    Ok(ResultTypeOrContinue::Result(result_type))
+            if left_maybe_type.is_never() {
+                antecedent_type
+            } else {
+                left_maybe_type
+            }
+        }
+        InferConditionFlow::FalseCondition => {
+            TypeOps::Remove.apply(db, &antecedent_type, &right_expr_type)
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -369,11 +373,17 @@ fn maybe_var_eq_narrow(
                 return Ok(ResultTypeOrContinue::Continue);
             };
 
+            let antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
+            let right_expr_type = infer_expr(db, cache, right_expr)?;
+
             if maybe_ref_id != *var_ref_id {
                 let Some(discriminant_decl_id) = maybe_ref_id.get_decl_id_ref() else {
                     return Ok(ResultTypeOrContinue::Continue);
                 };
-                let right_expr_type = infer_expr(db, cache, right_expr)?;
+                let antecedent_type =
+                    get_type_at_flow(db, tree, cache, root, &maybe_ref_id, antecedent_flow_id)?;
+                let narrowed_discriminant_type =
+                    narrow_eq_condition(db, antecedent_type, right_expr_type, condition_flow);
                 return narrow_var_from_return_overload_condition(
                     db,
                     tree,
@@ -383,15 +393,12 @@ fn maybe_var_eq_narrow(
                     flow_node,
                     discriminant_decl_id,
                     left_name_expr.get_position(),
-                    Some(&right_expr_type),
-                    condition_flow,
+                    &narrowed_discriminant_type,
                 );
             }
 
-            let antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
             let left_type =
                 get_type_at_flow(db, tree, cache, root, var_ref_id, antecedent_flow_id)?;
-            let right_expr_type = infer_expr(db, cache, right_expr)?;
 
             let result_type = match condition_flow {
                 InferConditionFlow::TrueCondition => {
@@ -399,14 +406,7 @@ fn maybe_var_eq_narrow(
                     if var_ref_id.is_self_ref() && !right_expr_type.is_nil() {
                         TypeOps::Remove.apply(db, &right_expr_type, &LuaType::Nil)
                     } else {
-                        let left_maybe_type =
-                            TypeOps::Intersect.apply(db, &left_type, &right_expr_type);
-
-                        if left_maybe_type.is_never() {
-                            left_type
-                        } else {
-                            left_maybe_type
-                        }
+                        narrow_eq_condition(db, left_type, right_expr_type, condition_flow)
                     }
                 }
                 InferConditionFlow::FalseCondition => {

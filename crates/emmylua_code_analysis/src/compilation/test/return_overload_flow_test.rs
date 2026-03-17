@@ -110,6 +110,106 @@ mod test {
     }
 
     #[test]
+    fn test_return_overload_narrow_with_type_guard_broad_discriminant() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            ---@param ok boolean
+            ---@return string|integer
+            ---@return string|boolean
+            ---@return_overload string, string
+            ---@return_overload integer, boolean
+            local function pick(ok)
+                if ok then
+                    return "ok", "value"
+                end
+                return 1, false
+            end
+
+            local cond ---@type boolean
+            local tag, result = pick(cond)
+
+            if type(tag) == "string" then
+                string_branch = result
+            else
+                integer_branch = result
+            end
+            "#,
+        );
+
+        assert_eq!(ws.expr_ty("string_branch"), ws.ty("string"));
+        assert_eq!(ws.expr_ty("integer_branch"), ws.ty("boolean"));
+    }
+
+    #[test]
+    fn test_return_overload_narrow_with_swapped_type_guard_alias() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            ---@param ok boolean
+            ---@return string|integer
+            ---@return string|boolean
+            ---@return_overload string, string
+            ---@return_overload integer, boolean
+            local function pick(ok)
+                if ok then
+                    return "ok", "value"
+                end
+                return 1, false
+            end
+
+            local cond ---@type boolean
+            local tag, result = pick(cond)
+            local kind = type(tag)
+
+            if "string" == kind then
+                string_branch = result
+            else
+                integer_branch = result
+            end
+            "#,
+        );
+
+        assert_eq!(ws.expr_ty("string_branch"), ws.ty("string"));
+        assert_eq!(ws.expr_ty("integer_branch"), ws.ty("boolean"));
+    }
+
+    #[test]
+    fn test_return_overload_narrow_with_type_guard_number_matches_integer_row() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+            ---@param ok boolean
+            ---@return integer|string
+            ---@return integer|boolean
+            ---@return_overload integer, boolean
+            ---@return_overload string, integer
+            local function pick(ok)
+                if ok then
+                    return 1, false
+                end
+                return "err", 2
+            end
+
+            local cond ---@type boolean
+            local tag, result = pick(cond)
+
+            if type(tag) == "number" then
+                number_branch = result
+            else
+                string_branch = result
+            end
+            "#,
+        );
+
+        assert_eq!(ws.expr_ty("number_branch"), ws.ty("boolean"));
+        assert_eq!(ws.expr_ty("string_branch"), ws.ty("integer"));
+    }
+
+    #[test]
     fn test_return_overload_narrow_with_mixed_rhs_calls() {
         let mut ws = VirtualWorkspace::new();
 

@@ -190,6 +190,19 @@ fn get_type_at_name_ref(
     else {
         return Ok(ResultTypeOrContinue::Continue);
     };
+    let antecedent_flow_id = get_single_antecedent(tree, flow_node)?;
+    let antecedent_discriminant_type = get_type_at_flow(
+        db,
+        tree,
+        cache,
+        root,
+        &VarRefId::VarRef(decl_id),
+        antecedent_flow_id,
+    )?;
+    let narrowed_discriminant_type = match condition_flow {
+        InferConditionFlow::FalseCondition => narrow_false_or_nil(db, antecedent_discriminant_type),
+        InferConditionFlow::TrueCondition => remove_false_or_nil(antecedent_discriminant_type),
+    };
 
     if let ResultTypeOrContinue::Result(result_type) = narrow_var_from_return_overload_condition(
         db,
@@ -200,8 +213,7 @@ fn get_type_at_name_ref(
         flow_node,
         decl_id,
         name_expr.get_position(),
-        None,
-        condition_flow,
+        &narrowed_discriminant_type,
     )? {
         return Ok(ResultTypeOrContinue::Result(result_type));
     }

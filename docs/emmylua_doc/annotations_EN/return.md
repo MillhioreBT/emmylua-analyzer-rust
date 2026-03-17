@@ -183,7 +183,8 @@ end
 This is useful for status/result APIs (for example `pcall`-style code).
 
 When multiple local variables are assigned from the same call, condition checks on one return slot
-(truthy/falsy checks or literal equality checks) narrow correlated slots from the same row.
+(truthy/falsy checks, literal equality checks, or `type()` guards) narrow correlated slots from
+the same row.
 
 ```lua
 ---@generic T, E
