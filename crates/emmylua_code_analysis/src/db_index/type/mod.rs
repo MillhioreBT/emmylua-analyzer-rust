@@ -1,3 +1,4 @@
+mod basic_union;
 mod generic_param;
 mod humanize_type;
 mod test;
@@ -9,6 +10,7 @@ mod types;
 
 use super::traits::LuaIndex;
 use crate::{DbIndex, FileId, InFiled, db_index::r#type::type_decl::LuaTypeIdentifier};
+pub use basic_union::{BasicTypeKind, BasicTypeUnion};
 pub use generic_param::GenericParam;
 pub use humanize_type::{RenderLevel, TypeHumanizer, format_union_type, humanize_type};
 use std::collections::{HashMap, HashSet};

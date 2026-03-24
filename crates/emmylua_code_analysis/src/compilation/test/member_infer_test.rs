@@ -124,7 +124,9 @@ mod test {
         );
 
         let ty = ws.expr_ty("A");
-        assert_eq!(ws.humanize_type(ty), "(number|string)");
+        let expected =
+            LuaType::Union(LuaUnionType::from_vec(vec![LuaType::String, LuaType::Number]).into());
+        assert_eq!(ty, expected);
     }
 
     #[test]

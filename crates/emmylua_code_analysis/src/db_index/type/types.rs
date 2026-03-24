@@ -11,7 +11,13 @@ use smol_str::SmolStr;
 
 use crate::{
     AsyncState, DbIndex, FileId, InFiled, SemanticModel,
-    db_index::{LuaMemberKey, LuaSignatureId, r#type::type_visit_trait::TypeVisitTrait},
+    db_index::{
+        LuaMemberKey, LuaSignatureId,
+        r#type::{
+            basic_union::{BasicTypeKind, BasicTypeUnion},
+            type_visit_trait::TypeVisitTrait,
+        },
+    },
     first_param_may_not_self,
 };
 
@@ -904,6 +910,7 @@ impl From<LuaObjectType> for LuaType {
 }
 #[derive(Debug, Clone, Eq)]
 pub enum LuaUnionType {
+    Basic(BasicTypeUnion),
     Nullable(LuaType),
     Multi(Vec<LuaType>),
 }
@@ -914,6 +921,7 @@ impl TypeVisitTrait for LuaUnionType {
         F: FnMut(&LuaType),
     {
         match self {
+            LuaUnionType::Basic(basic) => basic.visit_type(f),
             LuaUnionType::Nullable(ty) => ty.visit_type(f),
             LuaUnionType::Multi(types) => {
                 for ty in types {
@@ -926,6 +934,21 @@ impl TypeVisitTrait for LuaUnionType {
 
 impl LuaUnionType {
     pub fn from_set(mut set: HashSet<LuaType>) -> Self {
+        let mut all_basic = true;
+        let mut basic_type = BasicTypeUnion::new();
+        for ty in &set {
+            if let Some(basic_kind) = BasicTypeKind::from_type(ty) {
+                basic_type.add(basic_kind);
+            } else {
+                all_basic = false;
+                break;
+            }
+        }
+
+        if all_basic {
+            return Self::Basic(basic_type);
+        }
+
         if set.len() == 2 && set.contains(&LuaType::Nil) {
             set.remove(&LuaType::Nil);
             if let Some(first) = set.iter().next() {
@@ -938,6 +961,21 @@ impl LuaUnionType {
     }
 
     pub fn from_vec(types: Vec<LuaType>) -> Self {
+        let mut all_basic = true;
+        let mut basic_type = BasicTypeUnion::new();
+        for ty in &types {
+            if let Some(basic_kind) = BasicTypeKind::from_type(ty) {
+                basic_type.add(basic_kind);
+            } else {
+                all_basic = false;
+                break;
+            }
+        }
+
+        if all_basic {
+            return Self::Basic(basic_type);
+        }
+
         if types.len() == 2 {
             if types.contains(&LuaType::Nil) {
                 let non_nil_type = types.iter().find(|t| !matches!(t, LuaType::Nil));
@@ -953,6 +991,7 @@ impl LuaUnionType {
 
     pub fn into_vec(&self) -> Vec<LuaType> {
         match self {
+            LuaUnionType::Basic(basic) => basic.iter().collect(),
             LuaUnionType::Nullable(ty) => vec![ty.clone(), LuaType::Nil],
             LuaUnionType::Multi(types) => types.clone(),
         }
@@ -961,6 +1000,7 @@ impl LuaUnionType {
     #[allow(unused, clippy::wrong_self_convention)]
     pub(crate) fn into_set(&self) -> HashSet<LuaType> {
         match self {
+            LuaUnionType::Basic(basic) => basic.iter().collect(),
             LuaUnionType::Nullable(ty) => {
                 let mut set = HashSet::new();
                 set.insert(ty.clone());
@@ -973,6 +1013,7 @@ impl LuaUnionType {
 
     pub fn contain_tpl(&self) -> bool {
         match self {
+            LuaUnionType::Basic(_) => false,
             LuaUnionType::Nullable(ty) => ty.contain_tpl(),
             LuaUnionType::Multi(types) => types.iter().any(|t| t.contain_tpl()),
         }
@@ -980,6 +1021,7 @@ impl LuaUnionType {
 
     pub fn is_nullable(&self) -> bool {
         match self {
+            LuaUnionType::Basic(basic) => basic.contains(BasicTypeKind::Nil),
             LuaUnionType::Nullable(_) => true,
             LuaUnionType::Multi(types) => types.iter().any(|t| t.is_nullable()),
         }
@@ -987,6 +1029,7 @@ impl LuaUnionType {
 
     pub fn is_optional(&self) -> bool {
         match self {
+            LuaUnionType::Basic(basic) => basic.contains(BasicTypeKind::Nil),
             LuaUnionType::Nullable(_) => true,
             LuaUnionType::Multi(types) => types.iter().any(|t| t.is_optional()),
         }
@@ -994,6 +1037,7 @@ impl LuaUnionType {
 
     pub fn is_always_truthy(&self) -> bool {
         match self {
+            LuaUnionType::Basic(basic) => basic.iter().all(|t| t.is_always_truthy()),
             LuaUnionType::Nullable(_) => false,
             LuaUnionType::Multi(types) => types.iter().all(|t| t.is_always_truthy()),
         }
@@ -1001,6 +1045,7 @@ impl LuaUnionType {
 
     pub fn is_always_falsy(&self) -> bool {
         match self {
+            LuaUnionType::Basic(basic) => basic.iter().all(|t| t.is_always_falsy()),
             LuaUnionType::Nullable(f) => f.is_always_falsy(),
             LuaUnionType::Multi(types) => types.iter().all(|t| t.is_always_falsy()),
         }
@@ -1016,6 +1061,7 @@ impl From<LuaUnionType> for LuaType {
 impl PartialEq for LuaUnionType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (LuaUnionType::Basic(a), LuaUnionType::Basic(b)) => a == b,
             (LuaUnionType::Nullable(a), LuaUnionType::Nullable(b)) => a == b,
             (LuaUnionType::Multi(a), LuaUnionType::Multi(b)) => {
                 if a.len() != b.len() {
