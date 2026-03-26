@@ -301,7 +301,7 @@ mod test {
     }
 
     #[test]
-    fn test_object_constraint_with_class_ref() {
+    fn test_object_constraint_with_class_duck_typing() {
         let mut ws = VirtualWorkspace::new();
         // A @class whose inferred Def type (e.g. from `return self`) should satisfy
         // an object constraint via structural duck typing, same as Ref types do.
