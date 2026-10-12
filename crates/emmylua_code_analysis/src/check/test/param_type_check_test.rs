@@ -5,6 +5,7 @@ mod test {
     use lsp_types::{Diagnostic, NumberOrString};
     use tokio_util::sync::CancellationToken;
 
+    use crate::check::test::check_source;
     use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
@@ -57,6 +58,59 @@ mod test {
             vec![Some(NumberOrString::String("param-type-mismatch".into())); 2],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn test_tuple_argument_accepts_valid_elements() {
+        for (target, value) in [
+            ("[integer, integer]", "{1, 2}"),
+            ("[integer, integer]?", "{1, 2}"),
+            ("Pair", "{1, 2}"),
+            ("Pair?", "{1, 2}"),
+            ("Pair?", "nil"),
+            ("[integer, integer?]", "{1}"),
+            ("[integer, integer?]", "{1, 2}"),
+            ("[integer, integer|string]", "{1, \"text\"}"),
+            ("Pair", "{1, 2, 3}"),
+        ] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@alias Pair [integer, integer]
+                ---@param pair {target}
+                local function use_pair(pair) return pair end
+                use_pair({value})
+                "#,
+            ));
+            assert!(diagnostics.is_empty(), "{target}, {value}: {diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn test_tuple_argument_rejects_invalid_elements() {
+        for (target, value) in [
+            ("[integer, integer]", "{1, \"bad\"}"),
+            ("[integer, integer]?", "{1, \"bad\"}"),
+            ("Pair", "{1, \"bad\"}"),
+            ("Pair?", "{1, \"bad\"}"),
+            ("[integer, integer?]", "{1, \"bad\"}"),
+            ("[integer, integer|boolean]", "{1, \"bad\"}"),
+            ("Pair", "{1}"),
+            ("Pair | [string, string] | boolean", "{1, \"bad\"}"),
+        ] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@alias Pair [integer, integer]
+                ---@param pair {target}
+                local function use_pair(pair) return pair end
+                use_pair({value})
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                vec![DiagnosticCode::ParamTypeMismatch],
+                "{target}, {value}: {diagnostics:?}"
+            );
+        }
     }
 
     fn param_type_diagnostics(ws: &mut VirtualWorkspace, block_str: &str) -> Vec<Diagnostic> {
@@ -2031,7 +2085,7 @@ mod test {
     /// crashing input: no panic, and the missing named argument is still reported.
     #[test]
     fn test_variadic_slot_beyond_args_full_check_pipeline() {
-        let diagnostics = crate::check::test::check_source(
+        let diagnostics = check_source(
             r#"
                 ---@param a string
                 ---@param b string
