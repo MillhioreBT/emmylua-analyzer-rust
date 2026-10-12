@@ -24,7 +24,9 @@ use rowan::TextSize;
 use ExprCastMode::{All, AsOnly};
 
 use crate::semantic_db::def::{SemanticId, Signature};
-use crate::semantic_db::flow::{FlowAntecedent, FlowEffect, FlowId, FlowNodeKind, FlowTree};
+use crate::semantic_db::flow::{
+    FlowAntecedent, FlowEffect, FlowId, FlowNodeKind, FlowTree, LuaClosureId,
+};
 use crate::{
     FileId, GenericTplId, LuaArrayLen, LuaArrayType, LuaMemberKey, LuaTupleStatus, LuaTupleType,
     LuaType, LuaUnionType, TypeDef, TypeDefKind, TypeScope, VariadicType,
@@ -566,13 +568,17 @@ pub fn type_of_expr_at(
                         return apply_expr_casts(model, expr_syntax, prefix_member_ty, All);
                     }
                 }
+                let member_ty =
+                    guarded_index_type(model, index_expr, offset, &member_ty).unwrap_or(member_ty);
                 return apply_expr_casts(model, expr_syntax, member_ty, AsOnly);
             }
             // Inside a `#d == n` branch, `d[1]` no longer carries nil when the array length is known.
             if let Some(known_ty) = array_index_with_known_len(model, &index_expr, offset) {
                 return apply_expr_casts(model, expr_syntax, known_ty, All);
             }
-            apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax), All)
+            let ty = model.type_of_expr(expr_syntax);
+            let ty = guarded_index_type(model, index_expr, offset, &ty).unwrap_or(ty);
+            apply_expr_casts(model, expr_syntax, ty, All)
         }
         LuaExpr::CallExpr(_) | LuaExpr::TableExpr(_) | LuaExpr::LiteralExpr(_) => {
             apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax), All)
@@ -627,6 +633,169 @@ pub fn type_of_expr_at(
             apply_expr_casts(model, expr_syntax, result, All)
         }
         _ => type_of_expr_with_cast(model, expr_syntax, AsOnly),
+    }
+}
+
+/// A declaration and literal keys identify an access independently of member declarations.
+/// Dynamic keys are wildcards for writes, but cannot establish a guard.
+fn index_access_path(
+    model: &SemanticModel,
+    expr: &LuaExpr,
+) -> Option<(SemanticId, Vec<LuaMemberKey>)> {
+    let mut expr = expr.clone();
+    let mut keys = Vec::new();
+    loop {
+        match expr {
+            LuaExpr::NameExpr(name) => {
+                keys.reverse();
+                return Some((model.resolve_name(name.get_position())?, keys));
+            }
+            LuaExpr::ParenExpr(paren) => expr = paren.get_expr()?,
+            LuaExpr::IndexExpr(index) => {
+                keys.push(match index.get_index_key()? {
+                    emmylua_parser::LuaIndexKey::Integer(num) => match num.get_number_value() {
+                        emmylua_parser::NumberResult::Int(i) => LuaMemberKey::Integer(i),
+                        // Other numeric spellings can address the same slot (e.g. 1.0 and 1).
+                        _ => LuaMemberKey::None,
+                    },
+                    emmylua_parser::LuaIndexKey::Idx(i) => LuaMemberKey::Integer(i as i64),
+                    emmylua_parser::LuaIndexKey::Expr(_) => LuaMemberKey::None,
+                    _ => member_key_from_index_expr(model, &index)?,
+                });
+                expr = index.get_prefix_expr()?;
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// Require a non-nil guard on every incoming path, with no intervening direct write.
+fn guarded_index_type(
+    model: &SemanticModel,
+    index: &emmylua_parser::LuaIndexExpr,
+    offset: TextSize,
+    ty: &LuaType,
+) -> Option<LuaType> {
+    // TODO(#600): Replace this walk with shared flow queries for access paths.
+    // Array elements can lack the member IDs required by the current flow engine.
+    let ty = if ty.is_unknown() {
+        // A self-referential element assignment can hide its pre-assignment type.
+        let prefix = index.get_prefix_expr()?;
+        let LuaType::Array(array) = model.type_of_expr(prefix.get_syntax_id()) else {
+            return None;
+        };
+        array.get_base().clone()
+    } else if ty.is_nullable() {
+        ty.clone()
+    } else {
+        return None;
+    };
+    let target = index_access_path(model, &LuaExpr::IndexExpr(index.clone()))?;
+    let closure = LuaClosureId::from_node(index.syntax());
+    if target.1.iter().any(LuaMemberKey::is_none) {
+        return None;
+    }
+    let tree = model.flow_tree()?;
+    if !tree.has_condition() {
+        return None;
+    }
+    let mut pending = vec![tree.get_flow_id_at(offset)?];
+    let mut visited = HashSet::new();
+    let mut narrowing = Narrowing::Truthy;
+    while let Some(current) = pending.pop() {
+        if !visited.insert(current) {
+            continue;
+        }
+        let node = tree.get_flow_node(current)?;
+        match &node.kind {
+            FlowNodeKind::Assignment(ptr) if !ptr.get_syntax_id().get_range().contains(offset) => {
+                let assign = flow_assign_stat(model, &tree, current)?;
+                for var in assign.get_var_and_expr_list().0 {
+                    if let Some(written) = LuaExpr::cast(var.syntax().clone())
+                        .and_then(|expr| index_access_path(model, &expr))
+                        && written.0 == target.0
+                        && written.1.len() <= target.1.len()
+                        && written
+                            .1
+                            .iter()
+                            .zip(&target.1)
+                            .all(|(a, b)| a.is_none() || a == b)
+                    {
+                        return None;
+                    }
+                }
+            }
+            FlowNodeKind::TrueCondition(ptr) | FlowNodeKind::FalseCondition(ptr) => {
+                let cond = flow_condition_expr(model, ptr)?;
+                // A nested function can run after the guarded value changes.
+                if LuaClosureId::from_node(cond.syntax()) != closure {
+                    return None;
+                }
+                if let Some(guard) = narrow_index_condition(
+                    model,
+                    &target,
+                    cond,
+                    matches!(node.kind, FlowNodeKind::TrueCondition(_)),
+                ) {
+                    if matches!(guard, Narrowing::NotNil) {
+                        narrowing = guard;
+                    }
+                    continue;
+                }
+            }
+            FlowNodeKind::Start | FlowNodeKind::LoopLabel | FlowNodeKind::NamedLabel(_) => {
+                return None;
+            }
+            FlowNodeKind::Unreachable => continue,
+            _ => {}
+        }
+        match node.antecedent.as_ref()? {
+            FlowAntecedent::Single(next) => pending.push(*next),
+            FlowAntecedent::Multiple(id) => pending.extend(tree.get_multi_antecedents(*id)?),
+        }
+    }
+    Some(apply_narrowing(model, ty, &narrowing))
+}
+
+/// Match truthiness and direct nil comparisons without treating a non-nil boolean as a guard.
+fn narrow_index_condition(
+    model: &SemanticModel,
+    target: &(SemanticId, Vec<LuaMemberKey>),
+    mut cond: LuaExpr,
+    mut branch_is_true: bool,
+) -> Option<Narrowing> {
+    loop {
+        match &cond {
+            LuaExpr::ParenExpr(paren) => cond = paren.get_expr()?,
+            LuaExpr::UnaryExpr(unary) if unary.get_op_token()?.get_op() == UnaryOperator::OpNot => {
+                branch_is_true = !branch_is_true;
+                cond = unary.get_expr()?;
+            }
+            LuaExpr::BinaryExpr(binary) => {
+                let op = binary.get_op_token()?.get_op();
+                if !matches!(op, BinaryOperator::OpEq | BinaryOperator::OpNe)
+                    || branch_is_true != (op == BinaryOperator::OpNe)
+                {
+                    return None;
+                }
+                let (left, right) = binary.get_exprs()?;
+                let value = match (left, right) {
+                    (value, LuaExpr::LiteralExpr(lit)) | (LuaExpr::LiteralExpr(lit), value)
+                        if literal_type(&lit) == Some(LuaType::Nil) =>
+                    {
+                        value
+                    }
+                    _ => return None,
+                };
+                return (index_access_path(model, &value).as_ref() == Some(target))
+                    .then_some(Narrowing::NotNil);
+            }
+            _ => {
+                return (branch_is_true
+                    && index_access_path(model, &cond).as_ref() == Some(target))
+                .then_some(Narrowing::Truthy);
+            }
+        }
     }
 }
 

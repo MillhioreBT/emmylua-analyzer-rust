@@ -1,6 +1,120 @@
 #[cfg(test)]
 mod test {
+    use lsp_types::NumberOrString;
+    use tokio_util::sync::CancellationToken;
+
     use crate::{DiagnosticCode, VirtualWorkspace};
+
+    fn check_class_array_guard(element_type: &str, body: &str, expected_codes: &[DiagnosticCode]) {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let mut emmyrc = ws.get_emmyrc();
+        emmyrc.strict.array_index = true;
+        ws.update_emmyrc(emmyrc);
+        let file_id = ws.def(&format!(
+            r#"
+            ---@class Container
+            ---@field items {element_type}[]
+            local _Container = {{}}
+
+            ---@param t Container
+            ---@param _other Container
+            ---@param _index integer
+            local function read(t, _other, _index)
+                {body}
+            end
+            read({{ items = {{ 'hello' }} }}, {{ items = {{}} }}, 1)
+            "#,
+        ));
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file_id, CancellationToken::new())
+            .expect("diagnostics");
+        let expected = expected_codes
+            .iter()
+            .map(|code| Some(NumberOrString::String(code.get_name().to_string())))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|d| d.code.clone())
+                .collect::<Vec<_>>(),
+            expected,
+            "{body}: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn test_class_array_element_guards() {
+        for body in [
+            "if t.items[1] then print(t.items[1]:sub(1)) end",
+            "if not t.items[1] then return end; print(t.items[1]:sub(1))",
+            "if t.items[1] ~= nil then print(t.items[1]:sub(1)) end",
+            "if t.items[1] == nil then return end; print(t.items[1]:sub(1))",
+            "if t.items[1] then t.items[2] = 'other'; print(t.items[1]:sub(1)) end",
+            "t.items = {}; if t.items[1] then print(t.items[1]:sub(1)) end",
+            "if t.items[1] then t.items[1] = t.items[1]:sub(1) end",
+            "t.items[1] = t.items[2]; if t.items[1] then print(t.items[1]:sub(1)) end",
+        ] {
+            check_class_array_guard("string", body, &[]);
+        }
+    }
+
+    #[test]
+    fn test_class_array_element_guard_writes() {
+        for body in [
+            "if t.items[1] then t.items[1] = nil; print(t.items[1]:sub(1)) end",
+            "if t.items[1] then t.items[1.0] = nil; print(t.items[1]:sub(1)) end",
+            "if t.items[1] then t.items[1e0] = nil; print(t.items[1]:sub(1)) end",
+            "if t.items[1] then t.items = {}; print(t.items[1]:sub(1)) end",
+            "if t.items[1] then t = _other; print(t.items[1]:sub(1)) end",
+            "if t.items[1] then t.items[_index] = nil; print(t.items[1]:sub(1)) end",
+            "if t.items[1] then if _index == 1 then t.items = {} end; print(t.items[1]:sub(1)) end",
+        ] {
+            check_class_array_guard("string", body, &[DiagnosticCode::NeedCheckNil]);
+        }
+    }
+
+    #[test]
+    fn test_class_array_element_guard_scope() {
+        for body in [
+            "print(t.items[1]:sub(1))",
+            "if t.items[1] then print(t.items[2]:sub(1)) end",
+            "if t.items[1] then end; print(t.items[1]:sub(1))",
+            "if t.items[1] then print(_other.items[1]:sub(1)) end",
+            "if t.items[1] then local function later() print(t.items[1]:sub(1)) end; t.items = {}; later() end",
+            "if (t.items[1] ~= nil) ~= nil then print(t.items[1]:sub(1)) end",
+            "if (not not t.items[1]) ~= nil then print(t.items[1]:sub(1)) end",
+        ] {
+            check_class_array_guard("string", body, &[DiagnosticCode::NeedCheckNil]);
+        }
+        check_class_array_guard(
+            "string",
+            "if t.items[1] then local t = _other; print(t.items[1]:sub(1)) end",
+            &[DiagnosticCode::RedefinedLocal, DiagnosticCode::NeedCheckNil],
+        );
+    }
+
+    #[test]
+    fn test_class_array_element_guard_preserves_assignment_type() {
+        for (value, expected) in [
+            ("'hello'", &[] as &[DiagnosticCode]),
+            ("1", &[DiagnosticCode::AssignTypeMismatch]),
+        ] {
+            check_class_array_guard(
+                "(string|number)",
+                &format!(
+                    r#"
+                    t.items[1] = {value}
+                    if t.items[1] then
+                        ---@type string
+                        local _s = t.items[1]
+                    end
+                    "#,
+                ),
+                expected,
+            );
+        }
+    }
 
     #[test]
     fn test_issue_245() {
