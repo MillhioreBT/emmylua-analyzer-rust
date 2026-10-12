@@ -12,7 +12,7 @@ use crate::semantic_db::def::{
     DeclKind, DependencyKey, FileDependencies, LuaMemberKey, OwnerId, SemanticId,
 };
 use crate::semantic_db::query::{
-    file_facts, file_matches_workspace_id, member_ref_from_index_expr, module_file_of,
+    file_facts, file_matches_workspace_id, member_ref_from_index_expr, module_file_from,
     resolve_member_id, resolve_name, resolve_owner_ids, resolve_type_def, syntax_tree,
 };
 use crate::{FileId, WorkspaceId};
@@ -124,7 +124,7 @@ pub(crate) fn build_file_references(db: &SemanticDatabase, file: FileId) -> File
                 out.deps
                     .insert(DependencyKey::ModuleName(SmolStr::new(last_segment)));
             }
-            if let Some(module_file) = module_file_of(db, config, module_name) {
+            if let Some(module_file) = module_file_from(db, config, module_name, file) {
                 out.deps.insert(DependencyKey::Module(module_file));
             }
         }

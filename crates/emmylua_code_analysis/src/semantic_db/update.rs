@@ -683,6 +683,7 @@ fn module_name_changed_keys(old: Option<&ModuleEntry>, new: Option<&ModuleEntry>
     let mut names: HashSet<SmolStr> = HashSet::new();
     for entry in [old, new].into_iter().flatten() {
         names.insert(entry.full_module_name.clone());
+        names.extend(entry.aliases.iter().cloned());
         if entry.name != entry.full_module_name {
             names.insert(entry.name.clone());
         }

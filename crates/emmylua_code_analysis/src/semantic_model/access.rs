@@ -42,6 +42,12 @@ impl<'db> SemanticModel<'db> {
     pub fn module_name_of(&self, file_id: FileId) -> Option<String> {
         self.db().module_name_of(file_id)
     }
+    pub fn module_names_of(&self, file_id: FileId) -> Vec<String> {
+        self.db().module_names_of(file_id)
+    }
+    pub fn module_info_of(&self, file_id: FileId) -> Option<crate::ModuleInfo> {
+        self.db().module_info_of(file_id)
+    }
     pub fn workspace_id_of(&self, file_id: FileId) -> Option<WorkspaceId> {
         self.db().workspace_id_of(file_id)
     }

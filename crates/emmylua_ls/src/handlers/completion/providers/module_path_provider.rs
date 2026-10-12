@@ -79,72 +79,77 @@ pub fn add_modules(
     };
     let segment_prefix = parts.last().copied().unwrap_or("");
 
+    let typed_parent = prefix_content
+        .rfind(['.', '/', '\\'])
+        .map(|i| &prefix_content[..=i])
+        .unwrap_or("");
+    let version = builder.get_emmyrc().runtime.version.to_lua_version_number();
     let mut seen = HashSet::new();
     let mut completions = Vec::new();
     for file_id in file_ids {
         if file_id == current_file {
             continue;
         }
-        // let Some(model) = SemanticModel::new(db, file_id) else {
-        //     continue;
-        // };
-        let Some(module_name) = builder.semantic_model.module_name_of(file_id) else {
-            continue;
-        };
-        if module_name == module_path {
-            continue;
+        for module_name in builder.semantic_model.module_names_of(file_id) {
+            let relative = if module_path.is_empty() {
+                module_name.as_str()
+            } else if let Some(rest) = module_name.strip_prefix(&format!("{}.", module_path)) {
+                rest
+            } else {
+                continue;
+            };
+            let (segment, is_file) = match relative.find('.') {
+                Some(dot) => (&relative[..dot], false),
+                None => (relative, true),
+            };
+            if !segment.starts_with(segment_prefix) {
+                continue;
+            }
+            let filter_text = format!("{typed_parent}{segment}");
+            let detail = if is_file {
+                // Resolve the full candidate in the caller's root, not whichever
+                // file happened to be enumerated first. Skip unavailable candidates.
+                let Some(target) = builder.semantic_model.module_file_of(&filter_text) else {
+                    continue;
+                };
+                if target == current_file {
+                    continue;
+                }
+                let Some(info) = builder.semantic_model.module_info_of(target) else {
+                    continue;
+                };
+                if !info.is_visible(&version) {
+                    continue;
+                }
+                let Some(uri) = builder.semantic_model.file_uri_of(target) else {
+                    continue;
+                };
+                Some(uri.to_string())
+            } else {
+                None
+            };
+            if !seen.insert(segment.to_string()) {
+                continue;
+            }
+            let text_edit = text_edit_range.map(|range| {
+                CompletionTextEdit::Edit(TextEdit {
+                    range,
+                    new_text: filter_text.clone(),
+                })
+            });
+            completions.push(CompletionItem {
+                label: segment.to_string(),
+                kind: Some(if is_file {
+                    lsp_types::CompletionItemKind::FILE
+                } else {
+                    lsp_types::CompletionItemKind::FOLDER
+                }),
+                filter_text: Some(filter_text),
+                text_edit,
+                detail,
+                ..Default::default()
+            });
         }
-        let relative = if module_path.is_empty() {
-            module_name.as_str()
-        } else if let Some(rest) = module_name.strip_prefix(&format!("{}.", module_path)) {
-            rest
-        } else {
-            continue;
-        };
-        // Only suggest direct child segments; intermediate segments appear as folders derived from other submodule paths.
-        let (segment, is_file) = match relative.find('.') {
-            Some(dot) => (&relative[..dot], false),
-            None => (relative, true),
-        };
-        if !segment_prefix.is_empty() && !segment.starts_with(segment_prefix) {
-            continue;
-        }
-        if !seen.insert(segment.to_string()) {
-            continue;
-        }
-
-        let filter_text = if module_path.is_empty() {
-            segment.to_string()
-        } else {
-            format!("{}.{}", module_path, segment)
-        };
-        let text_edit = text_edit_range.map(|text_edit_range| {
-            CompletionTextEdit::Edit(TextEdit {
-                range: text_edit_range,
-                new_text: filter_text.clone(),
-            })
-        });
-        let kind = if is_file {
-            lsp_types::CompletionItemKind::FILE
-        } else {
-            lsp_types::CompletionItemKind::FOLDER
-        };
-        let detail = is_file
-            .then(|| {
-                builder
-                    .semantic_model
-                    .file_uri_of(file_id)
-                    .map(|uri| uri.to_string())
-            })
-            .flatten();
-        completions.push(CompletionItem {
-            label: segment.to_string(),
-            kind: Some(kind),
-            filter_text: Some(filter_text),
-            text_edit,
-            detail,
-            ..Default::default()
-        });
     }
     completions.sort_by(|a, b| a.label.cmp(&b.label));
     for completion_item in completions {

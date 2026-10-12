@@ -528,6 +528,12 @@ impl<'db> AnalysisView<'db> {
         query::module_file_of(self.db, config, SmolStr::new(module_name))
     }
 
+    /// Module lookup relative to the caller's configured source root.
+    pub fn module_file_from(&self, module_name: &str, caller: FileId) -> Option<FileId> {
+        let config = self.db.config_input()?;
+        query::module_file_from(self.db, config, SmolStr::new(module_name), caller)
+    }
+
     // ── Types (named, scoped) ──
 
     /// Resolve a named type in the current file scope (same-file Private → Internal → Global).

@@ -166,4 +166,26 @@ mod test {
                 "#,
         ));
     }
+    #[test]
+    fn test_require_inference_uses_source_root() {
+        use emmylua_parser::{LuaAstToken, LuaLocalName};
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let base = ws.virtual_url_generator.base.clone();
+        ws.analysis.add_main_workspace(base.join("a"));
+        ws.analysis.add_main_workspace(base.join("b"));
+        ws.def_files(vec![
+            ("a/helper.lua", "return 11"),
+            ("b/helper.lua", "return 'from-b'"),
+        ]);
+        for (path, expected) in [("a/control.lua", "number"), ("b/control.lua", "string")] {
+            let file = ws.def_file(path, "local value = require('helper')");
+            let local = ws.get_node::<LuaLocalName>(file);
+            let model = ws.analysis.semantic_model(file);
+            let decl = model
+                .decl_by_offset(local.get_name_token().unwrap().get_position())
+                .unwrap();
+            let typ = model.type_of_decl(&decl).unwrap();
+            assert_eq!(ws.humanize_type(typ), expected);
+        }
+    }
 }

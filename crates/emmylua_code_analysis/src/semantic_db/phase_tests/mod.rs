@@ -1,4 +1,5 @@
 mod fix_tests;
+mod module_roots_tests;
 mod p0_tests;
 mod p10_tests;
 mod p11_tests;

@@ -84,7 +84,7 @@ fn try_build_module_link(
     result: &mut Vec<DocumentLink>,
 ) -> Option<()> {
     let module_path = token.get_value();
-    let file_id = db.module_file_of(&module_path)?;
+    let file_id = db.module_file_from(&module_path, document.get_file_id())?;
     let uri = db.file_uri(file_id)?;
     let range = token.get_range();
     let lsp_range = document.to_lsp_range(range)?;

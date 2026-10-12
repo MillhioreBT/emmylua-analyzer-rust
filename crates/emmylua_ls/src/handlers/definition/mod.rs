@@ -68,7 +68,7 @@ pub fn definition(
     // 2. String token: require module file / string template reference.
     if let Some(string_token) = LuaStringToken::cast(token.clone()) {
         if let Some(response) =
-            goto_module_file::goto_module_file(&analysis.db, string_token.clone())
+            goto_module_file::goto_module_file(&analysis.db, file_id, string_token.clone())
         {
             return Some(response);
         }
