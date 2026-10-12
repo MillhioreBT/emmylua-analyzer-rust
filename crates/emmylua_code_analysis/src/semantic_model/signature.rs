@@ -93,7 +93,10 @@ impl<'db> SemanticModel<'db> {
     }
     /// require module name -> module export type (cross-file, projected as `LuaType`).
     pub fn require_module_type(&self, module_name: &str) -> LuaType {
-        let Some(module_file) = self.analysis().module_file_of(module_name) else {
+        let Some(module_file) = self
+            .analysis()
+            .module_file_from(module_name, self.view.file_id())
+        else {
             return LuaType::Unknown;
         };
         let Some(shell) = self.analysis().module_export_type(module_file) else {
@@ -103,7 +106,8 @@ impl<'db> SemanticModel<'db> {
     }
     /// require module name -> module file id (consumed by require_module_visibility checks).
     pub fn module_file_of(&self, module_name: &str) -> Option<FileId> {
-        self.analysis().module_file_of(module_name)
+        self.analysis()
+            .module_file_from(module_name, self.view.file_id())
     }
     // -- Type / member association --
 

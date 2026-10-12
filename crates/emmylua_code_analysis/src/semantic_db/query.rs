@@ -910,6 +910,8 @@ pub(crate) fn global_decls_named_primary(db: &SemanticDatabase, name: &str) -> V
 pub(crate) struct ModuleEntry {
     pub file_id: FileId,
     pub path: PathBuf,
+    pub source_root: PathBuf,
+    pub aliases: Vec<SmolStr>,
     pub full_module_name: SmolStr,
     pub name: SmolStr,
     pub workspace_id: WorkspaceId,
@@ -926,14 +928,33 @@ pub(crate) fn build_module_entry(db: &SemanticDatabase, file_id: FileId) -> Opti
     let path = db.file_path(file)?;
     let file_ws = file_workspace_id(db, file_id);
     let root_path = match &file_ws {
-        Some(ws) if !roots.is_empty() => roots
-            .iter()
-            .find(|root| root.id == *ws)
-            .map(|root| root.root.clone()),
+        Some(_) if !roots.is_empty() => find_workspace_root(&roots, &path).map(|(_, root)| root),
         _ if roots.is_empty() => fallback_root,
         _ => None,
     }?;
-    let full_module_name = module_name_from_path(&path, Some(&root_path))?;
+    let config = db.config_input()?;
+    let full_module_name = SmolStr::new(map_module_name(
+        config,
+        &module_name_from_path(&path, Some(&root_path))?,
+    ));
+    let mut aliases = Vec::new();
+    for root in roots.iter() {
+        let Ok(relative) = path.strip_prefix(&root.root) else {
+            continue;
+        };
+        if !root.import.includes_path(relative) {
+            continue;
+        }
+        let Some(name) = module_name_from_path(&path, Some(&root.root)) else {
+            continue;
+        };
+        let mapped = SmolStr::new(map_module_name(config, &name));
+        // Only explicitly mapped names from enclosing roots become aliases.
+        if mapped != name && mapped != full_module_name && !aliases.contains(&mapped) {
+            aliases.push(mapped);
+        }
+    }
+    aliases.sort();
     let facts = file_facts(db, file);
     let name = SmolStr::new(
         full_module_name
@@ -944,6 +965,8 @@ pub(crate) fn build_module_entry(db: &SemanticDatabase, file_id: FileId) -> Opti
     Some(ModuleEntry {
         file_id,
         path,
+        source_root: root_path,
+        aliases,
         full_module_name,
         name,
         workspace_id: file_ws.unwrap_or(WorkspaceId::REMOTE),
@@ -1054,41 +1077,43 @@ fn build_module_tree(
     let mut next_id = 1u32;
 
     for entry in entries {
-        let parts: Vec<&str> = entry.full_module_name.split('.').collect();
-        let mut current = root;
-        for (index, part) in parts.iter().enumerate() {
-            let is_last = index + 1 == parts.len();
-            let child_id = {
-                let node = nodes.get_mut(&current).expect("module node exists");
-                if let Some(position) = node
-                    .children
-                    .iter()
-                    .position(|(name, _)| name.as_str() == *part)
-                {
-                    node.children[position].1
-                } else {
-                    let id = ModuleNodeId {
-                        id: next_id,
-                        workspace_id: ws_id,
-                    };
-                    next_id += 1;
-                    node.children.push((SmolStr::new(*part), id));
-                    id
+        for module_name in std::iter::once(&entry.full_module_name).chain(entry.aliases.iter()) {
+            let parts: Vec<&str> = module_name.split('.').collect();
+            let mut current = root;
+            for (index, part) in parts.iter().enumerate() {
+                let is_last = index + 1 == parts.len();
+                let child_id = {
+                    let node = nodes.get_mut(&current).expect("module node exists");
+                    if let Some(position) = node
+                        .children
+                        .iter()
+                        .position(|(name, _)| name.as_str() == *part)
+                    {
+                        node.children[position].1
+                    } else {
+                        let id = ModuleNodeId {
+                            id: next_id,
+                            workspace_id: ws_id,
+                        };
+                        next_id += 1;
+                        node.children.push((SmolStr::new(*part), id));
+                        id
+                    }
+                };
+                nodes.entry(child_id).or_insert_with(|| ModuleNode {
+                    children: Vec::new(),
+                    file_ids: Vec::new(),
+                    parent: Some(current),
+                });
+                if is_last {
+                    nodes
+                        .get_mut(&child_id)
+                        .expect("module node just inserted")
+                        .file_ids
+                        .push(entry.file_id);
                 }
-            };
-            nodes.entry(child_id).or_insert_with(|| ModuleNode {
-                children: Vec::new(),
-                file_ids: Vec::new(),
-                parent: Some(current),
-            });
-            if is_last {
-                nodes
-                    .get_mut(&child_id)
-                    .expect("module node just inserted")
-                    .file_ids
-                    .push(entry.file_id);
+                current = child_id;
             }
-            current = child_id;
         }
     }
 
@@ -1099,8 +1124,8 @@ fn build_module_tree(
 ///
 /// Prefer the shortest relative path; on a tie keep the old LuaModuleIndex
 /// semantics (main root wins over non-main).
-fn best_workspace_root(roots: &[WorkspaceRoot], path: &Path) -> Option<(usize, WorkspaceId)> {
-    let mut best: Option<(usize, WorkspaceId)> = None;
+fn best_workspace_root<'a>(roots: &'a [WorkspaceRoot], path: &Path) -> Option<&'a WorkspaceRoot> {
+    let mut best: Option<(usize, &WorkspaceRoot)> = None;
     for root in roots {
         let Ok(rel) = path.strip_prefix(&root.root) else {
             continue;
@@ -1111,16 +1136,16 @@ fn best_workspace_root(roots: &[WorkspaceRoot], path: &Path) -> Option<(usize, W
         let rel_len = rel.components().count();
         let replace = match &best {
             None => true,
-            Some((best_len, best_id)) => {
+            Some((best_len, best_root)) => {
                 rel_len < *best_len
-                    || (rel_len == *best_len && root.id.is_main() && !best_id.is_main())
+                    || (rel_len == *best_len && root.id.is_main() && !best_root.id.is_main())
             }
         };
         if replace {
-            best = Some((rel_len, root.id));
+            best = Some((rel_len, root));
         }
     }
-    best
+    best.map(|(_, root)| root)
 }
 
 /// Choose the workspace root that contains `path`.
@@ -1131,17 +1156,13 @@ pub(crate) fn find_workspace_root(
     roots: &[WorkspaceRoot],
     path: &Path,
 ) -> Option<(WorkspaceId, PathBuf)> {
-    let (_, id) = best_workspace_root(roots, path)?;
-    let root = roots
-        .iter()
-        .find(|root| root.id == id)
-        .map(|root| root.root.clone())?;
-    Some((id, root))
+    let root = best_workspace_root(roots, path)?;
+    Some((root.id, root.root.clone()))
 }
 
 /// Root lookup without the `PathBuf` clone used by the legacy signature.
 pub(crate) fn find_workspace_id(roots: &[WorkspaceRoot], path: &Path) -> Option<WorkspaceId> {
-    best_workspace_root(roots, path).map(|(_, id)| id)
+    best_workspace_root(roots, path).map(|root| root.id)
 }
 
 /// File path -> owning workspace, without touching the VFS or file cache.
@@ -1165,49 +1186,93 @@ pub(crate) fn file_workspace_id(db: &SemanticDatabase, file_id: FileId) -> Optio
     file_workspace_id_for_path(db.workspace_roots().as_ref(), Some(&path))
 }
 
-/// Module name -> file. Resolution order: module_map rewrite -> exact match -> require pattern (`?.lua`/`?/init.lua`).
+/// Rootless lookup retains deterministic workspace priority.
 pub(crate) fn module_file_of(
     db: &SemanticDatabase,
     config: &Emmyrc,
     module_name: SmolStr,
 ) -> Option<FileId> {
-    let mut name = module_name.replace('\\', ".");
-    // module_map rewrite rules (config order; every matching rule is applied, consistent with the old replace_module_path).
+    module_file_in_root(db, config, module_name, None)
+}
+
+/// Prefer the caller's most specific configured root, even when multiple roots
+/// share WorkspaceId::MAIN. Unknown/unregistered callers use rootless lookup.
+pub(crate) fn module_file_from(
+    db: &SemanticDatabase,
+    config: &Emmyrc,
+    module_name: SmolStr,
+    caller: FileId,
+) -> Option<FileId> {
+    let root = db
+        .file_path(caller)
+        .and_then(|path| find_workspace_root(db.workspace_roots(), &path).map(|(_, root)| root));
+    module_file_in_root(db, config, module_name, root.as_deref())
+}
+
+fn map_module_name(config: &Emmyrc, name: &str) -> String {
+    let mut name = name.to_string();
     for (pattern, replace) in config.module_replace() {
-        if let Ok(regex) = regex::Regex::new(pattern.as_str())
-            && regex.is_match(&name)
-        {
+        if let Ok(regex) = regex::Regex::new(pattern.as_str()) {
             name = regex.replace(&name, replace.as_str()).into_owned();
         }
     }
-    let patterns = config.module_patterns().to_vec();
-    for &ws_id in workspace_lookup_order(db) {
-        let index = workspace_module_index_for(db, ws_id);
-        // Paths still containing `/` after module_map rewriting (`signalstrings/signalstrings.lua`)
-        // first try exact literal relative-path matching, then `?` pattern resolution.
-        if name.contains('/') {
-            if let Some(file_id) = index.resolve_literal_path(&name) {
-                return Some(file_id);
-            }
-        }
-        let normalized = name.replace('/', ".");
-        if let Some(file_id) = index.exact(&normalized) {
-            return Some(file_id);
-        }
-        // `require("some.prefix.mod")` may target a module registered as
-        // `mod` (or `prefix.mod`): try progressively shorter suffixes before
-        // the broader fuzzy (short require -> longer module) fallback.
-        if let Some(file_id) = index.fuzzy_prefix(&normalized) {
-            return Some(file_id);
-        }
-        if let Some(file_id) = index.fuzzy(&normalized) {
-            return Some(file_id);
-        }
-        if let Some(file_id) = index.resolve_by_pattern(&normalized, &patterns) {
-            return Some(file_id);
+    name
+}
+
+fn module_file_in_root(
+    db: &SemanticDatabase,
+    config: &Emmyrc,
+    module_name: SmolStr,
+    source_root: Option<&Path>,
+) -> Option<FileId> {
+    let name = module_name.replace(['\\', '/'], ".");
+    let raw = module_name.replace('\\', "/");
+    let literal = map_module_name(config, &raw);
+    let rewritten = literal.replace(['\\', '/'], ".");
+    let mapped = if rewritten == name {
+        map_module_name(config, &name)
+    } else {
+        rewritten
+    };
+    let lookup = |find: &dyn Fn(&ModuleIndex) -> Option<FileId>| {
+        workspace_lookup_order(db)
+            .iter()
+            .enumerate()
+            .filter_map(|(order, &ws_id)| {
+                let index = workspace_module_index_for(db, ws_id);
+                let file_id = find(index)?;
+                Some((index.root_preference(file_id, source_root), order, file_id))
+            })
+            .min_by_key(|(root, order, _)| (*root, *order))
+            .map(|(_, _, file)| file)
+    };
+    // Keep upstream's path-style imports ahead of fuzzy matches: otherwise
+    // `src/helper.lua` could resolve to an unrelated module named `lua`.
+    if literal.contains('/')
+        && let Some(file) = lookup(&|index| index.resolve_literal_path(&literal, source_root))
+    {
+        return Some(file);
+    }
+    // Already-mapped aliases must not be rewritten a second time. Exact names
+    // across all roots take precedence over any fuzzy fallback.
+    if let Some(file) = lookup(&|index| index.exact(&name, source_root)) {
+        return Some(file);
+    }
+    if mapped != name {
+        if let Some(file) = lookup(&|index| index.exact(&mapped, source_root)) {
+            return Some(file);
         }
     }
-    None
+    let patterns = config.module_patterns();
+    for query in [mapped.as_str(), name.as_str()] {
+        if let Some(file) = lookup(&|index| index.fuzzy_prefix(query, source_root)) {
+            return Some(file);
+        }
+        if let Some(file) = lookup(&|index| index.fuzzy(query, source_root)) {
+            return Some(file);
+        }
+    }
+    lookup(&|index| index.resolve_by_pattern(&mapped, &patterns, source_root))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1306,30 +1371,52 @@ impl ModuleIndex {
         self.root = root;
     }
 
-    fn exact(&self, name: &str) -> Option<FileId> {
-        // `entries` is sorted by `full_module_name`; avoid scanning unrelated modules.
-        let start = self
-            .entries
-            .partition_point(|entry| entry.full_module_name.as_str() < name);
-        let mut first = None;
-        for entry in &self.entries[start..] {
-            if entry.full_module_name.as_str() != name {
-                break;
-            }
-            if first.is_none() {
-                first = Some(entry.file_id);
-            }
-            if !entry.visible.is_hidden() {
-                return Some(entry.file_id);
-            }
-        }
-        first
+    fn root_preference(&self, file_id: FileId, source_root: Option<&Path>) -> bool {
+        source_root.is_some()
+            && self
+                .entry_by_file_id
+                .get(&file_id)
+                .and_then(|&index| self.entries.get(index))
+                .map(|entry| entry.source_root.as_path())
+                != source_root
+    }
+
+    fn exact(&self, name: &str, source_root: Option<&Path>) -> Option<FileId> {
+        let node = self.nodes.get(&self.find_module_node(name)?)?;
+        node.file_ids
+            .iter()
+            .filter_map(|file| {
+                self.entry_by_file_id
+                    .get(file)
+                    .and_then(|&index| self.entries.get(index))
+            })
+            .min_by_key(|entry| {
+                (
+                    self.root_preference(entry.file_id, source_root),
+                    entry.visible.is_hidden(),
+                )
+            })
+            .map(|entry| entry.file_id)
+    }
+
+    fn preferred_roots<'a>(
+        &'a self,
+        source_root: Option<&'a Path>,
+    ) -> impl Iterator<Item = &'a PathBuf> {
+        self.roots
+            .iter()
+            .filter(move |root| Some(root.as_path()) == source_root)
+            .chain(
+                self.roots
+                    .iter()
+                    .filter(move |root| Some(root.as_path()) != source_root),
+            )
     }
 
     /// Match a literal relative path containing `/` (`signalstrings/signalstrings.lua`).
-    fn resolve_literal_path(&self, name: &str) -> Option<FileId> {
+    fn resolve_literal_path(&self, name: &str, source_root: Option<&Path>) -> Option<FileId> {
         let rel = name.replace('\\', "/");
-        for root in &self.roots {
+        for root in self.preferred_roots(source_root) {
             let candidate = root.join(&rel);
             if let Some(file_id) = self.by_path.get(&normalize_path(&candidate)) {
                 return Some(*file_id);
@@ -1342,12 +1429,12 @@ impl ModuleIndex {
     ///
     /// Longest remaining suffix wins, so an exact longer module name is always
     /// preferred over a shorter prefix match.
-    fn fuzzy_prefix(&self, name: &str) -> Option<FileId> {
+    fn fuzzy_prefix(&self, name: &str, source_root: Option<&Path>) -> Option<FileId> {
         let mut parts: Vec<&str> = name.split('.').collect();
         while parts.len() > 1 {
             parts.remove(0);
             let candidate = parts.join(".");
-            if let Some(file_id) = self.exact(&candidate) {
+            if let Some(file_id) = self.exact(&candidate, source_root) {
                 return Some(file_id);
             }
         }
@@ -1356,7 +1443,7 @@ impl ModuleIndex {
 
     /// Suffix fuzzy matching (old `fuzzy_find_module`): `event` matches `lua.cmp.utils.event`;
     /// prefer the fewest leading segments, then take one stably in module-name lexicographic order.
-    fn fuzzy(&self, name: &str) -> Option<FileId> {
+    fn fuzzy(&self, name: &str, source_root: Option<&Path>) -> Option<FileId> {
         let last_name = name.rsplit('.').next().unwrap_or(name);
         let file_ids = self.module_name_to_file_ids.get(last_name)?;
         let suffix = format!(".{name}");
@@ -1378,17 +1465,23 @@ impl ModuleIndex {
                 Some((leading_segment_count, entry))
             })
             .min_by(|(left_count, left), (right_count, right)| {
-                left_count
-                    .cmp(right_count)
+                self.root_preference(left.file_id, source_root)
+                    .cmp(&self.root_preference(right.file_id, source_root))
+                    .then_with(|| left_count.cmp(right_count))
                     .then_with(|| left.full_module_name.cmp(&right.full_module_name))
             })
             .map(|(_, entry)| entry.file_id)
     }
 
     /// Exact-match candidate paths under each root using require patterns (`?` -> `a/b`).
-    fn resolve_by_pattern(&self, name: &str, patterns: &[SmolStr]) -> Option<FileId> {
+    fn resolve_by_pattern(
+        &self,
+        name: &str,
+        patterns: &[SmolStr],
+        source_root: Option<&Path>,
+    ) -> Option<FileId> {
         let rel = name.replace('.', "/");
-        for root in &self.roots {
+        for root in self.preferred_roots(source_root) {
             for pattern in patterns {
                 let candidate = pattern.replace('?', &rel);
                 let candidate = root.join(candidate);
@@ -1826,7 +1919,7 @@ pub(crate) fn decl_type(
 
     // `---@module "name"`: project directly to a module reference.
     if let Some(module_path) = &decl.module_path
-        && let Some(module_file) = module_file_of(db, config, module_path.clone())
+        && let Some(module_file) = module_file_from(db, config, module_path.clone(), file)
     {
         return TypeShell::from_module_ref(module_file);
     }
@@ -2254,7 +2347,7 @@ pub(crate) fn member_type(
 
     // `---@module "name"`: project directly to a module reference.
     if let Some(module_path) = &member.module_path
-        && let Some(module_file) = module_file_of(db, config, module_path.clone())
+        && let Some(module_file) = module_file_from(db, config, module_path.clone(), file)
     {
         return TypeShell::from_module_ref(module_file);
     }
@@ -3077,7 +3170,7 @@ fn expr_type_call(
     // require special case: module name -> module file -> module export type.
     if call_expr.is_require()
         && let Some(module_name) = require_module_name(&call_expr)
-        && let Some(module_file) = module_file_of(db, config, SmolStr::new(&module_name))
+        && let Some(module_file) = module_file_from(db, config, SmolStr::new(&module_name), file)
         && let Some(module_input) = db.file_data_id(module_file)
     {
         let shell = module_export_type(db, module_input, config);

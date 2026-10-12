@@ -371,7 +371,7 @@ fn require_alias_target(
     targets: &HashMap<SemanticId, FileId>,
 ) -> Option<FileId> {
     match expr {
-        LuaExpr::CallExpr(call) => require_module_file_from_call(db, config, call),
+        LuaExpr::CallExpr(call) => require_module_file_from_call(db, config, facts.file_id, call),
         LuaExpr::ParenExpr(paren) => {
             require_alias_target(db, config, facts, root, &paren.get_expr()?, targets)
         }
@@ -390,6 +390,7 @@ fn require_alias_target(
 fn require_module_file_from_call(
     db: &SemanticDatabase,
     config: &Emmyrc,
+    caller: FileId,
     call: &LuaCallExpr,
 ) -> Option<FileId> {
     let prefix = call.get_prefix_expr()?;
@@ -406,5 +407,5 @@ fn require_module_file_from_call(
     let LuaLiteralToken::String(token) = literal.get_literal()? else {
         return None;
     };
-    query::module_file_of(db, config, SmolStr::new(token.get_value()))
+    query::module_file_from(db, config, SmolStr::new(token.get_value()), caller)
 }

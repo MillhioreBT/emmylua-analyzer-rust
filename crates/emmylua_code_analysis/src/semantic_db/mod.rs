@@ -451,11 +451,16 @@ impl SemanticDatabase {
         self.reset_file_facts_cache();
     }
 
-    /// Register or replace the main workspace root.
+    /// Register a main workspace root without discarding previously registered roots.
     pub(crate) fn add_main_workspace(&mut self, root: PathBuf) {
         self.main_root = Some(root.clone());
         let mut roots = self.workspace_roots.to_vec();
-        roots.retain(|root_entry| !root_entry.id.is_main());
+        if roots
+            .iter()
+            .any(|entry| entry.id.is_main() && entry.root == root)
+        {
+            return;
+        }
         roots.push(WorkspaceRoot {
             id: WorkspaceId::MAIN,
             root,
@@ -798,6 +803,25 @@ impl SemanticDatabase {
     /// Module name → module file (for require resolution and handlers such as document_link).
     pub fn module_file_of(&self, module_name: &str) -> Option<FileId> {
         self.analysis().module_file_of(module_name)
+    }
+
+    /// Module lookup relative to the caller's configured source root.
+    pub fn module_file_from(&self, module_name: &str, caller: FileId) -> Option<FileId> {
+        self.analysis().module_file_from(module_name, caller)
+    }
+
+    /// Canonical name and explicitly mapped aliases used in require completion.
+    pub fn module_names_of(&self, file_id: FileId) -> Vec<String> {
+        let Some(entry) = self
+            .file_cache(file_id)
+            .and_then(|cache| cache.module_entry.as_ref())
+        else {
+            return Vec::new();
+        };
+        std::iter::once(&entry.full_module_name)
+            .chain(entry.aliases.iter())
+            .map(ToString::to_string)
+            .collect()
     }
 
     // ── Reference index ──
