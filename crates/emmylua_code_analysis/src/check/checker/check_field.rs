@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use emmylua_parser::{
     LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexKey,
     LuaLocalStat, LuaTableExpr, LuaVarExpr,
@@ -195,8 +197,8 @@ fn expand_alias_type(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> Option
     }
 }
 
-/// Static string key -> `LuaMemberKey` (dynamic keys are not checked).
-fn static_member_key(
+/// Static table key -> `LuaMemberKey` (dynamic keys are not checked).
+pub(super) fn static_member_key(
     semantic_model: &SemanticModel<'_>,
     key: &LuaIndexKey,
 ) -> Option<LuaMemberKey> {
@@ -205,6 +207,12 @@ fn static_member_key(
         LuaIndexKey::String(string) => Some(LuaMemberKey::Name(string.get_value().into())),
         LuaIndexKey::Integer(integer) => match integer.get_number_value() {
             emmylua_parser::NumberResult::Int(idx) => Some(LuaMemberKey::Integer(idx)),
+            // The upper bound rounds up to 2^63, so it must be exclusive.
+            emmylua_parser::NumberResult::Float(idx)
+                if idx.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(&idx) =>
+            {
+                Some(LuaMemberKey::Integer(idx as i64))
+            }
             _ => None,
         },
         LuaIndexKey::Idx(idx) => Some(LuaMemberKey::Integer(*idx as i64)),
@@ -241,15 +249,15 @@ fn key_type_contains(key_ty: &LuaType, expected: &LuaType) -> bool {
 }
 
 /// `---@class C: { a: number }`: when the parent type is an object literal, complete the field surface.
-fn object_super_fields(
+fn collect_object_super_fields(
     semantic_model: &SemanticModel<'_>,
     def: &TypeDef,
-) -> Vec<(String, LuaType)> {
+    out: &mut HashMap<LuaMemberKey, LuaType>,
+) {
     let Some(tree) = semantic_model.syntax_tree_of(def.file_id) else {
-        return Vec::new();
+        return;
     };
     let root = tree.get_red_root();
-    let mut out = Vec::new();
     for class_tag in root
         .descendants()
         .filter_map(emmylua_parser::LuaDocTagClass::cast)
@@ -271,24 +279,23 @@ fn object_super_fields(
                 let Some(key) = field.get_field_key() else {
                     continue;
                 };
-                let name = match &key {
+                let key = match &key {
                     emmylua_parser::LuaDocObjectFieldKey::Name(name) => {
-                        name.get_name_text().to_string()
+                        LuaMemberKey::Name(name.get_name_text().into())
                     }
-                    emmylua_parser::LuaDocObjectFieldKey::String(str) => str.get_value(),
+                    emmylua_parser::LuaDocObjectFieldKey::String(str) => {
+                        LuaMemberKey::Name(str.get_value().into())
+                    }
                     _ => continue,
                 };
                 let ty = field
                     .get_type()
                     .map(|ty| semantic_model.doc_type_lua_rich_in(def.file_id, ty.get_syntax_id()))
                     .unwrap_or(LuaType::Unknown);
-                if !out.iter().any(|(n, _)| n == &name) {
-                    out.push((name, ty));
-                }
+                out.entry(key).or_insert(ty);
             }
         }
     }
-    out
 }
 
 /// Whether the alias target is a mapped type.
@@ -432,7 +439,7 @@ fn check_against_type(
     };
 
     // Target type's @field members (including inheritance).
-    let mut members: Vec<(String, LuaType)> = Vec::new();
+    let mut members = HashMap::new();
     let mut index_signatures = Vec::new();
     let mut visited = Vec::new();
     collect_fields(
@@ -443,15 +450,22 @@ fn check_against_type(
         &mut index_signatures,
     );
     if let Some(def) = find_type_def(semantic_model, &target_id) {
-        members.extend(object_super_fields(semantic_model, &def));
+        collect_object_super_fields(semantic_model, &def, &mut members);
     }
 
     let fields = table.get_fields_with_keys();
+    let mut field_keys = HashSet::with_capacity(fields.len());
 
     // InjectField: table field is not in the target members.
     for (_, key) in &fields {
-        let field = key.get_path_part();
-        if !members.iter().any(|(name, _)| name == &field)
+        // Expression keys still need the index-signature checks for their values.
+        let member_key = match key {
+            LuaIndexKey::Expr(_) => None,
+            _ => static_member_key(semantic_model, key),
+        };
+        if !member_key
+            .as_ref()
+            .is_some_and(|key| members.contains_key(key))
             && !index_signatures
                 .iter()
                 .any(|signature| signature_matches_key(semantic_model, signature, key))
@@ -459,19 +473,24 @@ fn check_against_type(
             context.add_diagnostic(
                 DiagnosticCode::InjectField,
                 table.get_range(),
-                format!("Field `{}` cannot be injected into the target type.", field),
+                format!(
+                    "Field `{}` cannot be injected into the target type.",
+                    key.get_path_part()
+                ),
             );
+        }
+        if let Some(key) = member_key {
+            field_keys.insert(key);
         }
     }
 
     // MissingFields: required (non-nullable) members are missing.
-    let missing: Vec<&str> = members
+    let mut missing: Vec<_> = members
         .iter()
-        .filter(|(name, ty)| {
-            !fields.iter().any(|(_, key)| key.get_path_part() == *name) && !is_optional(ty)
-        })
-        .map(|(name, _)| name.as_str())
+        .filter(|(key, ty)| !field_keys.contains(*key) && !is_optional(ty))
+        .map(|(key, _)| key.to_path())
         .collect();
+    missing.sort_unstable();
     if !missing.is_empty() {
         context.add_diagnostic(
             DiagnosticCode::MissingFields,
@@ -504,7 +523,7 @@ fn collect_fields(
     semantic_model: &SemanticModel<'_>,
     type_def_id: &SemanticId,
     visited: &mut Vec<SemanticId>,
-    out: &mut Vec<(String, LuaType)>,
+    out: &mut HashMap<LuaMemberKey, LuaType>,
     index_signatures: &mut Vec<String>,
 ) {
     if visited.contains(type_def_id) {
@@ -512,12 +531,14 @@ fn collect_fields(
     }
     visited.push(type_def_id.clone());
     for member_ref in semantic_model.members_of_owner(type_def_id).iter() {
-        let name = member_ref.name.to_string();
-        if let Some(facts) = semantic_model.file_facts_of(member_ref.file_id)
-            && let Some(member) = facts.member_by_id(&member_ref.id)
-            && member.is_index_signature
-        {
-            index_signatures.push(name);
+        let Some(facts) = semantic_model.file_facts_of(member_ref.file_id) else {
+            continue;
+        };
+        let Some(member) = facts.member_by_id(&member_ref.id) else {
+            continue;
+        };
+        if member.is_index_signature {
+            index_signatures.push(member_ref.name.to_string());
             continue;
         }
         let mut ty = semantic_model
@@ -529,19 +550,13 @@ fn collect_fields(
         {
             ty = alias_target;
         }
-        if let Some(facts) = semantic_model.file_facts_of(member_ref.file_id)
-            && let Some(member) = facts.member_by_id(&member_ref.id)
-            && member.is_nullable
-            && !ty.is_nullable()
-        {
+        if member.is_nullable && !ty.is_nullable() {
             ty = LuaType::Union(std::sync::Arc::new(LuaUnionType::from_vec(vec![
                 ty,
                 LuaType::Nil,
             ])));
         }
-        if !out.iter().any(|(n, _)| n == &name) {
-            out.push((name, ty));
-        }
+        out.entry(member.key.clone()).or_insert(ty);
     }
     // Inheritance chain: locate the type definition; needs def info.
     if let Some(def) = find_type_def(semantic_model, type_def_id) {

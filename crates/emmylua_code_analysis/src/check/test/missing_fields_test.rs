@@ -1,6 +1,30 @@
 #[cfg(test)]
 mod tests {
+    use crate::check::test::check_source;
     use crate::{DiagnosticCode, VirtualWorkspace};
+
+    #[test]
+    fn test_object_parent_field_uses_child_optionality() {
+        for (parent, child, expected) in [
+            ("integer", "?", vec![]),
+            ("integer?", "", vec![DiagnosticCode::MissingFields]),
+        ] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@class Record: {{foo: {parent}}}
+                ---@field foo{child} integer
+                ---@type Record
+                local value = {{}}
+                return value
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                expected,
+                "{parent}, {child}: {diagnostics:?}"
+            );
+        }
+    }
 
     #[test]
     fn test_missing_fields() {
