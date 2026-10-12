@@ -570,12 +570,12 @@ fn check_value_against(
         } else {
             let value_ty = semantic_model
                 .type_of_expr_at(value_expr.get_syntax_id(), value_expr.get_range().start());
-            // Table constructor -> tuple is not a structured target, but `is_assign_compatible` can judge it;
-            // for other non-structured targets keep old behavior: report whenever there is a value (avoid `A & B` being accepted by either branch).
             if matches!(value_ty, LuaType::Unknown | LuaType::Any | LuaType::Never) {
                 return;
             }
-            if matches!(target, LuaType::Tuple(_))
+            // Compatibility resolves tuple aliases and unions. Keep the intersection guard:
+            // the general check currently accepts a table matching only one component.
+            if !matches!(target, LuaType::Intersection(_))
                 && is_assign_compatible(semantic_model, &value_ty, target)
             {
                 return;
@@ -909,18 +909,8 @@ fn check_table_value(
     value_expr: &LuaExpr,
     expected: &LuaType,
 ) {
-    if let LuaExpr::TableExpr(nested) = value_expr {
-        // Only structured targets (named class / object / array / generic) are checked field-by-field;
-        // a table literal for a scalar target is itself a type mismatch.
-        if is_structured_table_target(semantic_model, expected) {
-            check_table_fields(context, semantic_model, expected, nested);
-        } else {
-            let value_ty = semantic_model
-                .type_of_expr_at(value_expr.get_syntax_id(), value_expr.get_range().start());
-            if !matches!(value_ty, LuaType::Unknown | LuaType::Any | LuaType::Never) {
-                add_mismatch(context, value_expr.get_range(), expected, &value_ty);
-            }
-        }
+    if matches!(value_expr, LuaExpr::TableExpr(_)) {
+        check_value_against(context, semantic_model, expected, value_expr);
         return;
     }
     let value_ty =
@@ -987,7 +977,7 @@ fn index_key_to_member_key(
     }
 }
 
-fn signature_matches_key(
+pub(super) fn signature_matches_key(
     semantic_model: &SemanticModel<'_>,
     signature: &str,
     key: &LuaIndexKey,
