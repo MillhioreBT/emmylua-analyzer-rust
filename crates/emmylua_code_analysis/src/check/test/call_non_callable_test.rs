@@ -5,6 +5,105 @@ mod test {
     use tokio_util::sync::CancellationToken;
 
     #[test]
+    fn test_callable_table_accepts_valid_arguments() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file_id = ws.def(
+            r#"
+            local command = setmetatable({}, {
+                ---@param arg string
+                __call = function(_, arg) print(arg) end,
+            })
+            command('hello')
+            local api = { cmd = command }
+            api.cmd('hello')
+            "#,
+        );
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file_id, CancellationToken::new())
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn test_callable_table_preserves_invalid_call_diagnostics() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file_id = ws.def(
+            r#"
+            local command = setmetatable({}, {
+                ---@param arg string
+                __call = function(_, arg) print(arg) end,
+            })
+            command(42)
+            local plain = {}
+            plain()
+            local without_call = setmetatable({}, {})
+            without_call()
+            "#,
+        );
+        let mut diagnostics = ws
+            .analysis
+            .diagnose_file(file_id, CancellationToken::new())
+            .unwrap();
+        diagnostics.sort_by_key(|diagnostic| diagnostic.range.start);
+        let codes: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.clone())
+            .collect();
+        assert_eq!(
+            codes,
+            vec![
+                Some(NumberOrString::String("param-type-mismatch".into())),
+                Some(NumberOrString::String("call-non-callable".into())),
+                Some(NumberOrString::String("call-non-callable".into())),
+            ],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn test_callable_table_member_assignment_across_files() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        ws.def_file(
+            "api.lua",
+            r#"
+            local api = {}
+            api.cmd = setmetatable({}, {
+                ---@param arg string
+                __call = function(_, arg) print(arg) end,
+            })
+            api.plain = {}
+            return api
+            "#,
+        );
+        let file_id = ws.def(
+            r#"
+            local api = require('api')
+            api.cmd('hello')
+            api.cmd(42)
+            api.plain()
+            "#,
+        );
+        let mut diagnostics = ws
+            .analysis
+            .diagnose_file(file_id, CancellationToken::new())
+            .unwrap();
+        diagnostics.sort_by_key(|diagnostic| diagnostic.range.start);
+        let codes: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.clone())
+            .collect();
+        assert_eq!(
+            codes,
+            vec![
+                Some(NumberOrString::String("param-type-mismatch".into())),
+                Some(NumberOrString::String("call-non-callable".into())),
+            ],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
     fn test_call_non_callable() {
         let mut ws = VirtualWorkspace::new();
 

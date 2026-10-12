@@ -821,7 +821,7 @@ fn check_arg_pairs(
             _ => true,
         };
         let leaf_compat = exact_const
-            && !matches!(call_arg_ty, LuaType::Function)
+            && (!matches!(call_arg_ty, LuaType::Function) || matches!(param_ty, LuaType::Any))
             && param_generic_base_match(semantic_model, &call_arg_ty, &param_ty);
         if leaf_compat
             || literal_compatible(semantic_model, &call_arg_ty, &param_ty)

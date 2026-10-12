@@ -7,6 +7,58 @@ mod test {
 
     use crate::{DiagnosticCode, VirtualWorkspace};
 
+    #[test]
+    fn test_function_argument_accepts_any_parameter() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file_id = ws.def(
+            r#"
+            ---@param value any
+            local function accept(value) print(value) end
+            ---@param f function
+            local function use(f) accept(f) end
+            use(function() end)
+            "#,
+        );
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file_id, CancellationToken::new())
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn test_function_argument_preserves_narrow_parameter_checks() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file_id = ws.def(
+            r#"
+            ---@param value number
+            local function accept_number(value) print(value) end
+            ---@param callback fun(value: string): string
+            local function accept_callback(callback) print(callback('hello')) end
+            ---@param f function
+            ---@param callback fun(value: number): number
+            local function use(f, callback)
+                accept_number(f)
+                accept_callback(callback)
+            end
+            use(function() end, function(value) return value end)
+            "#,
+        );
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file_id, CancellationToken::new())
+            .unwrap();
+        let codes: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.clone())
+            .collect();
+        assert_eq!(
+            codes,
+            vec![Some(NumberOrString::String("param-type-mismatch".into())); 2],
+            "{diagnostics:#?}"
+        );
+    }
+
     fn param_type_diagnostics(ws: &mut VirtualWorkspace, block_str: &str) -> Vec<Diagnostic> {
         ws.analysis
             .diagnostic

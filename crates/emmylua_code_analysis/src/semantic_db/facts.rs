@@ -125,7 +125,7 @@ pub struct FileFacts {
     decls_by_owner_syntax: HashMap<LuaSyntaxId, Vec<usize>>,
     signature_by_closure: HashMap<LuaSyntaxId, usize>,
     signature_by_position: HashMap<TextSize, usize>,
-    /// `setmetatable(table, meta)` calls whose result is a declaration initializer:
+    /// `setmetatable(table, meta)` calls in declaration or member initializers:
     /// `(first-arg range, first-arg syntax, metatable-value syntax)`.
     setmetatable_calls: Vec<(TextRange, LuaSyntaxId, LuaSyntaxId)>,
     operator_by_owner_name: HashMap<(SemanticId, SmolStr), usize>,
@@ -405,7 +405,7 @@ impl FileFacts {
             })
     }
 
-    /// `setmetatable(table, meta)` calls bound to a declaration initializer.
+    /// `setmetatable(table, meta)` calls in declaration or member initializers.
     pub fn setmetatable_calls(&self) -> &[(TextRange, LuaSyntaxId, LuaSyntaxId)] {
         &self.setmetatable_calls
     }
@@ -557,7 +557,7 @@ pub struct FactsBuilder {
     module_version_conds: Vec<LuaVersionCondition>,
     /// Doc annotation usage errors (`@field` must be under a `@class`, etc.).
     annotation_errors: Vec<AnnotationError>,
-    /// `setmetatable(table, meta)` calls bound to a declaration initializer.
+    /// `setmetatable(table, meta)` calls in declaration or member initializers.
     setmetatable_calls: Vec<(TextRange, LuaSyntaxId, LuaSyntaxId)>,
 }
 
@@ -2259,16 +2259,18 @@ impl FactsBuilder {
     }
 
     /// Top-level `return X` → module export target (the last top-level return wins).
-    /// Indexes `setmetatable(table, meta)` calls that initialize a declaration.
+    /// Indexes `setmetatable(table, meta)` calls that initialize a declaration or member.
     ///
     /// Table member lookup otherwise has to scan every declaration to find the
     /// matching `setmetatable` call for a table literal.
     fn collect_setmetatable_calls(&mut self, chunk: &LuaChunk) {
         let root = chunk.get_root();
-        for decl in &self.decls {
-            let Some(value_syntax) = decl.value_expr_syntax else {
-                continue;
-            };
+        let values = self
+            .decls
+            .iter()
+            .filter_map(|decl| decl.value_expr_syntax)
+            .chain(self.members.iter().filter_map(|member| member.value_syntax));
+        for value_syntax in values {
             let Some(node) = value_syntax.to_node_from_root(&root) else {
                 continue;
             };
