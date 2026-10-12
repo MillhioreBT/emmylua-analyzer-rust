@@ -1,6 +1,100 @@
 #[cfg(test)]
 mod test {
+    use crate::check::test::check_source;
     use crate::{DiagnosticCode, VirtualWorkspace};
+
+    #[test]
+    fn test_table_literal_dictionary_index() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Dict
+            ---@field [string] integer
+            ---@type Dict
+            local t = {foo = 1}
+            ---@type Dict
+            local empty = {}
+            return t.foo, empty
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn test_table_literal_dictionary_index_inherited() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Dict
+            ---@field [string] integer
+            ---@class NamedDict: Dict
+            ---@field required integer
+            ---@type NamedDict
+            local t = {required = 1, foo = 2}
+            return t
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn test_table_literal_dictionary_index_rejects_wrong_key() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Dict
+            ---@field [string] integer
+            ---@type Dict
+            local t = {[1] = 1}
+            return t
+            "#,
+        );
+        assert_eq!(
+            diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+            vec![DiagnosticCode::InjectField],
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_table_literal_dictionary_index_rejects_wrong_value() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Dict
+            ---@field [string] integer
+            ---@type Dict
+            local t = {foo = "bad"}
+            return t
+            "#,
+        );
+        assert_eq!(
+            diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+            vec![DiagnosticCode::AssignTypeMismatch],
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_table_literal_dictionary_index_requires_named_field() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Dict
+            ---@field [string] integer
+            ---@field required integer
+            ---@type Dict
+            local t = {foo = 1}
+            return t
+            "#,
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|d| (d.code, d.message.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(
+                DiagnosticCode::MissingFields,
+                "Missing required fields: `required`"
+            )],
+            "{diagnostics:?}"
+        );
+    }
 
     #[test]
     fn test_issue_195() {

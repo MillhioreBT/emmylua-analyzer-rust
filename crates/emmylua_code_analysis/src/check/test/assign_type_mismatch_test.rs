@@ -1,6 +1,102 @@
 #[cfg(test)]
 mod tests {
+    use crate::check::test::check_source;
     use crate::{DiagnosticCode, VirtualWorkspace};
+
+    #[test]
+    fn test_table_literal_nullable_tuple() {
+        let diagnostics = check_source(
+            r#"
+            ---@type [integer, integer]?
+            local range
+            range = {1, 2}
+            return range
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn test_table_literal_tuple_alias() {
+        let diagnostics = check_source(
+            r#"
+            ---@alias Pair [integer, integer]
+            ---@alias Range Pair
+            ---@type Range
+            local pair = {1, 2}
+            ---@type Pair?
+            local optional = {3, 4}
+            return pair, optional
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn test_table_literal_tuple_alias_array() {
+        let diagnostics = check_source(
+            r#"
+            ---@alias Chunk [string, string?]
+            ---@type Chunk[]
+            local chunks = {{"text", "Comment"}, {" "}}
+            return chunks
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn test_table_literal_tuple_alias_array_rejects_wrong_element() {
+        let diagnostics = check_source(
+            r#"
+            ---@alias Chunk [string, string?]
+            ---@type Chunk[]
+            local chunks = {{"text", 1}}
+            return chunks
+            "#,
+        );
+        assert_eq!(
+            diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+            vec![DiagnosticCode::AssignTypeMismatch],
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_table_literal_tuple_rejects_wrong_element() {
+        for target in ["[integer, integer]?", "Pair", "Pair?"] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@alias Pair [integer, integer]
+                ---@type {target}
+                local pair = {{1, "bad"}}
+                return pair
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                vec![DiagnosticCode::AssignTypeMismatch],
+                "{target}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_literal_tuple_rejects_invalid_alternatives() {
+        let diagnostics = check_source(
+            r#"
+            ---@alias Pair [integer, integer]
+            ---@type Pair | [string, string] | boolean
+            local pair = {1, "bad"}
+            return pair
+            "#,
+        );
+        assert_eq!(
+            diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+            vec![DiagnosticCode::AssignTypeMismatch],
+            "{diagnostics:?}"
+        );
+    }
 
     #[test]
     fn test_1() {

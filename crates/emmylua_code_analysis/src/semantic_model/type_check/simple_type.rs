@@ -3,7 +3,7 @@
 
 use std::ops::Deref;
 
-use crate::{LuaType, LuaTypeDeclId, VariadicType};
+use crate::{LuaMemberKey, LuaType, LuaTypeDeclId, VariadicType};
 
 use super::TypeCheckResult;
 use super::context::TypeCheckContext;
@@ -24,6 +24,20 @@ pub fn check_simple_type_compact(
             }
         }
         LuaType::Table | LuaType::TableConst(_) => {
+            if context.assign_mode
+                && let (LuaType::TableConst(_), LuaType::Tuple(tuple)) = (source, compact_type)
+            {
+                let next_guard = check_guard.next_level()?;
+                for (index, expected) in tuple.get_types().iter().enumerate() {
+                    let key = LuaMemberKey::Integer(index as i64 + 1);
+                    let actual = context
+                        .model
+                        .member_type(source, &key)
+                        .unwrap_or(LuaType::Nil);
+                    super::check_general_type_compact(context, &actual, expected, next_guard)?;
+                }
+                return Ok(());
+            }
             if matches!(
                 compact_type,
                 LuaType::Table

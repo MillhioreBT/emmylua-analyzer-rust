@@ -8,6 +8,7 @@ use crate::semantic_db::def::{SemanticId, TypeDef, TypeDefKind, TypeScope};
 use crate::semantic_model::SemanticModel;
 use crate::{LuaMemberKey, LuaType, LuaUnionType};
 
+use super::assign_type_mismatch::signature_matches_key;
 use super::param_type_check::callable_candidates;
 use super::{CheckContext, Checker};
 use crate::semantic_model::member::type_def_of;
@@ -432,21 +433,29 @@ fn check_against_type(
 
     // Target type's @field members (including inheritance).
     let mut members: Vec<(String, LuaType)> = Vec::new();
+    let mut index_signatures = Vec::new();
     let mut visited = Vec::new();
-    collect_fields(semantic_model, &target_id, &mut visited, &mut members);
+    collect_fields(
+        semantic_model,
+        &target_id,
+        &mut visited,
+        &mut members,
+        &mut index_signatures,
+    );
     if let Some(def) = find_type_def(semantic_model, &target_id) {
         members.extend(object_super_fields(semantic_model, &def));
     }
 
-    let fields: Vec<String> = table
-        .get_fields_with_keys()
-        .into_iter()
-        .map(|(_, key)| key.get_path_part())
-        .collect();
+    let fields = table.get_fields_with_keys();
 
     // InjectField: table field is not in the target members.
-    for field in &fields {
-        if !members.iter().any(|(name, _)| name == field) {
+    for (_, key) in &fields {
+        let field = key.get_path_part();
+        if !members.iter().any(|(name, _)| name == &field)
+            && !index_signatures
+                .iter()
+                .any(|signature| signature_matches_key(semantic_model, signature, key))
+        {
             context.add_diagnostic(
                 DiagnosticCode::InjectField,
                 table.get_range(),
@@ -458,7 +467,9 @@ fn check_against_type(
     // MissingFields: required (non-nullable) members are missing.
     let missing: Vec<&str> = members
         .iter()
-        .filter(|(name, ty)| !fields.contains(name) && !is_optional(ty))
+        .filter(|(name, ty)| {
+            !fields.iter().any(|(_, key)| key.get_path_part() == *name) && !is_optional(ty)
+        })
         .map(|(name, _)| name.as_str())
         .collect();
     if !missing.is_empty() {
@@ -494,6 +505,7 @@ fn collect_fields(
     type_def_id: &SemanticId,
     visited: &mut Vec<SemanticId>,
     out: &mut Vec<(String, LuaType)>,
+    index_signatures: &mut Vec<String>,
 ) {
     if visited.contains(type_def_id) {
         return;
@@ -501,6 +513,13 @@ fn collect_fields(
     visited.push(type_def_id.clone());
     for member_ref in semantic_model.members_of_owner(type_def_id).iter() {
         let name = member_ref.name.to_string();
+        if let Some(facts) = semantic_model.file_facts_of(member_ref.file_id)
+            && let Some(member) = facts.member_by_id(&member_ref.id)
+            && member.is_index_signature
+        {
+            index_signatures.push(name);
+            continue;
+        }
         let mut ty = semantic_model
             .type_of_member(&member_ref.id)
             .unwrap_or(LuaType::Unknown);
@@ -528,7 +547,13 @@ fn collect_fields(
     if let Some(def) = find_type_def(semantic_model, type_def_id) {
         for super_name in &def.super_names {
             if let Some(super_def) = super_type_def(semantic_model, super_name) {
-                collect_fields(semantic_model, &super_def.id, visited, out);
+                collect_fields(
+                    semantic_model,
+                    &super_def.id,
+                    visited,
+                    out,
+                    index_signatures,
+                );
             }
         }
     }
