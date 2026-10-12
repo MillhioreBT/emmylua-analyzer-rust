@@ -1,6 +1,6 @@
 //! Generic type checks: generic parameter matching + base type nominal checks.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::{LuaGenericType, LuaType, LuaTypeDeclId};
 
@@ -40,7 +40,7 @@ pub fn check_generic_type_compact(
             for super_type in context.super_types_of(&compact_generic.get_base_type_id()) {
                 if check_general_type_compact(
                     context,
-                    &LuaType::Generic(Arc::new(source_generic.clone())),
+                    &LuaType::Generic(Rc::new(source_generic.clone())),
                     &super_type,
                     check_guard.next_level()?,
                 )
@@ -78,7 +78,7 @@ pub fn check_generic_type_compact(
             Ok(())
         }
         _ => Err(context.mismatch(
-            &LuaType::Generic(Arc::new(source_generic.clone())),
+            &LuaType::Generic(Rc::new(source_generic.clone())),
             compact_type,
         )),
     }
@@ -132,16 +132,16 @@ fn check_generic_type_compact_generic(
     let compact_base_id = compact_generic.get_base_type_id();
     if compact_base_id != source_base_id {
         return Err(context.mismatch(
-            &LuaType::Generic(Arc::new(source_generic.clone())),
-            &LuaType::Generic(Arc::new(compact_generic.clone())),
+            &LuaType::Generic(Rc::new(source_generic.clone())),
+            &LuaType::Generic(Rc::new(compact_generic.clone())),
         ));
     }
     let source_params = source_generic.get_params();
     let compact_params = compact_generic.get_params();
     if source_params.len() != compact_params.len() {
         return Err(context.mismatch(
-            &LuaType::Generic(Arc::new(source_generic.clone())),
-            &LuaType::Generic(Arc::new(compact_generic.clone())),
+            &LuaType::Generic(Rc::new(source_generic.clone())),
+            &LuaType::Generic(Rc::new(compact_generic.clone())),
         ));
     }
     let next_guard = check_guard.next_level()?;
@@ -177,7 +177,7 @@ fn check_generic_type_compact_ref_type(
         );
     }
     Err(context.mismatch(
-        &LuaType::Generic(Arc::new(source_generic.clone())),
+        &LuaType::Generic(Rc::new(source_generic.clone())),
         &LuaType::Ref(ref_id.clone()),
     ))
 }

@@ -8,7 +8,7 @@
 //! `MissingReturn` uses control-flow analysis consistent with the old implementation: truthy/falsy/never
 //! condition judgment, break/infinite-loop paths in while/repeat loops, and if-branch merging.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use emmylua_parser::{
     BinaryOperator, LuaAstNode, LuaAstToken, LuaBlock, LuaCallExprStat, LuaClosureExpr, LuaDoStat,
@@ -243,7 +243,7 @@ fn project_return_annotation_in(
                 .get_type()
                 .map(|ty| project_return_annotation_in(semantic_model, file_id, ty.get_syntax_id()))
                 .unwrap_or(LuaType::Any);
-            return LuaType::Variadic(Arc::new(VariadicType::Base(inner)));
+            return LuaType::Variadic(Rc::new(VariadicType::Base(inner)));
         }
     }
     semantic_model.doc_type_lua_rich_in(file_id, syntax)
@@ -349,7 +349,7 @@ fn full_return_type(semantic_model: &SemanticModel<'_>, expr: &LuaExpr) -> LuaTy
         return match types.len() {
             0 => LuaType::Nil,
             1 => types.into_iter().next().expect("len checked"),
-            _ => LuaType::Variadic(Arc::new(VariadicType::Multi(types))),
+            _ => LuaType::Variadic(Rc::new(VariadicType::Multi(types))),
         };
     }
     semantic_model.type_of_expr_at(expr.get_syntax_id(), expr.get_range().start())

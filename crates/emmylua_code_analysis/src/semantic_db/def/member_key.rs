@@ -1,19 +1,13 @@
-//! File-independent member keys (for lookup).
-//!
-//! `MyMod.Field` -> `Name("Field")`; `t[1]` -> `Integer(1)`;
-//! Dynamic keys are retained as `TypeKey(LuaType)`.
-//! Separated from identity (file + position in `SemanticId::Member`): keys answer "what to find"; identity answers "where it is declared".
-
 use smol_str::SmolStr;
 
 use crate::LuaType;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+// 仅包含具名键, 索引签名的键类型由语义模型推断
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum LuaMemberKey {
     None,
     Integer(i64),
     Name(SmolStr),
-    TypeKey(LuaType),
 }
 
 impl LuaMemberKey {
@@ -31,10 +25,6 @@ impl LuaMemberKey {
 
     pub fn is_integer(&self) -> bool {
         matches!(self, LuaMemberKey::Integer(_))
-    }
-
-    pub fn is_expr(&self) -> bool {
-        matches!(self, LuaMemberKey::TypeKey(_))
     }
 
     pub fn get_name(&self) -> Option<&str> {
@@ -55,7 +45,6 @@ impl LuaMemberKey {
         match self {
             LuaMemberKey::Integer(i) => Some(LuaType::IntegerConst(*i)),
             LuaMemberKey::Name(name) => Some(LuaType::StringConst(name.clone().into())),
-            LuaMemberKey::TypeKey(typ) => Some(typ.clone()),
             LuaMemberKey::None => None,
         }
     }
@@ -65,31 +54,6 @@ impl LuaMemberKey {
             LuaMemberKey::Name(name) => name.to_string(),
             LuaMemberKey::Integer(i) => format!("[{}]", i),
             LuaMemberKey::None => String::new(),
-            LuaMemberKey::TypeKey(_) => String::new(),
-        }
-    }
-}
-
-impl PartialOrd for LuaMemberKey {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for LuaMemberKey {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use LuaMemberKey::*;
-        match (self, other) {
-            (None, None) => std::cmp::Ordering::Equal,
-            (None, _) => std::cmp::Ordering::Less,
-            (_, None) => std::cmp::Ordering::Greater,
-            (Integer(a), Integer(b)) => a.cmp(b),
-            (Integer(_), _) => std::cmp::Ordering::Less,
-            (_, Integer(_)) => std::cmp::Ordering::Greater,
-            (Name(a), Name(b)) => a.cmp(b),
-            (Name(_), _) => std::cmp::Ordering::Less,
-            (_, Name(_)) => std::cmp::Ordering::Greater,
-            (TypeKey(a), TypeKey(b)) => format!("{:?}", a).cmp(&format!("{:?}", b)),
         }
     }
 }

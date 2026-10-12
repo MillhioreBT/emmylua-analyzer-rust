@@ -3,6 +3,8 @@
 //! M0: if the call callee type is nullable or the index prefix is nullable, report NeedCheckNil;
 //! safe navigation (`?.`/`?:`) skips.
 
+use std::rc::Rc;
+
 use emmylua_parser::{LuaAssignStat, LuaAstNode, LuaCallExpr, LuaExpr, LuaIndexExpr, PathTrait};
 
 use crate::LuaUnionType;
@@ -177,10 +179,7 @@ fn prefix_type(semantic_model: &SemanticModel<'_>, prefix: &LuaExpr) -> LuaType 
             ) {
                 base
             } else if semantic_model.strict_array_index() || base.is_nullable() {
-                LuaType::Union(std::sync::Arc::new(LuaUnionType::from_vec(vec![
-                    base,
-                    LuaType::Nil,
-                ])))
+                LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![base, LuaType::Nil])))
             } else {
                 base
             }
@@ -204,7 +203,7 @@ fn prefix_type(semantic_model: &SemanticModel<'_>, prefix: &LuaExpr) -> LuaType 
                 if types.len() == 1 {
                     types.pop().expect("len checked")
                 } else {
-                    LuaType::Union(std::sync::Arc::new(LuaUnionType::from_vec(types)))
+                    LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
                 }
             } else {
                 ty

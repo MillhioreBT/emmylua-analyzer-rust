@@ -6,7 +6,7 @@ use internment::ArcIntern;
 use rowan::TextRange;
 use smol_str::SmolStr;
 use std::hash::{Hash, Hasher};
-use std::{collections::hash_map::DefaultHasher, ops::Deref, sync::Arc};
+use std::{collections::hash_map::DefaultHasher, ops::Deref, rc::Rc};
 
 use super::LuaTypeNode;
 use super::lua_type::LuaType;
@@ -182,13 +182,13 @@ impl LuaFunctionType {
     //     }
     // }
 
-    pub fn to_call_operator_func_type(&self) -> Arc<LuaFunctionType> {
+    pub fn to_call_operator_func_type(&self) -> Rc<LuaFunctionType> {
         let mut params = self.get_params().to_vec();
         if params.first().is_some_and(|(name, _)| name == "@call_self") {
             params.remove(0);
         }
 
-        Arc::new(LuaFunctionType::new(
+        Rc::new(LuaFunctionType::new(
             self.async_state,
             false,
             self.is_variadic,
@@ -916,7 +916,7 @@ impl LuaMultiLineUnion {
             types.push(t.clone());
         }
 
-        LuaType::Union(Arc::new(LuaUnionType::from_vec(types)))
+        LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
     }
 
     pub fn contain_tpl(&self) -> bool {
@@ -1018,7 +1018,7 @@ impl LuaConditionalType {
 
 impl From<LuaConditionalType> for LuaType {
     fn from(t: LuaConditionalType) -> Self {
-        LuaType::Conditional(Arc::new(t))
+        LuaType::Conditional(Rc::new(t))
     }
 }
 

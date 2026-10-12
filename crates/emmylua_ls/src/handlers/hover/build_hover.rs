@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use std::collections::HashMap;
 
 use emmylua_code_analysis::{
@@ -414,7 +416,7 @@ fn bind_runtime_field_generics(
     }
     let name_refs = names.iter().map(String::as_str).collect::<Vec<_>>();
     Some(model.substitute_generic_params_named_str(
-        &LuaType::DocFunction(std::sync::Arc::new(type_fun.clone())),
+        &LuaType::DocFunction(Rc::new(type_fun.clone())),
         &values,
         &name_refs,
     ))
@@ -580,7 +582,7 @@ fn member_type_at_token(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -> Op
         fun = call_fun;
     }
 
-    let doc_fun = LuaType::DocFunction(std::sync::Arc::new(fun));
+    let doc_fun = LuaType::DocFunction(Rc::new(fun));
     match &prefix_ty {
         LuaType::Generic(generic) => {
             let base_id = generic.get_base_type_id_ref();
@@ -728,7 +730,7 @@ fn render_decl_overload_blocks(
                 .map(|param| param.name.as_str())
                 .collect::<Vec<_>>();
             if let LuaType::DocFunction(substituted) = model.substitute_generic_params_named_str(
-                &LuaType::DocFunction(std::sync::Arc::new(fun.clone())),
+                &LuaType::DocFunction(Rc::new(fun.clone())),
                 &params,
                 &names,
             ) {
@@ -950,7 +952,7 @@ fn substitute_unbound_call_generics(
         .map(|param| param.get_name())
         .collect::<Vec<_>>();
     if let LuaType::DocFunction(substituted) = model.substitute_generic_params_named_str(
-        &LuaType::DocFunction(std::sync::Arc::new(fun.clone())),
+        &LuaType::DocFunction(Rc::new(fun.clone())),
         &params,
         &names,
     ) {

@@ -122,12 +122,9 @@ fn can_use_as_array(builder: &CompletionBuilder, typ: &LuaType) -> bool {
                     .semantic_model
                     .get_member_infos(real_type)
                     .is_some_and(|members| {
-                        members.iter().any(|member| {
-                            matches!(
-                                &member.key,
-                                LuaMemberKey::Integer(_) | LuaMemberKey::TypeKey(LuaType::Integer)
-                            )
-                        })
+                        members
+                            .iter()
+                            .any(|member| matches!(&member.key, LuaMemberKey::Integer(_)))
                     })
         }
     }

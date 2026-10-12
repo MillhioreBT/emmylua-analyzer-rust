@@ -24,6 +24,8 @@ pub(crate) mod vm;
 
 pub use vm::infer_doc_func;
 
+use std::rc::Rc;
+
 use emmylua_parser::{LuaAstNode, LuaCallExpr, LuaSyntaxId};
 
 use crate::{LuaType, SemanticId, VariadicType};
@@ -95,7 +97,7 @@ pub fn infer_call_with_bindings(
                 };
                 let member = model.file_facts_of(member_file)?.member_by_id(&member_id)?;
                 let value_syntax = member.value_syntax?;
-                std::sync::Arc::new(model.type_of_signature_in_file(member_file, value_syntax)?)
+                Rc::new(model.type_of_signature_in_file(member_file, value_syntax)?)
             } else {
                 return None;
             }

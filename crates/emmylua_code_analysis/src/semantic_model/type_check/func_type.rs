@@ -1,5 +1,7 @@
 //! Function type checks: DocFunction structure (params/variadic/colon definition); Signature goes through semantic signatures.
 
+use std::rc::Rc;
+
 use crate::LuaFunctionType;
 use crate::LuaSignatureId;
 use crate::LuaType;
@@ -34,7 +36,7 @@ pub fn check_doc_func_type_compact(
                 Ok(())
             } else {
                 Err(context.mismatch(
-                    &LuaType::DocFunction(std::sync::Arc::new(source_func.clone())),
+                    &LuaType::DocFunction(Rc::new(source_func.clone())),
                     compact_type,
                 ))
             }
@@ -52,7 +54,7 @@ pub fn check_doc_func_type_compact(
         }
         LuaType::Function => Ok(()),
         _ => Err(context.mismatch(
-            &LuaType::DocFunction(std::sync::Arc::new(source_func.clone())),
+            &LuaType::DocFunction(Rc::new(source_func.clone())),
             compact_type,
         )),
     }
@@ -155,7 +157,7 @@ fn check_doc_func_type_compact_for_signature(
     // M0: convert a semantic Signature (params/doc) into a DocFunction structure for comparison.
     let Some(signature) = context.model.function_type_by_signature_id(signature_id) else {
         return Err(context.mismatch(
-            &LuaType::DocFunction(std::sync::Arc::new(source_func.clone())),
+            &LuaType::DocFunction(Rc::new(source_func.clone())),
             &LuaType::Signature(*signature_id),
         ));
     };

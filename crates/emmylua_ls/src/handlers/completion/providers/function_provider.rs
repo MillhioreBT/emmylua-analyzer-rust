@@ -1,5 +1,7 @@
 //! Function context completion: call-argument type candidates / @param completion in parameter lists / function implementations for assignment targets.
 
+use std::rc::Rc;
+
 use emmylua_code_analysis::{LuaFunctionType, LuaType, LuaTypeDeclId, SemanticId, SemanticModel};
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaCallArgList, LuaCallExpr, LuaClosureExpr, LuaDocTagParam,
@@ -242,15 +244,13 @@ fn substitute_tpl_constraints(
                     .and_then(|generic| generic.get_constraint())
                     .cloned()
             });
-            LuaType::StrTplRef(std::sync::Arc::new(
-                emmylua_code_analysis::LuaStringTplType::new(
-                    str_tpl.get_prefix(),
-                    str_tpl.get_name(),
-                    str_tpl.get_tpl_id(),
-                    str_tpl.get_suffix(),
-                    constraint,
-                ),
-            ))
+            LuaType::StrTplRef(Rc::new(emmylua_code_analysis::LuaStringTplType::new(
+                str_tpl.get_prefix(),
+                str_tpl.get_name(),
+                str_tpl.get_tpl_id(),
+                str_tpl.get_suffix(),
+                constraint,
+            )))
         }
         LuaType::Union(union) => {
             let components = union
@@ -258,9 +258,9 @@ fn substitute_tpl_constraints(
                 .iter()
                 .map(|component| substitute_tpl_constraints(component.clone(), generics))
                 .collect();
-            LuaType::Union(std::sync::Arc::new(
-                emmylua_code_analysis::LuaUnionType::from_vec(components),
-            ))
+            LuaType::Union(Rc::new(emmylua_code_analysis::LuaUnionType::from_vec(
+                components,
+            )))
         }
         other => other,
     }
@@ -299,10 +299,10 @@ fn doc_keyof_param_override(
         .iter()
         .find(|generic| generic.get_name() == inner)?
         .clone();
-    Some(LuaType::Call(std::sync::Arc::new(
+    Some(LuaType::Call(Rc::new(
         emmylua_code_analysis::LuaAliasCallType::new(
             emmylua_code_analysis::LuaAliasCallKind::KeyOf,
-            vec![LuaType::TplRef(std::sync::Arc::new(generic))],
+            vec![LuaType::TplRef(Rc::new(generic))],
         ),
     )))
 }
@@ -359,13 +359,13 @@ fn substitute_tpl_in_type(ty: &LuaType, bindings: &[(String, LuaType)]) -> LuaTy
                 .iter()
                 .map(|component| substitute_tpl_in_type(component, bindings))
                 .collect();
-            LuaType::Union(std::sync::Arc::new(
-                emmylua_code_analysis::LuaUnionType::from_vec(components),
-            ))
+            LuaType::Union(Rc::new(emmylua_code_analysis::LuaUnionType::from_vec(
+                components,
+            )))
         }
         LuaType::Array(array) => {
             let base = substitute_tpl_in_type(array.get_base(), bindings);
-            LuaType::Array(std::sync::Arc::new(
+            LuaType::Array(Rc::new(
                 emmylua_code_analysis::LuaArrayType::from_base_type(base),
             ))
         }
@@ -375,9 +375,10 @@ fn substitute_tpl_in_type(ty: &LuaType, bindings: &[(String, LuaType)]) -> LuaTy
                 .iter()
                 .map(|operand| substitute_tpl_in_type(operand, bindings))
                 .collect();
-            LuaType::Call(std::sync::Arc::new(
-                emmylua_code_analysis::LuaAliasCallType::new(call.get_call_kind(), operands),
-            ))
+            LuaType::Call(Rc::new(emmylua_code_analysis::LuaAliasCallType::new(
+                call.get_call_kind(),
+                operands,
+            )))
         }
         _ => ty.clone(),
     }

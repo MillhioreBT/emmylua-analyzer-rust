@@ -5,7 +5,7 @@
 //! instead of duplicating the same evaluation logic in the display or call layers.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use smol_str::SmolStr;
 
@@ -68,7 +68,7 @@ pub fn eval_merge_call(model: &SemanticModel, call: &LuaAliasCallType) -> Option
     if !has_info {
         return None;
     }
-    Some(LuaType::Object(Arc::new(LuaObjectType::new_with_fields(
+    Some(LuaType::Object(Rc::new(LuaObjectType::new_with_fields(
         fields,
         Vec::new(),
     ))))
@@ -226,7 +226,7 @@ pub fn expand_index_call(model: &SemanticModel, call: &LuaAliasCallType) -> Opti
 fn bind_mapped_param_ref(ty: &LuaType, param_id: GenericTplId, param_name: &str) -> LuaType {
     use LuaType::*;
     match ty {
-        Ref(id) | Def(id) if id.get_name() == param_name => TplRef(Arc::new(GenericTpl::new(
+        Ref(id) | Def(id) if id.get_name() == param_name => TplRef(Rc::new(GenericTpl::new(
             param_id,
             SmolStr::new(param_name),
             None,
@@ -234,10 +234,10 @@ fn bind_mapped_param_ref(ty: &LuaType, param_id: GenericTplId, param_name: &str)
             false,
             None,
         ))),
-        Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+        Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
             bind_mapped_param_ref(array.get_base(), param_id, param_name),
         ))),
-        Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+        Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
             tuple
                 .get_types()
                 .iter()
@@ -245,14 +245,14 @@ fn bind_mapped_param_ref(ty: &LuaType, param_id: GenericTplId, param_name: &str)
                 .collect(),
             tuple.status,
         ))),
-        Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+        Union(union) => Union(Rc::new(LuaUnionType::from_vec(
             union
                 .into_vec()
                 .iter()
                 .map(|t| bind_mapped_param_ref(t, param_id, param_name))
                 .collect(),
         ))),
-        Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+        Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
             object
                 .get_fields()
                 .iter()
@@ -269,7 +269,7 @@ fn bind_mapped_param_ref(ty: &LuaType, param_id: GenericTplId, param_name: &str)
                 })
                 .collect(),
         ))),
-        Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+        Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => {
                 VariadicType::Base(bind_mapped_param_ref(base, param_id, param_name))
             }
@@ -280,14 +280,14 @@ fn bind_mapped_param_ref(ty: &LuaType, param_id: GenericTplId, param_name: &str)
                     .collect(),
             ),
         })),
-        Call(call) => Call(Arc::new(LuaAliasCallType::new(
+        Call(call) => Call(Rc::new(LuaAliasCallType::new(
             call.get_call_kind(),
             call.get_operands()
                 .iter()
                 .map(|t| bind_mapped_param_ref(t, param_id, param_name))
                 .collect(),
         ))),
-        Conditional(conditional) => Conditional(Arc::new(LuaConditionalType::new(
+        Conditional(conditional) => Conditional(Rc::new(LuaConditionalType::new(
             bind_mapped_param_ref(conditional.get_checked_type(), param_id, param_name),
             bind_mapped_param_ref(conditional.get_extends_type(), param_id, param_name),
             bind_mapped_param_ref(conditional.get_true_type(), param_id, param_name),
@@ -327,10 +327,10 @@ pub fn sanitize_unresolved_generics(
     use LuaType::*;
     match ty {
         TplRef(tpl) if !allowed.contains(&tpl.get_tpl_id()) => Unknown,
-        Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+        Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
             sanitize_unresolved_generics(array.get_base(), allowed),
         ))),
-        Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+        Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
             tuple
                 .get_types()
                 .iter()
@@ -338,14 +338,14 @@ pub fn sanitize_unresolved_generics(
                 .collect(),
             tuple.status,
         ))),
-        Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+        Union(union) => Union(Rc::new(LuaUnionType::from_vec(
             union
                 .into_vec()
                 .iter()
                 .map(|t| sanitize_unresolved_generics(t, allowed))
                 .collect(),
         ))),
-        Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+        Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
             object
                 .get_fields()
                 .iter()
@@ -362,13 +362,13 @@ pub fn sanitize_unresolved_generics(
                 })
                 .collect(),
         ))),
-        TableGeneric(generic) => TableGeneric(Arc::new(
+        TableGeneric(generic) => TableGeneric(Rc::new(
             generic
                 .iter()
                 .map(|t| sanitize_unresolved_generics(t, allowed))
                 .collect(),
         )),
-        Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+        Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => {
                 VariadicType::Base(sanitize_unresolved_generics(base, allowed))
             }
@@ -379,7 +379,7 @@ pub fn sanitize_unresolved_generics(
                     .collect(),
             ),
         })),
-        Call(call) => Call(Arc::new(LuaAliasCallType::new(
+        Call(call) => Call(Rc::new(LuaAliasCallType::new(
             call.get_call_kind(),
             call.get_operands()
                 .iter()
@@ -407,15 +407,15 @@ pub fn sanitize_unresolved_generics_with_model(
                 .iter()
                 .map(|param| sanitize_generic_param(model, param))
                 .collect();
-            Generic(Arc::new(LuaGenericType::new(
+            Generic(Rc::new(LuaGenericType::new(
                 generic.get_base_type_id().clone(),
                 params,
             )))
         }
-        Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+        Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
             sanitize_unresolved_generics_with_model(model, array.get_base(), allowed),
         ))),
-        Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+        Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
             tuple
                 .get_types()
                 .iter()
@@ -423,14 +423,14 @@ pub fn sanitize_unresolved_generics_with_model(
                 .collect(),
             tuple.status,
         ))),
-        Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+        Union(union) => Union(Rc::new(LuaUnionType::from_vec(
             union
                 .into_vec()
                 .iter()
                 .map(|ty| sanitize_unresolved_generics_with_model(model, ty, allowed))
                 .collect(),
         ))),
-        Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+        Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
             object
                 .get_fields()
                 .iter()
@@ -452,13 +452,13 @@ pub fn sanitize_unresolved_generics_with_model(
                 })
                 .collect(),
         ))),
-        TableGeneric(generic) => TableGeneric(Arc::new(
+        TableGeneric(generic) => TableGeneric(Rc::new(
             generic
                 .iter()
                 .map(|ty| sanitize_unresolved_generics_with_model(model, ty, allowed))
                 .collect(),
         )),
-        Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+        Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => VariadicType::Base(
                 sanitize_unresolved_generics_with_model(model, base, allowed),
             ),
@@ -469,7 +469,7 @@ pub fn sanitize_unresolved_generics_with_model(
                     .collect(),
             ),
         })),
-        Call(call) => Call(Arc::new(LuaAliasCallType::new(
+        Call(call) => Call(Rc::new(LuaAliasCallType::new(
             call.get_call_kind(),
             call.get_operands()
                 .iter()
@@ -485,7 +485,7 @@ fn sanitize_generic_param(model: &SemanticModel, ty: &LuaType) -> LuaType {
     use LuaType::*;
     match ty {
         Ref(id) | Def(id) if model.type_def_of(&id).is_none() => Unknown,
-        Generic(generic) => Generic(Arc::new(LuaGenericType::new(
+        Generic(generic) => Generic(Rc::new(LuaGenericType::new(
             generic.get_base_type_id().clone(),
             generic
                 .get_params()
@@ -493,10 +493,10 @@ fn sanitize_generic_param(model: &SemanticModel, ty: &LuaType) -> LuaType {
                 .map(|param| sanitize_generic_param(model, param))
                 .collect(),
         ))),
-        Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+        Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
             sanitize_generic_param(model, array.get_base()),
         ))),
-        Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+        Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
             tuple
                 .get_types()
                 .iter()
@@ -504,14 +504,14 @@ fn sanitize_generic_param(model: &SemanticModel, ty: &LuaType) -> LuaType {
                 .collect(),
             tuple.status,
         ))),
-        Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+        Union(union) => Union(Rc::new(LuaUnionType::from_vec(
             union
                 .into_vec()
                 .iter()
                 .map(|ty| sanitize_generic_param(model, ty))
                 .collect(),
         ))),
-        Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+        Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
             object
                 .get_fields()
                 .iter()
@@ -528,13 +528,13 @@ fn sanitize_generic_param(model: &SemanticModel, ty: &LuaType) -> LuaType {
                 })
                 .collect(),
         ))),
-        TableGeneric(generic) => TableGeneric(Arc::new(
+        TableGeneric(generic) => TableGeneric(Rc::new(
             generic
                 .iter()
                 .map(|ty| sanitize_generic_param(model, ty))
                 .collect(),
         )),
-        Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+        Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => VariadicType::Base(sanitize_generic_param(model, base)),
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
@@ -543,7 +543,7 @@ fn sanitize_generic_param(model: &SemanticModel, ty: &LuaType) -> LuaType {
                     .collect(),
             ),
         })),
-        Call(call) => Call(Arc::new(LuaAliasCallType::new(
+        Call(call) => Call(Rc::new(LuaAliasCallType::new(
             call.get_call_kind(),
             call.get_operands()
                 .iter()
@@ -578,7 +578,7 @@ pub fn expand_mapped(model: &SemanticModel, mapped: &LuaMappedType) -> Option<Lu
         );
         fields.insert(key, value);
     }
-    Some(LuaType::Object(Arc::new(LuaObjectType::new_with_fields(
+    Some(LuaType::Object(Rc::new(LuaObjectType::new_with_fields(
         fields,
         Vec::new(),
     ))))
@@ -612,10 +612,10 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
             .get(id.get_name())
             .cloned()
             .unwrap_or_else(|| ty.clone()),
-        Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+        Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
             substitute_named_refs(array.get_base(), map),
         ))),
-        Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+        Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
             tuple
                 .get_types()
                 .iter()
@@ -623,7 +623,7 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
                 .collect(),
             tuple.status,
         ))),
-        DocFunction(fun) => DocFunction(Arc::new(LuaFunctionType::new(
+        DocFunction(fun) => DocFunction(Rc::new(LuaFunctionType::new(
             fun.get_async_state(),
             fun.is_colon_define(),
             fun.is_variadic(),
@@ -639,7 +639,7 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
             substitute_named_refs(fun.get_ret(), map),
             Some(fun.get_generic_params().to_vec()),
         ))),
-        Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+        Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
             object
                 .get_fields()
                 .iter()
@@ -656,21 +656,21 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
                 })
                 .collect(),
         ))),
-        Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+        Union(union) => Union(Rc::new(LuaUnionType::from_vec(
             union
                 .into_vec()
                 .iter()
                 .map(|t| substitute_named_refs(t, map))
                 .collect(),
         ))),
-        Intersection(intersection) => Intersection(Arc::new(LuaIntersectionType::new(
+        Intersection(intersection) => Intersection(Rc::new(LuaIntersectionType::new(
             intersection
                 .get_types()
                 .iter()
                 .map(|t| substitute_named_refs(t, map))
                 .collect(),
         ))),
-        Generic(generic) => Generic(Arc::new(LuaGenericType::new(
+        Generic(generic) => Generic(Rc::new(LuaGenericType::new(
             generic.get_base_type_id(),
             generic
                 .get_params()
@@ -678,13 +678,13 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
                 .map(|t| substitute_named_refs(t, map))
                 .collect(),
         ))),
-        TableGeneric(generic) => TableGeneric(Arc::new(
+        TableGeneric(generic) => TableGeneric(Rc::new(
             generic
                 .iter()
                 .map(|t| substitute_named_refs(t, map))
                 .collect(),
         )),
-        Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+        Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => VariadicType::Base(substitute_named_refs(base, map)),
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
@@ -693,14 +693,14 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
                     .collect(),
             ),
         })),
-        Call(call) => Call(Arc::new(LuaAliasCallType::new(
+        Call(call) => Call(Rc::new(LuaAliasCallType::new(
             call.get_call_kind(),
             call.get_operands()
                 .iter()
                 .map(|t| substitute_named_refs(t, map))
                 .collect(),
         ))),
-        Conditional(conditional) => Conditional(Arc::new(LuaConditionalType::new(
+        Conditional(conditional) => Conditional(Rc::new(LuaConditionalType::new(
             substitute_named_refs(conditional.get_checked_type(), map),
             substitute_named_refs(conditional.get_extends_type(), map),
             substitute_named_refs(conditional.get_true_type(), map),
@@ -708,7 +708,7 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
             conditional.get_infer_params().to_vec(),
             conditional.has_new,
         ))),
-        Mapped(mapped) => Mapped(Arc::new(LuaMappedType::new(
+        Mapped(mapped) => Mapped(Rc::new(LuaMappedType::new(
             (
                 mapped.param.0,
                 GenericParam::new(
@@ -821,7 +821,7 @@ fn expand_alias_generic_inner(
                                 .iter()
                                 .map(|param| expand_alias_generic_inner(model, param, visited))
                                 .collect();
-                            return Generic(Arc::new(LuaGenericType::new(base_id, params)));
+                            return Generic(Rc::new(LuaGenericType::new(base_id, params)));
                         }
                         let evaluated =
                             eval_conditional_alias(model, cond, &bindings, &name_bindings);
@@ -842,12 +842,12 @@ fn expand_alias_generic_inner(
                 .iter()
                 .map(|param| expand_alias_generic_inner(model, param, visited))
                 .collect();
-            Generic(Arc::new(LuaGenericType::new(base_id, params)))
+            Generic(Rc::new(LuaGenericType::new(base_id, params)))
         }
-        Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+        Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
             expand_alias_generic_inner(model, array.get_base(), visited),
         ))),
-        Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+        Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
             tuple
                 .get_types()
                 .iter()
@@ -855,21 +855,21 @@ fn expand_alias_generic_inner(
                 .collect(),
             tuple.status,
         ))),
-        Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+        Union(union) => Union(Rc::new(LuaUnionType::from_vec(
             union
                 .into_vec()
                 .iter()
                 .map(|t| expand_alias_generic_inner(model, t, visited))
                 .collect(),
         ))),
-        Intersection(intersection) => Intersection(Arc::new(LuaIntersectionType::new(
+        Intersection(intersection) => Intersection(Rc::new(LuaIntersectionType::new(
             intersection
                 .get_types()
                 .iter()
                 .map(|t| expand_alias_generic_inner(model, t, visited))
                 .collect(),
         ))),
-        Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+        Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
             object
                 .get_fields()
                 .iter()
@@ -886,7 +886,7 @@ fn expand_alias_generic_inner(
                 })
                 .collect(),
         ))),
-        Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+        Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => {
                 VariadicType::Base(expand_alias_generic_inner(model, base, visited))
             }
@@ -910,13 +910,13 @@ fn expand_alias_generic_inner(
             {
                 return merged;
             }
-            Call(Arc::new(call))
+            Call(Rc::new(call))
         }
         Mapped(mapped) => {
             if let Some(expanded) = expand_mapped(model, mapped) {
                 expand_alias_generic_inner(model, &expanded, visited)
             } else {
-                Mapped(Arc::new(LuaMappedType::new(
+                Mapped(Rc::new(LuaMappedType::new(
                     (
                         mapped.param.0,
                         GenericParam::new(
@@ -945,7 +945,7 @@ fn expand_alias_generic_inner(
         }
         Conditional(conditional) => eval_conditionals_inner(
             model,
-            &Conditional(Arc::new(LuaConditionalType::new(
+            &Conditional(Rc::new(LuaConditionalType::new(
                 expand_alias_generic_inner(model, conditional.get_checked_type(), visited),
                 expand_alias_generic_inner(model, conditional.get_extends_type(), visited),
                 expand_alias_generic_inner(model, conditional.get_true_type(), visited),
@@ -1002,7 +1002,7 @@ fn eval_conditional_alias(
                     member_bindings.insert(tpl_id, member.clone());
                     let mut member_names = name_bindings.clone();
                     member_names.insert(tpl_name.clone(), member.clone());
-                    let raw = LuaType::Conditional(Arc::new(conditional.clone()));
+                    let raw = LuaType::Conditional(Rc::new(conditional.clone()));
                     let substituted = unify::substitute(&raw, &member_bindings);
                     let substituted = substitute_named_refs(&substituted, &member_names);
                     let mut cond_visiting = Vec::new();
@@ -1023,7 +1023,7 @@ fn eval_conditional_alias(
             resolved_bindings.insert(tpl_id, bound.clone());
             let mut resolved_names = name_bindings.clone();
             resolved_names.insert(tpl_name.clone(), bound.clone());
-            let raw = LuaType::Conditional(Arc::new(conditional.clone()));
+            let raw = LuaType::Conditional(Rc::new(conditional.clone()));
             let substituted = unify::substitute(&raw, &resolved_bindings);
             let substituted = substitute_named_refs(&substituted, &resolved_names);
             let mut cond_visiting = Vec::new();
@@ -1036,7 +1036,7 @@ fn eval_conditional_alias(
         }
     }
 
-    let raw = LuaType::Conditional(Arc::new(conditional.clone()));
+    let raw = LuaType::Conditional(Rc::new(conditional.clone()));
     let substituted = unify::substitute(&raw, bindings);
     let substituted = substitute_named_refs(&substituted, name_bindings);
     let mut cond_visiting = Vec::new();
@@ -1059,10 +1059,10 @@ fn eval_conditionals_inner(
     use LuaType::*;
     match ty {
         Conditional(conditional) => eval_conditional_once(model, conditional, visiting),
-        Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+        Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
             eval_conditionals_inner(model, array.get_base(), visiting),
         ))),
-        Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+        Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
             tuple
                 .get_types()
                 .iter()
@@ -1070,21 +1070,21 @@ fn eval_conditionals_inner(
                 .collect(),
             tuple.status,
         ))),
-        Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+        Union(union) => Union(Rc::new(LuaUnionType::from_vec(
             union
                 .into_vec()
                 .iter()
                 .map(|t| eval_conditionals_inner(model, t, visiting))
                 .collect(),
         ))),
-        Intersection(intersection) => Intersection(Arc::new(LuaIntersectionType::new(
+        Intersection(intersection) => Intersection(Rc::new(LuaIntersectionType::new(
             intersection
                 .get_types()
                 .iter()
                 .map(|t| eval_conditionals_inner(model, t, visiting))
                 .collect(),
         ))),
-        Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+        Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
             object
                 .get_fields()
                 .iter()
@@ -1101,7 +1101,7 @@ fn eval_conditionals_inner(
                 })
                 .collect(),
         ))),
-        Generic(generic) => Generic(Arc::new(LuaGenericType::new(
+        Generic(generic) => Generic(Rc::new(LuaGenericType::new(
             generic.get_base_type_id(),
             generic
                 .get_params()
@@ -1109,7 +1109,7 @@ fn eval_conditionals_inner(
                 .map(|t| eval_conditionals_inner(model, t, visiting))
                 .collect(),
         ))),
-        Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+        Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => {
                 VariadicType::Base(eval_conditionals_inner(model, base, visiting))
             }
@@ -1120,7 +1120,7 @@ fn eval_conditionals_inner(
                     .collect(),
             ),
         })),
-        Call(call) => Call(Arc::new(LuaAliasCallType::new(
+        Call(call) => Call(Rc::new(LuaAliasCallType::new(
             call.get_call_kind(),
             call.get_operands()
                 .iter()
@@ -1148,7 +1148,7 @@ fn eval_conditional_once(
     // Do not decide before function-level generics are substituted: `T extends (fun(...: infer P))` should not
     // take the false branch while T is still an unbound TplRef. Evaluate after call-site/diagnostic bindings are substituted.
     if contains_unbound_function_tpl(checked) || contains_unbound_function_tpl(extends) {
-        return LuaType::Conditional(Arc::new(conditional.clone()));
+        return LuaType::Conditional(Rc::new(conditional.clone()));
     }
 
     // Distributive conditional types: when a naked type parameter is instantiated as a union, evaluate each union member separately.
@@ -1179,7 +1179,7 @@ fn eval_conditional_once(
         // `new (fun(...: infer P): any)`: when the source is a constructor type/class table, extract its constructor signature first.
         let infer_source = if conditional.has_new {
             match try_constructor_function(model, checked) {
-                Some(fun) => LuaType::DocFunction(Arc::new(fun)),
+                Some(fun) => LuaType::DocFunction(Rc::new(fun)),
                 None => checked.clone(),
             }
         } else {
@@ -1349,7 +1349,7 @@ impl InferCandidates {
             InferVariance::Contravariant => {
                 self.contravariant = Some(match &self.contravariant {
                     Some(existing) => {
-                        LuaType::Intersection(Arc::new(LuaIntersectionType::new(vec![
+                        LuaType::Intersection(Rc::new(LuaIntersectionType::new(vec![
                             existing.clone(),
                             ty.clone(),
                         ])))
@@ -1397,7 +1397,7 @@ fn simplify_infer_intersection(model: &SemanticModel, ty: &LuaType) -> LuaType {
     if seen.len() == 1 {
         seen.pop().expect("len checked")
     } else {
-        LuaType::Intersection(Arc::new(LuaIntersectionType::new(seen)))
+        LuaType::Intersection(Rc::new(LuaIntersectionType::new(seen)))
     }
 }
 
@@ -1631,7 +1631,7 @@ fn collect_infer_assignments(
                         let source = if source_types.len() == 1 {
                             source_types[0].clone()
                         } else {
-                            Tuple(Arc::new(LuaTupleType::new(
+                            Tuple(Rc::new(LuaTupleType::new(
                                 source_types.clone(),
                                 LuaTupleStatus::InferResolve,
                             )))
@@ -1810,13 +1810,13 @@ fn collect_infer_from_function(
                 if source_fun.is_variadic() {
                     rest_types[0].clone()
                 } else {
-                    LuaType::Tuple(Arc::new(LuaTupleType::new(
+                    LuaType::Tuple(Rc::new(LuaTupleType::new(
                         rest_types,
                         LuaTupleStatus::InferResolve,
                     )))
                 }
             }
-            _ => LuaType::Tuple(Arc::new(LuaTupleType::new(
+            _ => LuaType::Tuple(Rc::new(LuaTupleType::new(
                 rest_types,
                 LuaTupleStatus::InferResolve,
             ))),

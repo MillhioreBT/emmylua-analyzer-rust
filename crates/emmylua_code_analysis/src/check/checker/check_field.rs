@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use std::collections::{HashMap, HashSet};
 
 use emmylua_parser::{
@@ -551,7 +553,7 @@ fn collect_fields(
             ty = alias_target;
         }
         if member.is_nullable && !ty.is_nullable() {
-            ty = LuaType::Union(std::sync::Arc::new(LuaUnionType::from_vec(vec![
+            ty = LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![
                 ty,
                 LuaType::Nil,
             ])));

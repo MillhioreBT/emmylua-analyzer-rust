@@ -11,6 +11,8 @@
 //! - a closure is an argument to an async function parameter (`---@param cb async fun()`) → treated as async;
 //! - `pcall/xpcall` callbacks execute immediately in current sync semantics, so skip that closure layer and keep looking outward for an async context.
 
+use std::rc::Rc;
+
 use std::collections::HashSet;
 
 use emmylua_parser::{
@@ -120,10 +122,7 @@ fn doc_signature_for_decl(
             .map(|(_, syntax)| semantic_model.doc_type_lua_rich_in(decl_key.file_id, *syntax))
             .unwrap_or(LuaType::Any);
         if docs.nullable_params.iter().any(|n| n == name) && !ty.is_nullable() {
-            ty = LuaType::Union(std::sync::Arc::new(LuaUnionType::from_vec(vec![
-                ty,
-                LuaType::Nil,
-            ])));
+            ty = LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![ty, LuaType::Nil])));
         }
         params.push((name.to_string(), Some(ty)));
     }

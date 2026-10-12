@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use emmylua_parser::{LuaAstNode, LuaTableExpr, LuaTableField};
 
@@ -1065,13 +1065,13 @@ fn member_info_of(
             if model.is_initializer_table_field(&member_ref.id, &member)
                 && let Some(fun) = model.type_of_signature_in_file(member_ref.file_id, value_syntax)
             {
-                typ = LuaType::DocFunction(Arc::new(fun));
+                typ = LuaType::DocFunction(Rc::new(fun));
             } else if !matches!(expr_ty, LuaType::Unknown) {
                 typ = expr_ty;
             }
         } else if let Some(fun) = model.type_of_signature_in_file(member_ref.file_id, value_syntax)
         {
-            typ = LuaType::DocFunction(Arc::new(fun));
+            typ = LuaType::DocFunction(Rc::new(fun));
         }
     }
     // Nullable fields merge nil; function fields stay pure-function shaped to avoid parameter/self inference
@@ -1097,7 +1097,7 @@ fn member_info_of(
         && !fun.get_generic_params().is_empty()
     {
         let fun = reassign_function_generics_to_func_ids(fun.as_ref().clone());
-        typ = LuaType::DocFunction(Arc::new(fun));
+        typ = LuaType::DocFunction(Rc::new(fun));
     }
     if let Some(bindings) = bindings {
         typ = unify::substitute(&typ, bindings);
@@ -1294,7 +1294,7 @@ mod tests {
     fn test_member_infos_generic_instance() {
         let env = model_of("---@class Box<T>\n---@field value T\nlocal Box = {}");
         let model = env.model();
-        let generic = LuaType::Generic(Arc::new(LuaGenericType::new(
+        let generic = LuaType::Generic(Rc::new(LuaGenericType::new(
             LuaTypeDeclId::global("Box"),
             vec![LuaType::Number],
         )));
@@ -1308,7 +1308,7 @@ mod tests {
     fn test_member_infos_array_base() {
         let env = model_of("---@class C\n---@field x number\nlocal C = {}");
         let model = env.model();
-        let array = LuaType::Array(Arc::new(LuaArrayType::from_base_type(LuaType::Ref(
+        let array = LuaType::Array(Rc::new(LuaArrayType::from_base_type(LuaType::Ref(
             LuaTypeDeclId::global("C"),
         ))));
         let infos = model.member_infos(&array);
@@ -1345,7 +1345,7 @@ mod tests {
             "---@class A\n---@field x number\n---@class B\n---@field y string\nlocal A = {}\nlocal B = {}",
         );
         let model = env.model();
-        let union = LuaType::Union(Arc::new(LuaUnionType::from_vec(vec![
+        let union = LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![
             LuaType::Ref(LuaTypeDeclId::global("A")),
             LuaType::Ref(LuaTypeDeclId::global("B")),
         ])));

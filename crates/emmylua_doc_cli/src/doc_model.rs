@@ -663,7 +663,7 @@ fn project_member(
         name: match &member.key {
             LuaMemberKey::Name(name) => name.to_string(),
             LuaMemberKey::Integer(index) => format!("[{index}]"),
-            LuaMemberKey::None | LuaMemberKey::TypeKey(_) => String::new(),
+            LuaMemberKey::None => String::new(),
         },
         ty,
         property: DocProperty {
@@ -910,7 +910,14 @@ impl TypeTextRenderer<'_> {
         let mut parts = object
             .get_fields()
             .iter()
-            .map(|(key, ty)| format!("{}: {}", self.render_member_key(key), self.render(ty)))
+            .map(|(key, ty)| {
+                let key = match key {
+                    LuaMemberKey::None => "_".to_string(),
+                    LuaMemberKey::Integer(index) => format!("[{index}]"),
+                    LuaMemberKey::Name(name) => name.to_string(),
+                };
+                format!("{}: {}", key, self.render(ty))
+            })
             .collect::<Vec<_>>();
         parts.extend(
             object
@@ -919,15 +926,6 @@ impl TypeTextRenderer<'_> {
                 .map(|(key, ty)| format!("[{}]: {}", self.render(key), self.render(ty))),
         );
         format!("{{ {} }}", parts.join(", "))
-    }
-
-    fn render_member_key(&mut self, key: &LuaMemberKey) -> String {
-        match key {
-            LuaMemberKey::None => "_".to_string(),
-            LuaMemberKey::Integer(index) => format!("[{index}]"),
-            LuaMemberKey::Name(name) => name.to_string(),
-            LuaMemberKey::TypeKey(ty) => format!("[{}]", self.render(ty)),
-        }
     }
 
     fn render_generic(&mut self, generic: &LuaGenericType) -> String {

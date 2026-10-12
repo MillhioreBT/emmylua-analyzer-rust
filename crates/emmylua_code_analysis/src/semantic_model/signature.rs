@@ -247,7 +247,7 @@ impl<'db> SemanticModel<'db> {
             .signature_returns(file_id, closure_syntax)
             .unwrap_or_default();
         let mut ret = if return_shells.len() > 1 {
-            LuaType::Variadic(Arc::new(VariadicType::Multi(
+            LuaType::Variadic(Rc::new(VariadicType::Multi(
                 return_shells
                     .iter()
                     .map(|shell| {
@@ -335,7 +335,7 @@ impl<'db> SemanticModel<'db> {
             // Do not evaluate conditional types here: before function generics are substituted, `T extends ...` would incorrectly take the false branch.
             // Call sites/diagnostics should call `eval_conditionals` after bindings are substituted.
             if nullable_params.iter().any(|n| n == name) && !ty.is_nullable() {
-                ty = LuaType::Union(Arc::new(LuaUnionType::from_vec(vec![ty, LuaType::Nil])));
+                ty = LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![ty, LuaType::Nil])));
             }
             params.push((name.to_string(), Some(ty)));
         }
@@ -393,7 +393,7 @@ impl<'db> SemanticModel<'db> {
                     slots.push(LuaType::from_vec(parts));
                 }
                 if let Some((_, ty)) = params.iter_mut().find(|(name, _)| name == "...") {
-                    *ty = Some(LuaType::Variadic(Arc::new(VariadicType::Multi(slots))));
+                    *ty = Some(LuaType::Variadic(Rc::new(VariadicType::Multi(slots))));
                 }
             }
         }
@@ -790,7 +790,7 @@ impl<'db> SemanticModel<'db> {
             ret = if returns.len() == 1 {
                 returns.pop()?
             } else {
-                LuaType::Variadic(Arc::new(VariadicType::Multi(returns)))
+                LuaType::Variadic(Rc::new(VariadicType::Multi(returns)))
             };
         }
         if has_param || has_return {
@@ -843,7 +843,7 @@ impl<'db> SemanticModel<'db> {
             ty = type_eval::expand_alias_generic(self, &ty);
             // See `type_of_signature`: do not evaluate conditional types before function generics are substituted.
             if nullable_params.iter().any(|n| n == name) && !ty.is_nullable() {
-                ty = LuaType::Union(Arc::new(LuaUnionType::from_vec(vec![ty, LuaType::Nil])));
+                ty = LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![ty, LuaType::Nil])));
             }
             params.push((name.to_string(), Some(ty)));
         }

@@ -220,7 +220,7 @@ impl<'db> SemanticModel<'db> {
                 && let Some(closure) = LuaClosureExpr::cast(node)
                 && let Some(fun) = self.type_of_signature(closure.get_syntax_id())
             {
-                return Some(LuaType::DocFunction(Arc::new(fun)));
+                return Some(LuaType::DocFunction(Rc::new(fun)));
             }
             // Initializer expression: VM inference; re-entrant declaration/expression queries
             // return `None` through `CacheEntry::InProgress`.
@@ -303,7 +303,7 @@ impl<'db> SemanticModel<'db> {
                 if let Some(param) = generic_params.iter().find(|g| g.name == tpl.get_name()) {
                     let constraint = param.constraint.map(|syntax| self.doc_type_lua(syntax));
                     let default = tpl.get_default_type().cloned();
-                    LuaType::TplRef(Arc::new(GenericTpl::new(
+                    LuaType::TplRef(Rc::new(GenericTpl::new(
                         tpl.get_tpl_id(),
                         SmolStr::from(tpl.get_name()),
                         constraint,
@@ -322,7 +322,7 @@ impl<'db> SemanticModel<'db> {
                     .find(|(_, g)| g.name == id.get_name())
                 {
                     let constraint = param.constraint.map(|syntax| self.doc_type_lua(syntax));
-                    LuaType::TplRef(Arc::new(GenericTpl::new(
+                    LuaType::TplRef(Rc::new(GenericTpl::new(
                         GenericTplId::Type(index as u32),
                         SmolStr::from(id.get_name()),
                         constraint,
@@ -442,7 +442,7 @@ impl<'db> SemanticModel<'db> {
                 _ => None,
             })
         {
-            iter_ty = LuaType::DocFunction(Arc::new(doc));
+            iter_ty = LuaType::DocFunction(Rc::new(doc));
         }
         let LuaType::DocFunction(iter_fun) = iter_ty else {
             return None;
@@ -603,14 +603,14 @@ impl<'db> SemanticModel<'db> {
                 } else if keys.len() == 1 {
                     keys.pop()?
                 } else {
-                    LuaType::Union(Arc::new(LuaUnionType::from_vec(keys)))
+                    LuaType::Union(Rc::new(LuaUnionType::from_vec(keys)))
                 };
                 let value_ty = if values.is_empty() {
                     LuaType::Unknown
                 } else if values.len() == 1 {
                     values.pop()?
                 } else {
-                    LuaType::Union(Arc::new(LuaUnionType::from_vec(values)))
+                    LuaType::Union(Rc::new(LuaUnionType::from_vec(values)))
                 };
                 (key_ty, value_ty)
             }
@@ -642,7 +642,7 @@ impl<'db> SemanticModel<'db> {
                 let value_ty = if values.len() == 1 {
                     values.pop()?
                 } else {
-                    LuaType::Union(Arc::new(LuaUnionType::from_vec(values)))
+                    LuaType::Union(Rc::new(LuaUnionType::from_vec(values)))
                 };
                 (LuaType::Integer, value_ty)
             }
@@ -720,7 +720,7 @@ impl<'db> SemanticModel<'db> {
         let value_ty = if values.len() == 1 {
             values.pop()?
         } else {
-            LuaType::Union(Arc::new(LuaUnionType::from_vec(values)))
+            LuaType::Union(Rc::new(LuaUnionType::from_vec(values)))
         };
         Some(if index == 0 {
             LuaType::Integer
@@ -1053,7 +1053,7 @@ impl<'db> SemanticModel<'db> {
                         })
                         .collect::<Vec<_>>();
                     if let LuaType::DocFunction(substituted) = self.substitute_generic_params_named(
-                        &LuaType::DocFunction(Arc::new(fun)),
+                        &LuaType::DocFunction(Rc::new(fun)),
                         &params,
                         &names,
                     ) {
@@ -1078,7 +1078,7 @@ impl<'db> SemanticModel<'db> {
                     };
                     let member = self.file_facts_of(member_file)?.member_by_id(&member_id)?;
                     let value_syntax = member.value_syntax?;
-                    Arc::new(self.type_of_signature_in_file(member_file, value_syntax)?)
+                    Rc::new(self.type_of_signature_in_file(member_file, value_syntax)?)
                 } else {
                     return None;
                 }
@@ -1325,7 +1325,7 @@ fn remove_nil_from_type(ty: LuaType) -> LuaType {
             match types.len() {
                 0 => LuaType::Unknown,
                 1 => types.into_iter().next().expect("len checked"),
-                _ => LuaType::Union(Arc::new(LuaUnionType::from_vec(types))),
+                _ => LuaType::Union(Rc::new(LuaUnionType::from_vec(types))),
             }
         }
         LuaType::Nil => LuaType::Unknown,

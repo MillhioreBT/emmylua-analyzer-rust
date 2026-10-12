@@ -1,5 +1,6 @@
 //! Infer-layer tests: faithful projection + name/member/expression inference.
 
+use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -194,7 +195,7 @@ fn test_unify_and_substitute() {
     use crate::{LuaArrayType, LuaType as LT};
 
     // TplRef(T) array param vs number[] actual arg -> T = number.
-    let tpl_t = LT::TplRef(Arc::new(GenericTpl::new(
+    let tpl_t = LT::TplRef(Rc::new(GenericTpl::new(
         GenericTplId::Type(0),
         "T".into(),
         None,
@@ -202,8 +203,8 @@ fn test_unify_and_substitute() {
         false,
         None,
     )));
-    let param = LT::Array(Arc::new(LuaArrayType::from_base_type(tpl_t.clone())));
-    let arg = LT::Array(Arc::new(LuaArrayType::from_base_type(LT::Number)));
+    let param = LT::Array(Rc::new(LuaArrayType::from_base_type(tpl_t.clone())));
+    let arg = LT::Array(Rc::new(LuaArrayType::from_base_type(LT::Number)));
 
     let mut bindings = TplBindings::new();
     assert!(unify_bindings(&param, &arg, &mut bindings));
@@ -218,7 +219,7 @@ fn test_unify_and_substitute() {
 fn test_substitute_nested_variants_keeps_instance_range() {
     use crate::{LuaGenericType, LuaType as LT};
 
-    let tpl_t = LT::TplRef(Arc::new(GenericTpl::new(
+    let tpl_t = LT::TplRef(Rc::new(GenericTpl::new(
         GenericTplId::Type(0),
         "T".into(),
         None,
@@ -230,7 +231,7 @@ fn test_substitute_nested_variants_keeps_instance_range() {
     bindings.insert(GenericTplId::Type(0), LT::Number);
 
     // Recursive substitution in Generic.
-    let generic = LT::Generic(Arc::new(LuaGenericType::new(
+    let generic = LT::Generic(Rc::new(LuaGenericType::new(
         LuaTypeDeclId::global("Mock"),
         vec![tpl_t.clone()],
     )));
@@ -243,7 +244,7 @@ fn test_substitute_nested_variants_keeps_instance_range() {
     // Instance substitution must preserve the original file/range (regression: it was
     // once rebuilt as FileId(0)).
     let range = rowan::TextRange::new(rowan::TextSize::from(11), rowan::TextSize::from(22));
-    let instance = LT::Instance(Arc::new(LuaInstanceType::new(
+    let instance = LT::Instance(Rc::new(LuaInstanceType::new(
         tpl_t,
         InFiled::new(FileId::new(7), range),
     )));

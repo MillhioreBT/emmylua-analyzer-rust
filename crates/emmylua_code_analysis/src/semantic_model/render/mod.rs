@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 use std::fmt::{self, Write};
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::{
     AsyncState, GenericTplId, LuaFunctionType, LuaMemberKey, LuaType, LuaTypeDeclId, LuaUnionType,
@@ -673,10 +673,10 @@ impl<'a> TypeHumanizer<'a> {
                 .get(id.get_name())
                 .cloned()
                 .unwrap_or_else(|| ty.clone()),
-            Array(array) => Array(Arc::new(LuaArrayType::from_base_type(
+            Array(array) => Array(Rc::new(LuaArrayType::from_base_type(
                 self.substitute_named_refs(array.get_base(), map),
             ))),
-            Tuple(tuple) => Tuple(Arc::new(LuaTupleType::new(
+            Tuple(tuple) => Tuple(Rc::new(LuaTupleType::new(
                 tuple
                     .get_types()
                     .iter()
@@ -684,14 +684,14 @@ impl<'a> TypeHumanizer<'a> {
                     .collect(),
                 tuple.status,
             ))),
-            Union(union) => Union(Arc::new(LuaUnionType::from_vec(
+            Union(union) => Union(Rc::new(LuaUnionType::from_vec(
                 union
                     .into_vec()
                     .iter()
                     .map(|t| self.substitute_named_refs(t, map))
                     .collect(),
             ))),
-            Object(object) => Object(Arc::new(LuaObjectType::new_with_fields(
+            Object(object) => Object(Rc::new(LuaObjectType::new_with_fields(
                 object
                     .get_fields()
                     .iter()
@@ -708,7 +708,7 @@ impl<'a> TypeHumanizer<'a> {
                     })
                     .collect(),
             ))),
-            Variadic(variadic) => Variadic(Arc::new(match variadic.as_ref() {
+            Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
                 VariadicType::Base(base) => {
                     VariadicType::Base(self.substitute_named_refs(base, map))
                 }
@@ -719,7 +719,7 @@ impl<'a> TypeHumanizer<'a> {
                         .collect(),
                 ),
             })),
-            Call(call) => Call(Arc::new(LuaAliasCallType::new(
+            Call(call) => Call(Rc::new(LuaAliasCallType::new(
                 call.get_call_kind(),
                 call.get_operands()
                     .iter()
@@ -739,7 +739,7 @@ impl<'a> TypeHumanizer<'a> {
                     .default
                     .as_ref()
                     .map(|t| self.substitute_named_refs(t, map));
-                Mapped(Arc::new(LuaMappedType::new(
+                Mapped(Rc::new(LuaMappedType::new(
                     (
                         mapped.param.0,
                         GenericParam::new(
@@ -755,7 +755,7 @@ impl<'a> TypeHumanizer<'a> {
                     mapped.is_optional,
                 )))
             }
-            Conditional(conditional) => Conditional(Arc::new(LuaConditionalType::new(
+            Conditional(conditional) => Conditional(Rc::new(LuaConditionalType::new(
                 self.substitute_named_refs(conditional.get_checked_type(), map),
                 self.substitute_named_refs(conditional.get_extends_type(), map),
                 self.substitute_named_refs(conditional.get_true_type(), map),
@@ -817,11 +817,6 @@ impl<'a> TypeHumanizer<'a> {
         match key {
             LuaMemberKey::Name(name) => w.write_str(name),
             LuaMemberKey::Integer(i) => write!(w, "[{}]", i),
-            LuaMemberKey::TypeKey(ty) => {
-                w.write_char('[')?;
-                self.write_type(ty, w)?;
-                w.write_char(']')
-            }
             LuaMemberKey::None => Ok(()),
         }
     }

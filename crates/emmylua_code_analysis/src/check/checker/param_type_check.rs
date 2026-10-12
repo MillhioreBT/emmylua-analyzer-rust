@@ -4,7 +4,7 @@
 //! otherwise pick the candidate with the fewest mismatches and report `ParamTypeMismatch` per argument. Colon calls:
 //! strip one slot for the self parameter; plain functions treat the receiver as the first argument.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use emmylua_parser::{
     LuaAst, LuaAstNode, LuaCallExpr, LuaExpr, LuaIndexExpr, LuaSyntaxId, LuaTokenKind,
@@ -630,7 +630,7 @@ fn check_arg_pairs(
                                 normalize_arg_for_check(semantic_model, &ty)
                             })
                             .collect();
-                        let tuple_ty = LuaType::Tuple(Arc::new(LuaTupleType::new(
+                        let tuple_ty = LuaType::Tuple(Rc::new(LuaTupleType::new(
                             rest_types,
                             LuaTupleStatus::InferResolve,
                         )));
@@ -943,7 +943,7 @@ fn call_argument_type(
         generic_constraint_type(semantic_model, arg_ty).unwrap_or_else(|| arg_ty.clone());
     if let LuaExpr::ClosureExpr(closure) = arg {
         if let Some(func) = semantic_model.type_of_signature(closure.get_syntax_id()) {
-            return LuaType::DocFunction(Arc::new(func));
+            return LuaType::DocFunction(Rc::new(func));
         }
     }
     if matches!(constrained, LuaType::Function)
@@ -951,7 +951,7 @@ fn call_argument_type(
         && let Some(decl) = semantic_model.resolve_name(name_expr.get_position())
     {
         if let Some(func) = semantic_model.type_of_decl_signature(&decl) {
-            return LuaType::DocFunction(Arc::new(func));
+            return LuaType::DocFunction(Rc::new(func));
         }
         if let Some(facts) = semantic_model.file_facts()
             && let Some(decl) = facts.decl_by_id(&decl)

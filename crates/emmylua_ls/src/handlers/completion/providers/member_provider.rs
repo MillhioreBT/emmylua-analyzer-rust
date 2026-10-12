@@ -1,5 +1,7 @@
 //! Member completion: `.` / `:` / `[]` / string-key contexts, based on semantic `member_infos`.
 
+use std::rc::Rc;
+
 use emmylua_code_analysis::{
     DeclKind, FileId, LuaAliasCallKind, LuaFunctionType, LuaGenericType, LuaMemberKey, LuaType,
     LuaTypeDeclId, MemberInfo, SemanticId, SemanticModel, TypeDefKind,
@@ -239,7 +241,7 @@ fn generic_super_member_infos(
         let parent_type = if bound_params.is_empty() {
             model.type_def_ref(&parent)
         } else {
-            LuaType::Generic(std::sync::Arc::new(LuaGenericType::new(
+            LuaType::Generic(Rc::new(LuaGenericType::new(
                 LuaTypeDeclId::global(parent.full_name.as_str()),
                 bound_params,
             )))

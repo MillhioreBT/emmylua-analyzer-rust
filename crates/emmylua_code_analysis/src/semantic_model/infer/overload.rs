@@ -5,7 +5,7 @@
 //! diagnostics/completions should reuse this instead of maintaining their own argument
 //! matching.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use emmylua_parser::{LuaAstNode, LuaExpr, LuaSyntaxId};
 
@@ -68,7 +68,7 @@ pub fn structural_table_type(model: &SemanticModel, ty: &LuaType) -> LuaType {
         }
         fields.insert(key, member_ty);
     }
-    LuaType::Object(Arc::new(LuaObjectType::new_with_fields(fields, Vec::new())))
+    LuaType::Object(Rc::new(LuaObjectType::new_with_fields(fields, Vec::new())))
 }
 
 /// Table literal -> Array (for structural unification with `T[]` params).
@@ -114,7 +114,7 @@ fn table_literal_as_array(model: &SemanticModel, ty: &LuaType) -> Option<LuaType
     } else {
         LuaType::from_vec(base_types)
     };
-    Some(LuaType::Array(Arc::new(LuaArrayType::from_base_type(base))))
+    Some(LuaType::Array(Rc::new(LuaArrayType::from_base_type(base))))
 }
 
 /// Expand a non-generic named alias (`LocalTimer.OnTimer` -> `DocFunction`).
@@ -345,7 +345,7 @@ fn normalize_missing_generic_arg(
                 .unwrap_or(LuaType::Unknown)
         })
         .collect();
-    LuaType::Generic(Arc::new(LuaGenericType::new(arg_id.clone(), params)))
+    LuaType::Generic(Rc::new(LuaGenericType::new(arg_id.clone(), params)))
 }
 
 /// Whether the type contains an unbound generic parameter (used to avoid binding `T`
@@ -493,7 +493,7 @@ fn match_call_candidate_impl(
                         .iter()
                         .map(|arg| widen_variadic_const(&arg.ty))
                         .collect::<Vec<_>>();
-                    let tuple_ty = LuaType::Tuple(Arc::new(LuaTupleType::new(
+                    let tuple_ty = LuaType::Tuple(Rc::new(LuaTupleType::new(
                         rest_types,
                         LuaTupleStatus::InferResolve,
                     )));
@@ -551,7 +551,7 @@ fn match_call_candidate_impl(
                         && let Some(closure) = arg.closure_syntax
                         && let Some(fun) = model.type_of_signature(closure)
                     {
-                        LuaType::DocFunction(Arc::new(fun))
+                        LuaType::DocFunction(Rc::new(fun))
                     } else {
                         param_ty.clone()
                     }
@@ -652,7 +652,7 @@ fn prebind_variadic_generics(
         let bound = if rest_types.len() == 1 {
             rest_types[0].clone()
         } else {
-            LuaType::Tuple(Arc::new(LuaTupleType::new(
+            LuaType::Tuple(Rc::new(LuaTupleType::new(
                 rest_types,
                 LuaTupleStatus::InferResolve,
             )))
@@ -719,7 +719,7 @@ pub fn pcall_return_type(callback_ret: LuaType, include_error_string: bool) -> L
             vec![LuaType::Boolean, with_nil_for_variadic(slot)]
         }
     };
-    LuaType::Variadic(Arc::new(VariadicType::Multi(slots)))
+    LuaType::Variadic(Rc::new(VariadicType::Multi(slots)))
 }
 
 fn pcall_callback_ret_inner(

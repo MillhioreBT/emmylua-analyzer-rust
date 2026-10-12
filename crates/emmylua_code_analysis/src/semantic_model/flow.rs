@@ -13,7 +13,7 @@
 //! - Flow type for member assignment `t.x = v` / `self.x = v` (FlowEffect::AssignMember).
 
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use emmylua_parser::{
     BinaryOperator, LuaAssignStat, LuaAstNode, LuaCallExprStat, LuaDocTagAs, LuaExpr,
@@ -574,7 +574,7 @@ pub fn type_of_expr_at(
             // Anonymous closure keeps its actual signature on the flow path, avoiding the assigned function value degrading to bare `Function`.
             let base = model
                 .type_of_signature(closure_expr.get_syntax_id())
-                .map(|fun| LuaType::DocFunction(Arc::new(fun)))
+                .map(|fun| LuaType::DocFunction(Rc::new(fun)))
                 .unwrap_or_else(|| model.type_of_expr(expr_syntax));
             apply_expr_casts(model, expr_syntax, base)
         }
@@ -653,7 +653,7 @@ fn array_table_literal_tuple_type(model: &SemanticModel, expr: &LuaExpr) -> Opti
         }
         types.push(model.type_of_expr(field.get_value_expr()?.get_syntax_id()));
     }
-    Some(LuaType::Tuple(Arc::new(LuaTupleType::new(
+    Some(LuaType::Tuple(Rc::new(LuaTupleType::new(
         types,
         LuaTupleStatus::InferResolve,
     ))))
@@ -1737,14 +1737,14 @@ fn apply_narrowing(model: &SemanticModel, mut ty: LuaType, narrowing: &Narrowing
         Narrowing::ArrayLen(max) => {
             if let LuaType::Array(array) = &mut ty {
                 let base = array.get_base().clone();
-                ty = LuaType::Array(Arc::new(LuaArrayType::new(base, LuaArrayLen::Max(*max))));
+                ty = LuaType::Array(Rc::new(LuaArrayType::new(base, LuaArrayLen::Max(*max))));
             }
             ty
         }
         Narrowing::ArrayMinLen(min) => {
             if let LuaType::Array(array) = &mut ty {
                 let base = array.get_base().clone();
-                ty = LuaType::Array(Arc::new(LuaArrayType::new(base, LuaArrayLen::Min(*min))));
+                ty = LuaType::Array(Rc::new(LuaArrayType::new(base, LuaArrayLen::Min(*min))));
             }
             ty
         }
@@ -2824,7 +2824,7 @@ fn widen_const_type(ty: LuaType) -> LuaType {
                     VariadicType::Multi(types.iter().map(|t| widen_const_type(t.clone())).collect())
                 }
             };
-            LuaType::Variadic(Arc::new(widened))
+            LuaType::Variadic(Rc::new(widened))
         }
         _ => ty,
     }
