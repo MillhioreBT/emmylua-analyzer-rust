@@ -320,8 +320,8 @@ impl<'a> TypeHumanizer<'a> {
 
     /// Resolves default generic arguments of a type definition, supporting forward/backward references and iterating to a fixpoint.
     fn resolve_generic_defaults(&self, def: &TypeDef, provided: &[LuaType]) -> Vec<LuaType> {
-        // Built-ins such as table have no declared generic parameters. Preserve
-        // explicit arguments even when the definition declares fewer parameters.
+        // Preserve provided arguments even when the definition declares fewer
+        // parameters (e.g. standard-library table or a class with excess arguments).
         let n = def.generic_params.len().max(provided.len());
         let mut resolved: Vec<Option<LuaType>> = vec![None; n];
         for (i, ty) in provided.iter().enumerate() {
