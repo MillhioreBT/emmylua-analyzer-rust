@@ -256,3 +256,101 @@ fn nested_dynamic_keys_and_recursive_dependencies_terminate() {
         LuaType::Unknown
     );
 }
+
+const RECURSIVE_OWNER_TYPES: &str = r#"
+---@class WithIndex
+---@field next WithIndex|WithoutIndex
+---@field start_index integer
+---@class WithoutIndex
+---@field next WithIndex|WithoutIndex
+---@field other boolean
+"#;
+
+#[gtest]
+fn ambiguous_union_member_cast_matches_only_its_owner_and_path() {
+    let mut ws = VirtualWorkspace::new();
+    let file = ws.def(&format!(
+        r#"{RECURSIVE_OWNER_TYPES}
+        ---@param left WithIndex|WithoutIndex
+        ---@param right WithIndex|WithoutIndex
+        local function cast_member(left, right)
+            ---@cast left.next WithIndex
+            local narrowed_owner = left.next
+            ---@cast left.next WithIndex
+            local bracket_owner = left["next"]
+            ---@cast left.next WithIndex
+            local projected_field = left.next.start_index
+            ---@cast left.next WithIndex
+            local other_owner = right.next
+            ---@cast left.next WithIndex
+            local other_path = left.next.next
+            return narrowed_owner, projected_field, other_owner, other_path
+        end
+        "#
+    ));
+    let narrowed = ws.ty("WithIndex");
+    let union = ws.ty("WithIndex|WithoutIndex");
+    assert_that!(local_type(&ws, file, "narrowed_owner"), eq(&narrowed));
+    assert_that!(local_type(&ws, file, "bracket_owner"), eq(&narrowed));
+    assert_that!(
+        local_type(&ws, file, "projected_field"),
+        eq(&LuaType::Integer)
+    );
+    assert_that!(local_type(&ws, file, "other_owner"), eq(&union));
+    assert_that!(local_type(&ws, file, "other_path"), eq(&union));
+}
+
+#[gtest]
+fn ambiguous_member_cast_does_not_survive_owner_reassignment_or_shadowing() {
+    let mut ws = VirtualWorkspace::new();
+    let file = ws.def(&format!(
+        r#"{RECURSIVE_OWNER_TYPES}
+        ---@param node WithIndex|WithoutIndex
+        ---@param other WithIndex|WithoutIndex
+        local function cast_member(node, other)
+            ---@cast node.next WithIndex
+            do
+                local node = other
+                local shadowed_owner = node.next
+            end
+            ---@cast node.next WithIndex
+            node = other
+            local reassigned_owner = node.next
+            return reassigned_owner
+        end
+        ---@param entry WithIndex|WithoutIndex
+        ---@param other WithIndex|WithoutIndex
+        local function replace_member(entry, other)
+            ---@cast entry.next WithIndex
+            entry.next = other
+            local reassigned_member = entry.next
+            return reassigned_member
+        end
+        "#
+    ));
+    let union = ws.ty("WithIndex|WithoutIndex");
+    assert_that!(local_type(&ws, file, "shadowed_owner"), eq(&union));
+    assert_that!(local_type(&ws, file, "reassigned_owner"), eq(&union));
+    assert_that!(local_type(&ws, file, "reassigned_member"), eq(&union));
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn recursive_union_member_cast_preserves_the_selected_owner() {
+    let mut ws = VirtualWorkspace::new();
+    let prefix = format!("node{}", ".next".repeat(16));
+    let file = ws.def(&format!(
+        r#"{RECURSIVE_OWNER_TYPES}
+        ---@param node WithIndex|WithoutIndex
+        local function cast_member(node)
+            ---@cast {prefix} WithIndex
+            local recursive_owner = {prefix}
+            ---@cast {prefix} WithIndex
+            local recursive_field = {prefix}.start_index
+            return recursive_owner, recursive_field
+        end
+        "#
+    ));
+    assert_eq!(local_type(&ws, file, "recursive_owner"), ws.ty("WithIndex"));
+    assert_eq!(local_type(&ws, file, "recursive_field"), LuaType::Integer);
+}
