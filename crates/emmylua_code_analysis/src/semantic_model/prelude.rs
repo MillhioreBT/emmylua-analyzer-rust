@@ -24,7 +24,7 @@ pub(crate) use crate::member_key::LuaMemberKey;
 
 pub(crate) use crate::semantic_db::def::{
     ConstructorAttribute, Decl, DeclKind, Member, MemberRef, ModuleExport, NameUse, Scope,
-    SemanticId, Signature, TypeDef, TypeDefKind, TypeScope, TypeVisibility,
+    SemanticId, Signature, TypeDef, TypeDefKind, TypeScope,
 };
 pub(crate) use crate::semantic_db::flow::FlowTree;
 pub(crate) use crate::signature::LuaSignatureId;

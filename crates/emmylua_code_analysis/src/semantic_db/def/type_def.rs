@@ -4,7 +4,7 @@ use emmylua_parser::LuaSyntaxId;
 use rowan::TextRange;
 use smol_str::SmolStr;
 
-use crate::{FileId, semantic_db::def::WorkspaceId};
+use crate::{FileId, LuaTypeDeclId, semantic_db::def::WorkspaceId};
 
 use super::{DocGenericParam, SemanticId};
 
@@ -103,6 +103,20 @@ impl TypeDef {
             owner_syntax: None,
             deprecated: false,
             flags: TypeDefFlags::default(),
+        }
+    }
+
+    /// 获取类型声明的完整身份, 保留作用域和完整名称.
+    pub(crate) fn type_decl_id(&self) -> LuaTypeDeclId {
+        let SemanticId::TypeDef(key) = &self.id else {
+            unreachable!("type definition must have a type identity");
+        };
+        match key.scope {
+            TypeScope::Global => LuaTypeDeclId::global(&key.full_name),
+            TypeScope::Internal(workspace_id) => {
+                LuaTypeDeclId::internal(workspace_id, &key.full_name)
+            }
+            TypeScope::File(file_id) => LuaTypeDeclId::file(file_id, &key.full_name),
         }
     }
 }

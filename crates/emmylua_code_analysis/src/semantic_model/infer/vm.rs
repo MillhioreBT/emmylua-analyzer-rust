@@ -32,7 +32,7 @@ use crate::{
     AsyncState, FileId, GenericTpl, GenericTplId, InFiled, LuaAliasCallKind, LuaArrayType,
     LuaFunctionType, LuaGenericType, LuaMemberKey, LuaObjectType, LuaTupleStatus, LuaTupleType,
     LuaType, LuaTypeDeclId, LuaTypeNode, LuaUnionType, TypeDef, TypeDefKind, TypeScope,
-    TypeVisibility, VariadicType,
+    VariadicType,
 };
 
 use super::callable::CallableCandidateSet;
@@ -3452,10 +3452,7 @@ fn receiver_class_type(model: &SemanticModel, ty: &LuaType) -> Option<LuaType> {
         .type_defs
         .iter()
         .find(|def| def.owner_syntax.is_some() && def.owner_syntax == decl.owner_syntax)?;
-    Some(match def.visibility {
-        TypeVisibility::Public => LuaType::Ref(LuaTypeDeclId::global(&def.full_name)),
-        _ => LuaType::Ref(LuaTypeDeclId::file(def.file_id, &def.full_name)),
-    })
+    Some(model.type_def_ref(def))
 }
 
 /// When constructing a `self` return type, replace the class reference with an instance that
@@ -4181,15 +4178,9 @@ pub(crate) fn unify_call_bindings(
             let Some(full_name) = value else {
                 return false;
             };
-            let type_id = if let Some(def) = model.resolve_type_def(&full_name) {
-                if matches!(def.visibility, TypeVisibility::Public) {
-                    LuaTypeDeclId::global(&def.full_name)
-                } else {
-                    LuaTypeDeclId::file(def.file_id, &def.full_name)
-                }
-            } else {
-                LuaTypeDeclId::global(&full_name)
-            };
+            let type_id = model
+                .analysis()
+                .resolve_named_id(model.file_id(), &full_name);
             bindings.insert(str_tpl.get_tpl_id(), Ref(type_id));
             true
         }

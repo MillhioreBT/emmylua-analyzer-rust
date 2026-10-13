@@ -1332,3 +1332,77 @@ fn remove_nil_from_type(ty: LuaType) -> LuaType {
         other => other,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{LuaType, LuaTypeDeclId, VirtualWorkspace, WorkspaceFolder};
+
+    #[test]
+    fn type_references_preserve_declaring_scope() {
+        let mut ws = VirtualWorkspace::new();
+        for library in ["lib_a", "lib_b"] {
+            ws.analysis.add_library_workspace(&WorkspaceFolder::new(
+                ws.virtual_url_generator.new_path(library),
+                true,
+            ));
+        }
+        let public_file = ws.def_file(
+            "public.lua",
+            "---@namespace Shared\n---@class Value\nlocal Value = {}",
+        );
+        let internal_a = ws.def_file(
+            "lib_a/types.lua",
+            "---@namespace Shared\n---@class (internal) Value\nlocal Value = {}",
+        );
+        let internal_b = ws.def_file(
+            "lib_b/types.lua",
+            "---@namespace Shared\n---@class (internal) Value\nlocal Value = {}",
+        );
+        let private_a = ws.def_file(
+            "lib_a/private.lua",
+            "---@namespace Shared\n---@class (file) Value\nlocal Value = {}",
+        );
+        let private_b = ws.def_file(
+            "lib_b/private.lua",
+            "---@namespace Shared\n---@class (file) Value\nlocal Value = {}",
+        );
+        let consumer = ws.def_file("main.lua", "local value = nil");
+        let model = ws.analysis.semantic_model(consumer);
+        let workspace_a = model.workspace_id_of(internal_a).unwrap();
+        let workspace_b = model.workspace_id_of(internal_b).unwrap();
+        assert_ne!(workspace_a, workspace_b);
+
+        let cases = [
+            (public_file, LuaTypeDeclId::global("Shared.Value")),
+            (
+                internal_a,
+                LuaTypeDeclId::internal(workspace_a, "Shared.Value"),
+            ),
+            (
+                internal_b,
+                LuaTypeDeclId::internal(workspace_b, "Shared.Value"),
+            ),
+            (private_a, LuaTypeDeclId::file(private_a, "Shared.Value")),
+            (private_b, LuaTypeDeclId::file(private_b, "Shared.Value")),
+        ];
+        for (file, id) in &cases {
+            let defining_model = ws.analysis.semantic_model(*file);
+            let def = defining_model.resolve_type_def("Shared.Value").unwrap();
+            let expected = LuaType::Ref(id.clone());
+            assert_eq!(defining_model.type_from_name("Shared.Value"), expected);
+
+            for caller in [
+                consumer,
+                public_file,
+                internal_a,
+                internal_b,
+                private_a,
+                private_b,
+            ] {
+                let model = ws.analysis.semantic_model(caller);
+                assert_eq!(model.type_def_ref(&def), expected);
+                assert_eq!(model.type_def_of(id).unwrap().id, def.id);
+            }
+        }
+    }
+}

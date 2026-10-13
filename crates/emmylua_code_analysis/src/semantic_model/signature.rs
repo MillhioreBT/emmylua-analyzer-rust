@@ -135,12 +135,9 @@ impl<'db> SemanticModel<'db> {
     pub fn type_def_of(&self, id: &LuaTypeDeclId) -> Option<TypeDef> {
         member::type_def_of(self, id)
     }
-    /// Named type definition -> reference type (visibility determines global/file identity).
+    /// 将类型定义转换为引用类型, 保留声明作用域.
     pub fn type_def_ref(&self, def: &TypeDef) -> LuaType {
-        match def.visibility {
-            TypeVisibility::Public => LuaType::Ref(LuaTypeDeclId::global(&def.full_name)),
-            _ => LuaType::Ref(LuaTypeDeclId::file(def.file_id, &def.full_name)),
-        }
+        LuaType::Ref(def.type_decl_id())
     }
     /// All definition locations of a named type (used by duplicate-type checks).
     pub fn type_def_locations(&self, name: &str) -> Vec<TypeDef> {

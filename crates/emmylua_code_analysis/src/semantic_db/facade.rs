@@ -20,7 +20,7 @@ use crate::{
 use super::SemanticDatabase;
 use super::def::{
     ConstructorAttribute, Decl, DocGenericParam, Member, MemberRef, ModuleExport, NameUse, OwnerId,
-    Scope, SemanticId, Signature, TypeDef, TypeScope, TypeVisibility,
+    Scope, SemanticId, Signature, TypeDef, TypeScope,
 };
 use super::exports::{FileExports, file_exports};
 use super::facts::FileFacts;
@@ -796,10 +796,7 @@ impl<'db> AnalysisView<'db> {
 
     pub(crate) fn resolve_named_id(&self, file_id: FileId, name: &str) -> LuaTypeDeclId {
         if let Some(def) = self.resolve_type_def(file_id, name) {
-            match def.visibility {
-                TypeVisibility::Public => LuaTypeDeclId::global(&def.full_name),
-                _ => LuaTypeDeclId::file(def.file_id, &def.full_name),
-            }
+            def.type_decl_id()
         } else {
             LuaTypeDeclId::global(name)
         }
