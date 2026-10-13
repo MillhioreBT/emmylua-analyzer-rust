@@ -1,10 +1,9 @@
 //! Type-check tests (LuaType + semantic context).
 
 use smol_str::SmolStr;
+use std::{rc::Rc, sync::Arc};
 
-use crate::{
-    Arc, AsyncState, LuaFunctionType, LuaType, LuaTypeDeclId, LuaUnionType, SemanticModel,
-};
+use crate::{AsyncState, LuaFunctionType, LuaType, LuaTypeDeclId, LuaUnionType, SemanticModel};
 use crate::{
     Emmyrc, FileId, InFiled, LuaArrayType, LuaGenericType, LuaInstanceType, SemanticDatabase,
 };
@@ -30,7 +29,7 @@ fn ok(source: &LuaType, target: &LuaType) -> bool {
 }
 
 fn doc_fun(params: Vec<Option<LuaType>>, ret: LuaType) -> LuaType {
-    LuaType::DocFunction(Arc::new(LuaFunctionType::new(
+    LuaType::DocFunction(Rc::new(LuaFunctionType::new(
         AsyncState::None,
         false,
         false,
@@ -41,7 +40,7 @@ fn doc_fun(params: Vec<Option<LuaType>>, ret: LuaType) -> LuaType {
 }
 
 fn union(types: Vec<LuaType>) -> LuaType {
-    LuaType::Union(Arc::new(LuaUnionType::from_vec(types)))
+    LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
 }
 
 #[test]
@@ -61,11 +60,11 @@ fn test_primitives_and_consts() {
     assert!(ok(&LT::Table, &LT::Table));
     assert!(ok(
         &LT::Table,
-        &LT::Array(Arc::new(LuaArrayType::from_base_type(LT::Number)))
+        &LT::Array(Rc::new(LuaArrayType::from_base_type(LT::Number)))
     ));
     assert!(ok(
         &LT::Function,
-        &LT::DocFunction(Arc::new(LuaFunctionType::new(
+        &LT::DocFunction(Rc::new(LuaFunctionType::new(
             AsyncState::None,
             false,
             false,
@@ -106,7 +105,7 @@ fn test_union_intersection() {
     assert!(ok(&s_union, &LT::Number));
     assert!(!ok(&s_union, &LT::Boolean));
     // Nullable: `integer?` is assignable to `integer`.
-    let nullable = LT::Union(Arc::new(LuaUnionType::Nullable(LT::Integer)));
+    let nullable = LT::Union(Rc::new(LuaUnionType::Nullable(LT::Integer)));
     assert!(ok(&nullable, &LT::Integer));
 }
 
@@ -184,15 +183,15 @@ fn test_alias_nominal() {
 #[test]
 fn test_generic_params() {
     use LuaType as LT;
-    let box_num_src = LT::Generic(Arc::new(LuaGenericType::new(
+    let box_num_src = LT::Generic(Rc::new(LuaGenericType::new(
         LuaTypeDeclId::global("Box"),
         vec![LT::Number],
     )));
-    let box_num_tgt = LT::Generic(Arc::new(LuaGenericType::new(
+    let box_num_tgt = LT::Generic(Rc::new(LuaGenericType::new(
         LuaTypeDeclId::global("Box"),
         vec![LT::Number],
     )));
-    let box_str = LT::Generic(Arc::new(LuaGenericType::new(
+    let box_str = LT::Generic(Rc::new(LuaGenericType::new(
         LuaTypeDeclId::global("Box"),
         vec![LT::String],
     )));
@@ -203,7 +202,7 @@ fn test_generic_params() {
 #[test]
 fn test_instance_base() {
     use LuaType as LT;
-    let inst = LT::Instance(Arc::new(LuaInstanceType::new(
+    let inst = LT::Instance(Rc::new(LuaInstanceType::new(
         LT::Number,
         InFiled::new(FileId::new(0), Default::default()),
     )));

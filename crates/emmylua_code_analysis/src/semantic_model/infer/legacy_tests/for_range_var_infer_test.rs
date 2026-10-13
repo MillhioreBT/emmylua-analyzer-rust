@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
     use hashbrown::HashSet;
-    use std::sync::Arc;
+    use std::rc::Rc;
 
     use crate::{LuaType, LuaUnionType, VirtualWorkspace};
 
@@ -285,7 +285,7 @@ mod test {
 
         assert_eq!(
             ws.expr_ty("d"),
-            LuaType::Union(Arc::new(LuaUnionType::from_vec(vec![
+            LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![
                 LuaType::String,
                 LuaType::Number
             ]))),

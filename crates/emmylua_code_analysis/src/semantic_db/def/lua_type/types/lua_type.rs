@@ -3,7 +3,7 @@ use crate::{FileId, InFiled};
 use internment::ArcIntern;
 use rowan::TextRange;
 use smol_str::SmolStr;
-use std::{hash::Hash, sync::Arc};
+use std::{hash::Hash, rc::Rc};
 
 use super::complex::{
     GenericTpl, LuaAliasCallType, LuaArrayType, LuaConditionalType, LuaFunctionType,
@@ -36,30 +36,30 @@ pub enum LuaType {
     TableConst(InFiled<TextRange>),
     Ref(LuaTypeDeclId),
     Def(LuaTypeDeclId),
-    Array(Arc<LuaArrayType>),
-    Tuple(Arc<LuaTupleType>),
-    DocFunction(Arc<LuaFunctionType>),
-    Object(Arc<LuaObjectType>),
-    Union(Arc<LuaUnionType>),
-    Intersection(Arc<LuaIntersectionType>),
-    Generic(Arc<LuaGenericType>),
-    TableGeneric(Arc<Vec<LuaType>>),
-    TplRef(Arc<GenericTpl>),
-    StrTplRef(Arc<LuaStringTplType>),
-    Variadic(Arc<VariadicType>),
+    Array(Rc<LuaArrayType>),
+    Tuple(Rc<LuaTupleType>),
+    DocFunction(Rc<LuaFunctionType>),
+    Object(Rc<LuaObjectType>),
+    Union(Rc<LuaUnionType>),
+    Intersection(Rc<LuaIntersectionType>),
+    Generic(Rc<LuaGenericType>),
+    TableGeneric(Rc<Vec<LuaType>>),
+    TplRef(Rc<GenericTpl>),
+    StrTplRef(Rc<LuaStringTplType>),
+    Variadic(Rc<VariadicType>),
     Signature(LuaSignatureId),
-    Instance(Arc<LuaInstanceType>),
+    Instance(Rc<LuaInstanceType>),
     DocStringConst(ArcIntern<SmolStr>),
     DocIntegerConst(i64),
     DocBooleanConst(bool),
     Namespace(ArcIntern<SmolStr>),
-    Call(Arc<LuaAliasCallType>),
-    MultiLineUnion(Arc<LuaMultiLineUnion>),
-    TypeGuard(Arc<LuaType>),
+    Call(Rc<LuaAliasCallType>),
+    MultiLineUnion(Rc<LuaMultiLineUnion>),
+    TypeGuard(Rc<LuaType>),
     Language(ArcIntern<SmolStr>),
     ModuleRef(FileId),
-    Conditional(Arc<LuaConditionalType>),
-    Mapped(Arc<LuaMappedType>),
+    Conditional(Rc<LuaConditionalType>),
+    Mapped(Rc<LuaMappedType>),
 }
 
 impl PartialEq for LuaType {
@@ -138,7 +138,10 @@ impl Hash for LuaType {
             LuaType::BooleanConst(a) => (14, a).hash(state),
             LuaType::StringConst(a) => (15, a).hash(state),
             LuaType::IntegerConst(a) => (16, a).hash(state),
-            LuaType::FloatConst(a) => (17, a.to_bits()).hash(state),
+            LuaType::FloatConst(a) => {
+                let bits = if *a == 0.0 { 0 } else { a.to_bits() };
+                (17, bits).hash(state);
+            }
             LuaType::TableConst(a) => (18, a).hash(state),
             LuaType::Ref(a) => (19, a).hash(state),
             LuaType::Def(a) => (20, a).hash(state),

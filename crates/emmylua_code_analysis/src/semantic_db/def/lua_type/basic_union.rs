@@ -1,3 +1,5 @@
+use std::iter::FusedIterator;
+
 use crate::{LuaType, TypeVisitTrait};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,12 +26,50 @@ impl BasicTypeUnion {
         self.0 == 0
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = LuaType> + '_ {
-        (0..BasicTypeKind::Count as u32)
-            .filter(move |&i| (self.0 & (1 << i)) != 0)
-            .map(|i| BasicTypeKind::from(i).into())
+    pub fn iter(&self) -> BasicTypeUnionIter {
+        BasicTypeUnionIter {
+            flags: self.0 & ((1 << BasicTypeKind::Count as u32) - 1),
+        }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct BasicTypeUnionIter {
+    flags: u32,
+}
+
+impl Iterator for BasicTypeUnionIter {
+    type Item = &'static LuaType;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.flags == 0 {
+            return None;
+        }
+        let kind = BasicTypeKind::from(self.flags.trailing_zeros());
+        // 每次只清除最低的有效位, 跳过未包含的基础类型.
+        self.flags &= self.flags - 1;
+        Some(kind.as_type())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.flags.count_ones() as usize;
+        (len, Some(len))
+    }
+}
+
+impl DoubleEndedIterator for BasicTypeUnionIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.flags == 0 {
+            return None;
+        }
+        let index = u32::BITS - 1 - self.flags.leading_zeros();
+        self.flags &= !(1 << index);
+        Some(BasicTypeKind::from(index).as_type())
+    }
+}
+
+impl ExactSizeIterator for BasicTypeUnionIter {}
+impl FusedIterator for BasicTypeUnionIter {}
 
 impl TypeVisitTrait for BasicTypeUnion {
     fn visit_type<F>(&self, f: &mut F)
@@ -37,7 +77,7 @@ impl TypeVisitTrait for BasicTypeUnion {
         F: FnMut(&LuaType),
     {
         for ty in self.iter() {
-            f(&ty);
+            f(ty);
         }
     }
 }
@@ -109,6 +149,27 @@ impl From<BasicTypeKind> for LuaType {
 }
 
 impl BasicTypeKind {
+    pub fn as_type(self) -> &'static LuaType {
+        match self {
+            BasicTypeKind::Unknown => &LuaType::Unknown,
+            BasicTypeKind::Any => &LuaType::Any,
+            BasicTypeKind::Nil => &LuaType::Nil,
+            BasicTypeKind::Table => &LuaType::Table,
+            BasicTypeKind::Userdata => &LuaType::Userdata,
+            BasicTypeKind::Function => &LuaType::Function,
+            BasicTypeKind::Thread => &LuaType::Thread,
+            BasicTypeKind::Boolean => &LuaType::Boolean,
+            BasicTypeKind::String => &LuaType::String,
+            BasicTypeKind::Integer => &LuaType::Integer,
+            BasicTypeKind::Number => &LuaType::Number,
+            BasicTypeKind::Io => &LuaType::Io,
+            BasicTypeKind::SelfInfer => &LuaType::SelfInfer,
+            BasicTypeKind::Global => &LuaType::Global,
+            BasicTypeKind::Never => &LuaType::Never,
+            BasicTypeKind::Count => unreachable!(),
+        }
+    }
+
     pub fn from_type(value: &LuaType) -> Option<BasicTypeKind> {
         match value {
             LuaType::Unknown => Some(BasicTypeKind::Unknown),
@@ -152,7 +213,7 @@ mod tests {
         assert!(!union.contains(BasicTypeKind::Nil));
         assert!(union.contains(BasicTypeKind::Table));
 
-        let types: Vec<LuaType> = union.iter().collect();
+        let types: Vec<LuaType> = union.iter().cloned().collect();
         assert_eq!(types, vec![LuaType::Table]);
     }
 }

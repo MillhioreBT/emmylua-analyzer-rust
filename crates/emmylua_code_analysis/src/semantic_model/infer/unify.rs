@@ -5,9 +5,10 @@
 //! returns and callback params.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::{
-    Arc, GenericParam, GenericTplId, LuaAliasCallType, LuaArrayType, LuaConditionalType,
+    GenericParam, GenericTplId, LuaAliasCallType, LuaArrayType, LuaConditionalType,
     LuaFunctionType, LuaGenericType, LuaInstanceType, LuaIntersectionType, LuaMappedType,
     LuaMultiLineUnion, LuaObjectType, LuaStringTplType, LuaTupleStatus, LuaTupleType, LuaType,
     LuaUnionType, VariadicType,
@@ -265,14 +266,14 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
         }
         Array(array) => {
             let base = substitute(array.get_base(), bindings);
-            Array(Arc::new(LuaArrayType::from_base_type(base)))
+            Array(Rc::new(LuaArrayType::from_base_type(base)))
         }
         TableGeneric(generic) => {
             let params = generic
                 .iter()
                 .map(|t| substitute(t, bindings))
                 .collect::<Vec<_>>();
-            TableGeneric(Arc::new(params))
+            TableGeneric(Rc::new(params))
         }
         Tuple(tuple) => {
             let types = tuple
@@ -280,7 +281,7 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
                 .iter()
                 .map(|t| substitute(t, bindings))
                 .collect();
-            Tuple(Arc::new(LuaTupleType::new(
+            Tuple(Rc::new(LuaTupleType::new(
                 types,
                 LuaTupleStatus::DocResolve,
             )))
@@ -292,7 +293,7 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
                 .map(|(name, ty)| (name.clone(), ty.as_ref().map(|t| substitute(t, bindings))))
                 .collect();
             let ret = substitute(fun.get_ret(), bindings);
-            DocFunction(Arc::new(LuaFunctionType::new(
+            DocFunction(Rc::new(LuaFunctionType::new(
                 fun.get_async_state(),
                 fun.is_colon_define(),
                 fun.is_variadic(),
@@ -307,9 +308,9 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
                 .iter()
                 .map(|t| substitute(t, bindings))
                 .collect();
-            Union(Arc::new(LuaUnionType::from_vec(types)))
+            Union(Rc::new(LuaUnionType::from_vec(types)))
         }
-        Generic(generic) => Generic(Arc::new(LuaGenericType::new(
+        Generic(generic) => Generic(Rc::new(LuaGenericType::new(
             generic.get_base_type_id(),
             generic
                 .get_params()
@@ -328,26 +329,26 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
                 .iter()
                 .map(|(key, ty)| (substitute(key, bindings), substitute(ty, bindings)))
                 .collect();
-            Object(Arc::new(LuaObjectType::new_with_fields(
+            Object(Rc::new(LuaObjectType::new_with_fields(
                 fields,
                 index_access,
             )))
         }
-        Intersection(intersection) => Intersection(Arc::new(LuaIntersectionType::new(
+        Intersection(intersection) => Intersection(Rc::new(LuaIntersectionType::new(
             intersection
                 .get_types()
                 .iter()
                 .map(|t| substitute(t, bindings))
                 .collect(),
         ))),
-        Call(call) => Call(Arc::new(LuaAliasCallType::new(
+        Call(call) => Call(Rc::new(LuaAliasCallType::new(
             call.get_call_kind(),
             call.get_operands()
                 .iter()
                 .map(|t| substitute(t, bindings))
                 .collect(),
         ))),
-        Conditional(conditional) => Conditional(Arc::new(LuaConditionalType::new(
+        Conditional(conditional) => Conditional(Rc::new(LuaConditionalType::new(
             substitute(conditional.get_checked_type(), bindings),
             substitute(conditional.get_extends_type(), bindings),
             substitute(conditional.get_true_type(), bindings),
@@ -355,7 +356,7 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
             conditional.get_infer_params().to_vec(),
             conditional.has_new,
         ))),
-        Mapped(mapped) => Mapped(Arc::new(LuaMappedType::new(
+        Mapped(mapped) => Mapped(Rc::new(LuaMappedType::new(
             (
                 mapped.param.0,
                 GenericParam::new(
@@ -380,21 +381,21 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
             mapped.is_readonly,
             mapped.is_optional,
         ))),
-        StrTplRef(str_tpl) => StrTplRef(Arc::new(LuaStringTplType::new(
+        StrTplRef(str_tpl) => StrTplRef(Rc::new(LuaStringTplType::new(
             str_tpl.get_prefix(),
             str_tpl.get_name(),
             str_tpl.get_tpl_id(),
             str_tpl.get_suffix(),
             str_tpl.get_constraint().map(|t| substitute(t, bindings)),
         ))),
-        MultiLineUnion(union) => MultiLineUnion(Arc::new(LuaMultiLineUnion::new(
+        MultiLineUnion(union) => MultiLineUnion(Rc::new(LuaMultiLineUnion::new(
             union
                 .get_unions()
                 .iter()
                 .map(|(ty, desc)| (substitute(ty, bindings), desc.clone()))
                 .collect(),
         ))),
-        TypeGuard(guard) => TypeGuard(Arc::new(substitute(guard, bindings))),
+        TypeGuard(guard) => TypeGuard(Rc::new(substitute(guard, bindings))),
         Variadic(variadic) => {
             let substituted = match variadic.as_ref() {
                 VariadicType::Base(base) => {
@@ -410,9 +411,9 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
                     VariadicType::Multi(types.iter().map(|t| substitute(t, bindings)).collect())
                 }
             };
-            Variadic(Arc::new(substituted))
+            Variadic(Rc::new(substituted))
         }
-        Instance(inst) => Instance(Arc::new(LuaInstanceType::new(
+        Instance(inst) => Instance(Rc::new(LuaInstanceType::new(
             substitute(inst.get_base(), bindings),
             inst.get_range().clone(),
         ))),

@@ -122,9 +122,7 @@ fn can_use_as_array(builder: &CompletionBuilder, typ: &LuaType) -> bool {
                     .member_infos(typ)
                     .iter()
                     .any(|member| match &member.key {
-                        LuaMemberKey::Integer(_)
-                        | LuaMemberKey::TypeKey(LuaType::Integer)
-                        | LuaMemberKey::TypeKey(LuaType::Number) => true,
+                        LuaMemberKey::Integer(_) => true,
                         LuaMemberKey::Name(name) => {
                             name.as_str() == "[int]" || name.as_str() == "int"
                         }

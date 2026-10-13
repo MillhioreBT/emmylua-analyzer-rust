@@ -177,16 +177,16 @@ fn param_accepts_assign(
     guard: TypeCheckGuard,
 ) -> TypeCheckResult {
     if let LuaType::Union(target_union) = target {
-        for component in target_union.into_vec() {
+        for component in target_union.iter() {
             let next_guard = guard.next_level()?;
-            param_accepts_assign(context, &component, source, next_guard)?;
+            param_accepts_assign(context, component, source, next_guard)?;
         }
         return Ok(());
     }
     if let LuaType::Union(source_union) = source {
-        for component in source_union.into_vec() {
+        for component in source_union.iter() {
             let next_guard = guard.next_level()?;
-            if param_accepts_assign(context, target, &component, next_guard).is_ok() {
+            if param_accepts_assign(context, target, component, next_guard).is_ok() {
                 return Ok(());
             }
         }

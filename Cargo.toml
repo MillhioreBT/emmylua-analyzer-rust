@@ -63,6 +63,7 @@ luars = { version = "0.26.2", features = ["serde", "sandbox"] }
 # request's default-tls feature pulls in a dependency on aws-lc-rs,
 similar = { version = "2.7.0", features = ["inline"] }
 hashbrown = "0.17.0"
+rustc-hash = "2"
 
 # Lint configuration for the entire workspace
 [workspace.lints.rust]

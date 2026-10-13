@@ -3,6 +3,7 @@
 //! The public contract is only through `semantic_model::SemanticModel` (the sole public entry);
 //! this facade (`AnalysisView`) is an implementation detail of SemanticModel and stays within the crate.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use emmylua_parser::{LuaChunk, LuaParseError, LuaSyntaxId, LuaSyntaxTree};
@@ -619,7 +620,7 @@ impl<'db> AnalysisView<'db> {
                 // Generic parameter reference: inside function context → TplRef (bindable during unify); otherwise fall back to a global name.
                 TypeCandidate::Generic(name) => {
                     if let Some(index) = generic_names.iter().position(|n| n == name) {
-                        LuaType::TplRef(Arc::new(GenericTpl::new(
+                        LuaType::TplRef(Rc::new(GenericTpl::new(
                             GenericTplId::Type(index as u32),
                             name.clone(),
                             None,
@@ -653,7 +654,7 @@ impl<'db> AnalysisView<'db> {
                         })
                         .collect();
                     let ret = if fun.returns_multi.len() > 1 {
-                        LuaType::Variadic(Arc::new(VariadicType::Multi(
+                        LuaType::Variadic(Rc::new(VariadicType::Multi(
                             fun.returns_multi
                                 .iter()
                                 .map(|r| self.project_shell_in(file_id, r, context))
@@ -682,7 +683,7 @@ impl<'db> AnalysisView<'db> {
                         2 => AsyncState::Sync,
                         _ => AsyncState::None,
                     };
-                    LuaType::DocFunction(Arc::new(LuaFunctionType::new(
+                    LuaType::DocFunction(Rc::new(LuaFunctionType::new(
                         async_state,
                         fun.is_colon_define,
                         fun.is_variadic,
@@ -698,14 +699,14 @@ impl<'db> AnalysisView<'db> {
                 )),
                 // Array: recursively project the base type.
                 TypeCandidate::Array(base) => {
-                    LuaType::Array(Arc::new(LuaArrayType::from_base_type(
+                    LuaType::Array(Rc::new(LuaArrayType::from_base_type(
                         self.project_shell_in(file_id, base, generic_names),
                     )))
                 }
-                TypeCandidate::Variadic(base) => LuaType::Variadic(Arc::new(VariadicType::Base(
+                TypeCandidate::Variadic(base) => LuaType::Variadic(Rc::new(VariadicType::Base(
                     self.project_shell_in(file_id, base, generic_names),
                 ))),
-                TypeCandidate::Tuple(types) => LuaType::Tuple(Arc::new(LuaTupleType::new(
+                TypeCandidate::Tuple(types) => LuaType::Tuple(Rc::new(LuaTupleType::new(
                     types
                         .iter()
                         .map(|ty| self.project_shell_in(file_id, ty, generic_names))
@@ -733,14 +734,14 @@ impl<'db> AnalysisView<'db> {
                     if name == "TypeGuard"
                         && let Some(inner) = params.first()
                     {
-                        LuaType::TypeGuard(Arc::new(inner.clone()))
+                        LuaType::TypeGuard(Rc::new(inner.clone()))
                     } else if name == "std.Unpack" {
-                        LuaType::Call(Arc::new(LuaAliasCallType::new(
+                        LuaType::Call(Rc::new(LuaAliasCallType::new(
                             LuaAliasCallKind::Unpack,
                             params,
                         )))
                     } else {
-                        LuaType::Generic(Arc::new(LuaGenericType::new(base_id, params)))
+                        LuaType::Generic(Rc::new(LuaGenericType::new(base_id, params)))
                     }
                 }
                 // String template type → StrTplRef (string arguments replace placeholder names).
@@ -753,7 +754,7 @@ impl<'db> AnalysisView<'db> {
                         Some(index) => GenericTplId::Type(index),
                         None => GenericTplId::ConditionalInfer(0),
                     };
-                    LuaType::StrTplRef(Arc::new(LuaStringTplType::new(
+                    LuaType::StrTplRef(Rc::new(LuaStringTplType::new(
                         prefix, name, tpl_id, suffix, None,
                     )))
                 }
@@ -814,7 +815,7 @@ fn primitive_lua_type(primitive: PrimitiveType) -> LuaType {
         PrimitiveType::String => LuaType::String,
         PrimitiveType::Table => LuaType::Table,
         PrimitiveType::Function => LuaType::Function,
-        PrimitiveType::EmptyObject => LuaType::Object(Arc::new(LuaObjectType::new_with_fields(
+        PrimitiveType::EmptyObject => LuaType::Object(Rc::new(LuaObjectType::new_with_fields(
             Default::default(),
             Vec::new(),
         ))),

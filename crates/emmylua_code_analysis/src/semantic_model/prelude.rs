@@ -4,7 +4,7 @@
 //! avoiding a large, duplicated import header in every implementation module.
 
 pub(crate) use std::collections::{HashMap, HashSet};
-pub(crate) use std::sync::Arc;
+pub(crate) use std::rc::Rc;
 
 pub(crate) use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaCallExpr, LuaChunk, LuaClosureExpr, LuaCommentOwner,

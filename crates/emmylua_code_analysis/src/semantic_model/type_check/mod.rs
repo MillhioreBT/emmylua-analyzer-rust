@@ -198,14 +198,9 @@ fn check_general_type_compact(
         }
         // Assignment mode: a target union only needs one compatible member.
         if let LuaType::Union(union) = compact_type {
-            for component in union.into_vec() {
-                if check_general_type_compact(
-                    context,
-                    source,
-                    &component,
-                    check_guard.next_level()?,
-                )
-                .is_ok()
+            for component in union.iter() {
+                if check_general_type_compact(context, source, component, check_guard.next_level()?)
+                    .is_ok()
                 {
                     return Ok(());
                 }
@@ -334,10 +329,10 @@ fn check_union_intersection_source(
         LuaType::Union(union) => {
             // Assignment mode: every member of the source union must be assignable to the target.
             if context.assign_mode {
-                for member in union.into_vec() {
+                for member in union.iter() {
                     check_general_type_compact(
                         context,
-                        &member,
+                        member,
                         compact_type,
                         check_guard.next_level()?,
                     )?;
@@ -349,16 +344,16 @@ fn check_union_intersection_source(
                 && let LuaType::Union(target_union) = compact_type
             {
                 let next_guard = check_guard.next_level()?;
-                for target_component in target_union.into_vec() {
-                    check_general_type_compact(context, source, &target_component, next_guard)?;
+                for target_component in target_union.iter() {
+                    check_general_type_compact(context, source, target_component, next_guard)?;
                 }
                 return Ok(());
             }
             // Source union: pass if any member is assignable (old semantics).
-            for member in union.into_vec() {
+            for member in union.iter() {
                 match check_general_type_compact(
                     context,
-                    &member,
+                    member,
                     compact_type,
                     check_guard.next_level()?,
                 ) {

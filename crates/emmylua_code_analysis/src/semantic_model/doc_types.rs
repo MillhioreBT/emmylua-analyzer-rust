@@ -49,7 +49,7 @@ impl<'db> SemanticModel<'db> {
                 && let Some(name) = name_ty.get_name_text()
             {
                 let key_ty = LuaType::Ref(LuaTypeDeclId::global(&name));
-                let call = LuaType::Call(Arc::new(LuaAliasCallType::new(
+                let call = LuaType::Call(Rc::new(LuaAliasCallType::new(
                     LuaAliasCallKind::KeyOf,
                     vec![key_ty],
                 )));
@@ -63,7 +63,7 @@ impl<'db> SemanticModel<'db> {
                         mapped.param.1.attributes.clone(),
                     ),
                 );
-                ty = LuaType::Mapped(Arc::new(LuaMappedType::new(
+                ty = LuaType::Mapped(Rc::new(LuaMappedType::new(
                     param,
                     mapped.value.clone(),
                     mapped.is_readonly,
@@ -158,7 +158,7 @@ impl<'db> SemanticModel<'db> {
         match doc_ty {
             LuaDocType::Func(_) => {
                 if let Some(fun) = infer::infer_doc_func(self, file_id, type_syntax) {
-                    LuaType::DocFunction(Arc::new(fun))
+                    LuaType::DocFunction(Rc::new(fun))
                 } else {
                     self.analysis().doc_type_lua(file_id, type_syntax, &[])
                 }
@@ -196,7 +196,7 @@ impl<'db> SemanticModel<'db> {
                                 .next()
                                 .map(|t| self.doc_type_lua_rich_in(file_id, t.get_syntax_id()))
                                 .unwrap_or(LuaType::Unknown);
-                            LuaType::Call(Arc::new(LuaAliasCallType::new(
+                            LuaType::Call(Rc::new(LuaAliasCallType::new(
                                 LuaAliasCallKind::Index,
                                 vec![base, key],
                             )))
@@ -221,7 +221,7 @@ impl<'db> SemanticModel<'db> {
                         None,
                     ),
                 );
-                LuaType::Mapped(Arc::new(LuaMappedType::new(
+                LuaType::Mapped(Rc::new(LuaMappedType::new(
                     param,
                     value_ty,
                     mapped.is_readonly(),
@@ -267,7 +267,7 @@ impl<'db> SemanticModel<'db> {
                         }
                     };
                 }
-                LuaType::Object(Arc::new(LuaObjectType::new_with_fields(
+                LuaType::Object(Rc::new(LuaObjectType::new_with_fields(
                     fields,
                     index_access,
                 )))
@@ -285,7 +285,7 @@ impl<'db> SemanticModel<'db> {
                 if let Some(evaluated) = self.try_eval_index_access(&base, &key) {
                     return evaluated;
                 }
-                LuaType::Call(Arc::new(LuaAliasCallType::new(
+                LuaType::Call(Rc::new(LuaAliasCallType::new(
                     LuaAliasCallKind::Index,
                     vec![base, key],
                 )))
@@ -298,7 +298,7 @@ impl<'db> SemanticModel<'db> {
                 let right_ty = self.doc_type_lua_rich_in(file_id, right.get_syntax_id());
                 match binary.get_op_token().map(|op| op.get_op()) {
                     Some(LuaTypeBinaryOperator::Intersection) => {
-                        LuaType::Intersection(Arc::new(LuaIntersectionType::new(vec![
+                        LuaType::Intersection(Rc::new(LuaIntersectionType::new(vec![
                             left_ty, right_ty,
                         ])))
                     }
@@ -310,7 +310,7 @@ impl<'db> SemanticModel<'db> {
                                 other => types.push(other),
                             }
                         }
-                        LuaType::Union(Arc::new(LuaUnionType::from_vec(types)))
+                        LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
                     }
                     _ => self.analysis().doc_type_lua(file_id, type_syntax, &[]),
                 }
@@ -358,7 +358,7 @@ impl<'db> SemanticModel<'db> {
                 if members.is_empty() {
                     self.analysis().doc_type_lua(file_id, type_syntax, &[])
                 } else {
-                    LuaType::Union(Arc::new(LuaUnionType::from_vec(members)))
+                    LuaType::Union(Rc::new(LuaUnionType::from_vec(members)))
                 }
             }
             LuaDocType::MultiLineUnion(multi) => {
@@ -379,7 +379,7 @@ impl<'db> SemanticModel<'db> {
                 if types.is_empty() {
                     self.analysis().doc_type_lua(file_id, type_syntax, &[])
                 } else {
-                    LuaType::Union(Arc::new(LuaUnionType::from_vec(types)))
+                    LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
                 }
             }
             LuaDocType::Variadic(variadic) => variadic
@@ -408,7 +408,7 @@ impl<'db> SemanticModel<'db> {
                             .collect()
                     })
                     .unwrap_or_default();
-                LuaType::Generic(Arc::new(LuaGenericType::new(base_id, params)))
+                LuaType::Generic(Rc::new(LuaGenericType::new(base_id, params)))
             }
             _ => self.analysis().doc_type_lua(file_id, type_syntax, &[]),
         }
@@ -455,7 +455,7 @@ impl<'db> SemanticModel<'db> {
         let infer_params = state.leave_scope();
         let false_type = self.doc_type_lua_rich_scoped(file_id, when_false.get_syntax_id(), state);
 
-        LuaType::Conditional(Arc::new(LuaConditionalType::new(
+        LuaType::Conditional(Rc::new(LuaConditionalType::new(
             checked_type,
             extends_type,
             true_type,
@@ -486,14 +486,14 @@ impl<'db> SemanticModel<'db> {
                     return LuaType::Unknown;
                 };
                 match state.declare(&name) {
-                    Some(tpl) => LuaType::TplRef(Arc::new(tpl)),
+                    Some(tpl) => LuaType::TplRef(Rc::new(tpl)),
                     None => LuaType::Unknown,
                 }
             }
             LuaDocType::Name(name) => {
                 if let Some(name) = name.get_name_text() {
                     if let Some(tpl) = state.find_ref(&name) {
-                        return LuaType::TplRef(Arc::new(tpl));
+                        return LuaType::TplRef(Rc::new(tpl));
                     }
                 }
                 self.doc_type_lua_rich_in(file_id, type_syntax)
@@ -513,14 +513,14 @@ impl<'db> SemanticModel<'db> {
                                 other => types.push(other),
                             }
                         }
-                        LuaType::Union(Arc::new(LuaUnionType::from_vec(types)))
+                        LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
                     }
                     Some(LuaTypeBinaryOperator::Intersection) => {
-                        LuaType::Intersection(Arc::new(LuaIntersectionType::new(vec![
+                        LuaType::Intersection(Rc::new(LuaIntersectionType::new(vec![
                             left_ty, right_ty,
                         ])))
                     }
-                    Some(LuaTypeBinaryOperator::Extends) => LuaType::Call(Arc::new(
+                    Some(LuaTypeBinaryOperator::Extends) => LuaType::Call(Rc::new(
                         LuaAliasCallType::new(LuaAliasCallKind::Extends, vec![left_ty, right_ty]),
                     )),
                     _ => self.analysis().doc_type_lua(file_id, type_syntax, &[]),
@@ -585,7 +585,7 @@ impl<'db> SemanticModel<'db> {
                         }
                     };
                 }
-                LuaType::Object(Arc::new(LuaObjectType::new_with_fields(
+                LuaType::Object(Rc::new(LuaObjectType::new_with_fields(
                     fields,
                     index_access,
                 )))
@@ -612,10 +612,8 @@ impl<'db> SemanticModel<'db> {
                         .map(|t| self.doc_type_lua_rich_scoped(file_id, t.get_syntax_id(), state))
                         .unwrap_or(LuaType::Unknown);
                     if param.is_nullable() && !ty.is_nullable() {
-                        ty = LuaType::Union(Arc::new(LuaUnionType::from_vec(vec![
-                            ty,
-                            LuaType::Nil,
-                        ])));
+                        ty =
+                            LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![ty, LuaType::Nil])));
                     }
                     params.push((name, Some(ty)));
                 }
@@ -636,12 +634,12 @@ impl<'db> SemanticModel<'db> {
                         } else if types.len() == 1 {
                             types.pop().unwrap_or(LuaType::Unknown)
                         } else {
-                            LuaType::Variadic(Arc::new(VariadicType::Multi(types)))
+                            LuaType::Variadic(Rc::new(VariadicType::Multi(types)))
                         }
                     }
                     None => LuaType::Unknown,
                 };
-                LuaType::DocFunction(Arc::new(LuaFunctionType::new(
+                LuaType::DocFunction(Rc::new(LuaFunctionType::new(
                     AsyncState::None,
                     false,
                     is_variadic,
@@ -676,12 +674,12 @@ impl<'db> SemanticModel<'db> {
                             .collect()
                     })
                     .unwrap_or_default();
-                LuaType::Generic(Arc::new(LuaGenericType::new(base_id, params)))
+                LuaType::Generic(Rc::new(LuaGenericType::new(base_id, params)))
             }
             LuaDocType::Array(array) => array
                 .get_type()
                 .map(|base| {
-                    LuaType::Array(Arc::new(LuaArrayType::from_base_type(
+                    LuaType::Array(Rc::new(LuaArrayType::from_base_type(
                         self.doc_type_lua_rich_scoped(file_id, base.get_syntax_id(), state),
                     )))
                 })
@@ -691,7 +689,7 @@ impl<'db> SemanticModel<'db> {
                     .get_types()
                     .map(|item| self.doc_type_lua_rich_scoped(file_id, item.get_syntax_id(), state))
                     .collect();
-                LuaType::Tuple(Arc::new(LuaTupleType::new(
+                LuaType::Tuple(Rc::new(LuaTupleType::new(
                     types,
                     LuaTupleStatus::DocResolve,
                 )))

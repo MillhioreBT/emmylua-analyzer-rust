@@ -1415,20 +1415,24 @@ fn test_syntax_error_checks() {
 
 #[test]
 fn test_semantic_snapshot_query_from_other_thread() {
+    use crate::LuaArrayType;
     use lsp_types::Uri;
-    use std::str::FromStr;
+    use std::{str::FromStr, thread};
 
     let emmyrc = Arc::new(Emmyrc::default());
     let mut db = SemanticDatabase::new();
     db.update_config(emmyrc.clone());
     let uri = Uri::from_str("file:///C:/ws/thread_test.lua").unwrap();
-    let fid = db.set_file_content(&uri, Some("local x = 1\nlocal y = x + 1".to_string()));
+    let fid = db.set_file_content(
+        &uri,
+        Some("local x = 1\nlocal y = x + 1\n---@type number[]\nlocal values = {x, y}".to_string()),
+    );
     db.update_main_root(PathBuf::from("C:/ws"));
 
-    // Read in a scoped thread borrowing the same live database.
-    let ty = std::thread::scope(|scope| {
-        scope
-            .spawn(|| {
+    // 多个线程共享数据库, 各自在线程内创建模型并验证推断结果.
+    thread::scope(|scope| {
+        for _ in 0..2 {
+            scope.spawn(|| {
                 let model = SemanticModel::new(&db, fid);
                 let x = model
                     .decls()
@@ -1436,14 +1440,25 @@ fn test_semantic_snapshot_query_from_other_thread() {
                     .iter()
                     .find(|d| d.name == "x")
                     .expect("x decl");
-                model.type_of_decl(&x.id).expect("x type")
-            })
-            .join()
-            .expect("thread panicked")
-    });
-    assert_eq!(ty, LuaType::IntegerConst(1));
+                assert_eq!(model.type_of_decl(&x.id), Some(LuaType::IntegerConst(1)));
 
-    // Write operations stay on the main thread after the scoped read finishes.
+                let values = model
+                    .decls()
+                    .expect("decls")
+                    .iter()
+                    .find(|d| d.name == "values")
+                    .expect("values decl");
+                assert_eq!(
+                    model.type_of_decl(&values.id),
+                    Some(LuaType::Array(
+                        LuaArrayType::from_base_type(LuaType::Number).into()
+                    ))
+                );
+            });
+        }
+    });
+
+    // 并行查询结束后, 主线程仍可继续写入数据库.
     let uri2 = Uri::from_str("file:///C:/ws/thread_test2.lua").unwrap();
     db.set_file_content(&uri2, Some("local z = 2".to_string()));
     assert!(

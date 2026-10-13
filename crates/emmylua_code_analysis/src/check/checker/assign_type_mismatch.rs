@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use std::collections::{HashMap, HashSet};
 
 use emmylua_parser::{
@@ -713,7 +715,7 @@ fn assignment_value_type(semantic_model: &SemanticModel<'_>, value_expr: &LuaExp
         && let Some(decl) = semantic_model.resolve_name(name_expr.get_position())
         && let Some(fun) = semantic_model.type_of_decl_signature(&decl)
     {
-        return LuaType::DocFunction(std::sync::Arc::new(fun));
+        return LuaType::DocFunction(Rc::new(fun));
     }
     resolve_unbound_generic(semantic_model, ty)
 }
