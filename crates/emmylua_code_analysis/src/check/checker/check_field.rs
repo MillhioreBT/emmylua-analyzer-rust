@@ -553,10 +553,7 @@ fn collect_fields(
             ty = alias_target;
         }
         if member.is_nullable && !ty.is_nullable() {
-            ty = LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![
-                ty,
-                LuaType::Nil,
-            ])));
+            ty = LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![ty, LuaType::Nil])));
         }
         out.entry(member.key.clone()).or_insert(ty);
     }

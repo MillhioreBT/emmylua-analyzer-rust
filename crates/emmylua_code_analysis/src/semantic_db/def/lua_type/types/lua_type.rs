@@ -138,7 +138,10 @@ impl Hash for LuaType {
             LuaType::BooleanConst(a) => (14, a).hash(state),
             LuaType::StringConst(a) => (15, a).hash(state),
             LuaType::IntegerConst(a) => (16, a).hash(state),
-            LuaType::FloatConst(a) => (17, a.to_bits()).hash(state),
+            LuaType::FloatConst(a) => {
+                let bits = if *a == 0.0 { 0 } else { a.to_bits() };
+                (17, bits).hash(state);
+            }
             LuaType::TableConst(a) => (18, a).hash(state),
             LuaType::Ref(a) => (19, a).hash(state),
             LuaType::Def(a) => (20, a).hash(state),

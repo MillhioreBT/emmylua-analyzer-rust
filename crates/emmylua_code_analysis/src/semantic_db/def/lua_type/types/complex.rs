@@ -4,14 +4,30 @@ use crate::{AsyncState, InFiled, LuaAttributeUse};
 use hashbrown::{HashMap, HashSet};
 use internment::ArcIntern;
 use rowan::TextRange;
+use rustc_hash::FxBuildHasher;
 use smol_str::SmolStr;
-use std::hash::{Hash, Hasher};
-use std::{collections::hash_map::DefaultHasher, ops::Deref, rc::Rc};
+use std::{
+    array,
+    cell::OnceCell,
+    hash::{BuildHasher, Hash, Hasher},
+    iter::FusedIterator,
+    num::NonZeroU64,
+    ops::Deref,
+    rc::Rc,
+    slice,
+};
 
 use super::LuaTypeNode;
 use super::lua_type::LuaType;
-use crate::semantic_db::def::lua_type::basic_union::{BasicTypeKind, BasicTypeUnion};
+use crate::semantic_db::def::lua_type::basic_union::{
+    BasicTypeKind, BasicTypeUnion, BasicTypeUnionIter,
+};
 use crate::semantic_db::def::lua_type::type_decl::LuaTypeDeclId;
+
+fn cached_type_hash(value: impl Hash) -> NonZeroU64 {
+    // 利用零值表示未计算
+    NonZeroU64::new(FxBuildHasher.hash_one(value)).unwrap_or(NonZeroU64::MIN)
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LuaTupleType {
@@ -212,10 +228,11 @@ pub enum LuaIndexAccessKey {
     Type(LuaType),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct LuaObjectType {
     fields: HashMap<LuaMemberKey, LuaType>,
     index_access: Vec<(LuaType, LuaType)>,
+    hash: OnceCell<NonZeroU64>,
 }
 
 impl LuaObjectType {
@@ -228,7 +245,7 @@ impl LuaObjectType {
                     fields.insert(LuaMemberKey::Integer(i), value_type);
                 }
                 LuaIndexAccessKey::String(s) => {
-                    fields.insert(LuaMemberKey::Name(s.clone()), value_type.clone());
+                    fields.insert(LuaMemberKey::Name(s), value_type);
                 }
                 LuaIndexAccessKey::Type(t) => {
                     index_access.push((t, value_type));
@@ -239,6 +256,7 @@ impl LuaObjectType {
         Self {
             fields,
             index_access,
+            hash: OnceCell::new(),
         }
     }
 
@@ -249,6 +267,7 @@ impl LuaObjectType {
         Self {
             fields,
             index_access,
+            hash: OnceCell::new(),
         }
     }
 
@@ -306,20 +325,33 @@ impl LuaObjectType {
     // }
 }
 
+impl PartialEq for LuaObjectType {
+    fn eq(&self, other: &Self) -> bool {
+        if self
+            .hash
+            .get()
+            .zip(other.hash.get())
+            .is_some_and(|(left, right)| left != right)
+        {
+            return false;
+        }
+        self.fields == other.fields && self.index_access == other.index_access
+    }
+}
+
+impl Eq for LuaObjectType {}
+
 impl Hash for LuaObjectType {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let mut fields: Vec<_> = self.fields.iter().collect();
-        fields.sort_by(|a, b| a.0.cmp(b.0));
-        fields.len().hash(state);
-        for (key, ty) in fields {
-            key.hash(state);
-            ty.hash(state);
-        }
-        self.index_access.len().hash(state);
-        for (key, ty) in &self.index_access {
-            key.hash(state);
-            ty.hash(state);
-        }
+        self.hash
+            .get_or_init(|| {
+                // 字段声明顺序不影响相等性, 索引签名仍保留顺序.
+                let fields_hash = self.fields.iter().fold(0u64, |hash, field| {
+                    hash.wrapping_add(FxBuildHasher.hash_one(field))
+                });
+                cached_type_hash((self.fields.len(), fields_hash, &self.index_access))
+            })
+            .hash(state);
     }
 }
 
@@ -336,14 +368,7 @@ impl Hash for LuaUnionType {
             }
             LuaUnionType::Multi(types) => {
                 2u8.hash(state);
-                types.len().hash(state);
-                let mut sum = 0u64;
-                for ty in types {
-                    let mut h = DefaultHasher::new();
-                    ty.hash(&mut h);
-                    sum = sum.wrapping_add(h.finish());
-                }
-                sum.hash(state);
+                types.hash(state);
             }
         }
     }
@@ -365,11 +390,67 @@ impl From<LuaObjectType> for LuaType {
     }
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LuaUnionType {
     Basic(BasicTypeUnion),
     Nullable(LuaType),
-    Multi(Vec<LuaType>),
+    Multi(LuaUnionMembers),
+}
+
+/// 只读的联合类型成员, 首次求 hash 时缓存结果.
+#[derive(Debug, Clone)]
+pub struct LuaUnionMembers {
+    types: Vec<LuaType>,
+    hash: OnceCell<NonZeroU64>,
+}
+
+impl LuaUnionMembers {
+    pub fn new(types: Vec<LuaType>) -> Self {
+        Self {
+            types,
+            hash: OnceCell::new(),
+        }
+    }
+
+    pub fn get_types(&self) -> &[LuaType] {
+        &self.types
+    }
+}
+
+impl PartialEq for LuaUnionMembers {
+    fn eq(&self, other: &Self) -> bool {
+        if self.types.len() != other.types.len()
+            || self
+                .hash
+                .get()
+                .zip(other.hash.get())
+                .is_some_and(|(left, right)| left != right)
+        {
+            return false;
+        }
+        let mut types: HashSet<_> = self.types.iter().collect();
+        for ty in &other.types {
+            if !types.remove(ty) {
+                return false;
+            }
+        }
+        types.is_empty()
+    }
+}
+
+impl Eq for LuaUnionMembers {}
+
+impl Hash for LuaUnionMembers {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash
+            .get_or_init(|| {
+                let members_hash = self.types.iter().fold(0u64, |hash, ty| {
+                    hash.wrapping_add(FxBuildHasher.hash_one(ty))
+                });
+                cached_type_hash((self.types.len(), members_hash))
+            })
+            .hash(state);
+    }
 }
 
 impl LuaUnionType {
@@ -396,7 +477,7 @@ impl LuaUnionType {
             }
             Self::Nullable(LuaType::Unknown)
         } else {
-            Self::Multi(set.into_iter().collect())
+            Self::Multi(LuaUnionMembers::new(set.into_iter().collect()))
         }
     }
 
@@ -423,42 +504,32 @@ impl LuaUnionType {
                     return Self::Nullable(ty.clone());
                 }
             } else {
-                return Self::Multi(types);
+                return Self::Multi(LuaUnionMembers::new(types));
             }
         }
-        Self::Multi(types)
+        Self::Multi(LuaUnionMembers::new(types))
+    }
+
+    #[inline]
+    pub fn iter(&self) -> UnionIter<'_> {
+        match self {
+            LuaUnionType::Basic(basic) => UnionIter::Basic(basic.iter()),
+            LuaUnionType::Nullable(ty) => UnionIter::Nullable([ty, &LuaType::Nil].into_iter()),
+            LuaUnionType::Multi(types) => UnionIter::Multi(types.get_types().iter()),
+        }
     }
 
     pub fn into_vec(&self) -> Vec<LuaType> {
         match self {
-            LuaUnionType::Basic(basic) => basic.iter().collect(),
+            LuaUnionType::Basic(basic) => basic.iter().cloned().collect(),
             LuaUnionType::Nullable(ty) => vec![ty.clone(), LuaType::Nil],
-            LuaUnionType::Multi(types) => types.clone(),
-        }
-    }
-
-    // PERF: This is used in hot paths where `into_vec` would clone large inferred unions.
-    #[allow(unused)]
-    pub(crate) fn all_members(&self, mut predicate: impl FnMut(&LuaType) -> bool) -> bool {
-        match self {
-            LuaUnionType::Basic(basic) => basic.iter().all(|ty| predicate(&ty)),
-            LuaUnionType::Nullable(ty) => predicate(ty) && predicate(&LuaType::Nil),
-            LuaUnionType::Multi(types) => types.iter().all(predicate),
+            LuaUnionType::Multi(types) => types.get_types().to_vec(),
         }
     }
 
     #[allow(unused, clippy::wrong_self_convention)]
     pub(crate) fn into_set(&self) -> HashSet<LuaType> {
-        match self {
-            LuaUnionType::Basic(basic) => basic.iter().collect(),
-            LuaUnionType::Nullable(ty) => {
-                let mut set = HashSet::new();
-                set.insert(ty.clone());
-                set.insert(LuaType::Nil);
-                set
-            }
-            LuaUnionType::Multi(types) => types.clone().into_iter().collect(),
-        }
+        self.iter().cloned().collect()
     }
 
     pub fn contain_tpl(&self) -> bool {
@@ -469,7 +540,7 @@ impl LuaUnionType {
         match self {
             LuaUnionType::Basic(basic) => basic.contains(BasicTypeKind::Nil),
             LuaUnionType::Nullable(_) => true,
-            LuaUnionType::Multi(types) => types.iter().any(|t| t.is_nullable()),
+            LuaUnionType::Multi(types) => types.get_types().iter().any(|t| t.is_nullable()),
         }
     }
 
@@ -477,7 +548,7 @@ impl LuaUnionType {
         match self {
             LuaUnionType::Basic(basic) => basic.contains(BasicTypeKind::Nil),
             LuaUnionType::Nullable(_) => true,
-            LuaUnionType::Multi(types) => types.iter().any(|t| t.is_optional()),
+            LuaUnionType::Multi(types) => types.get_types().iter().any(|t| t.is_optional()),
         }
     }
 
@@ -485,7 +556,7 @@ impl LuaUnionType {
         match self {
             LuaUnionType::Basic(basic) => basic.iter().all(|t| t.is_always_truthy()),
             LuaUnionType::Nullable(_) => false,
-            LuaUnionType::Multi(types) => types.iter().all(|t| t.is_always_truthy()),
+            LuaUnionType::Multi(types) => types.get_types().iter().all(|t| t.is_always_truthy()),
         }
     }
 
@@ -493,7 +564,7 @@ impl LuaUnionType {
         match self {
             LuaUnionType::Basic(basic) => basic.iter().all(|t| t.is_always_falsy()),
             LuaUnionType::Nullable(f) => f.is_always_falsy(),
-            LuaUnionType::Multi(types) => types.iter().all(|t| t.is_always_falsy()),
+            LuaUnionType::Multi(types) => types.get_types().iter().all(|t| t.is_always_falsy()),
         }
     }
 }
@@ -504,25 +575,55 @@ impl From<LuaUnionType> for LuaType {
     }
 }
 
-impl PartialEq for LuaUnionType {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (LuaUnionType::Basic(a), LuaUnionType::Basic(b)) => a == b,
-            (LuaUnionType::Nullable(a), LuaUnionType::Nullable(b)) => a == b,
-            (LuaUnionType::Multi(a), LuaUnionType::Multi(b)) => {
-                if a.len() != b.len() {
-                    return false;
-                }
-                let mut a_set: HashSet<_> = a.iter().collect();
-                for item in b {
-                    if !a_set.remove(item) {
-                        return false;
-                    }
-                }
-                a_set.is_empty()
-            }
-            _ => false,
+#[derive(Debug, Clone)]
+pub enum UnionIter<'a> {
+    Basic(BasicTypeUnionIter),
+    Nullable(array::IntoIter<&'a LuaType, 2>),
+    Multi(slice::Iter<'a, LuaType>),
+}
+
+impl<'a> Iterator for UnionIter<'a> {
+    type Item = &'a LuaType;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            UnionIter::Basic(iter) => iter.next(),
+            UnionIter::Nullable(iter) => iter.next(),
+            UnionIter::Multi(iter) => iter.next(),
         }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            UnionIter::Basic(iter) => iter.size_hint(),
+            UnionIter::Nullable(iter) => iter.size_hint(),
+            UnionIter::Multi(iter) => iter.size_hint(),
+        }
+    }
+}
+
+impl DoubleEndedIterator for UnionIter<'_> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self {
+            UnionIter::Basic(iter) => iter.next_back(),
+            UnionIter::Nullable(iter) => iter.next_back(),
+            UnionIter::Multi(iter) => iter.next_back(),
+        }
+    }
+}
+
+impl ExactSizeIterator for UnionIter<'_> {}
+impl FusedIterator for UnionIter<'_> {}
+
+impl<'a> IntoIterator for &'a LuaUnionType {
+    type Item = &'a LuaType;
+    type IntoIter = UnionIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -896,31 +997,75 @@ impl LuaStringTplType {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct LuaMultiLineUnion {
     unions: Vec<(LuaType, Option<String>)>,
+    hash: OnceCell<NonZeroU64>,
 }
 
 impl LuaMultiLineUnion {
     pub fn new(unions: Vec<(LuaType, Option<String>)>) -> Self {
-        Self { unions }
+        Self {
+            unions,
+            hash: OnceCell::new(),
+        }
     }
 
     pub fn get_unions(&self) -> &[(LuaType, Option<String>)] {
         &self.unions
     }
 
-    pub fn to_union(&self) -> LuaType {
-        let mut types = Vec::new();
-        for (t, _) in &self.unions {
-            types.push(t.clone());
-        }
+    pub fn iter(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &LuaType> + ExactSizeIterator + FusedIterator {
+        self.unions.iter().map(|(ty, _)| ty)
+    }
 
+    pub fn to_union(&self) -> LuaType {
+        let types = self.iter().cloned().collect();
         LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
     }
 
     pub fn contain_tpl(&self) -> bool {
         self.contain_tpl_children()
+    }
+
+    pub fn is_optional(&self) -> bool {
+        let mut all_basic = true;
+        let mut optional = false;
+        for ty in self.iter() {
+            if ty.is_nil() {
+                return true;
+            }
+            all_basic &= BasicTypeKind::from_type(ty).is_some();
+            optional |= ty.is_optional();
+        }
+        // 转为 Basic Union 后仅由 nil 决定可选性
+        !all_basic && optional
+    }
+}
+
+impl PartialEq for LuaMultiLineUnion {
+    fn eq(&self, other: &Self) -> bool {
+        if self
+            .hash
+            .get()
+            .zip(other.hash.get())
+            .is_some_and(|(left, right)| left != right)
+        {
+            return false;
+        }
+        self.unions == other.unions
+    }
+}
+
+impl Eq for LuaMultiLineUnion {}
+
+impl Hash for LuaMultiLineUnion {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash
+            .get_or_init(|| cached_type_hash(&self.unions))
+            .hash(state);
     }
 }
 
@@ -1047,5 +1192,65 @@ impl LuaMappedType {
 
     pub fn contain_tpl(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ptr;
+
+    use crate::{LuaMultiLineUnion, LuaObjectType, LuaType, LuaUnionType};
+
+    #[test]
+    fn test_union_iterator() {
+        assert_eq!(LuaUnionType::from_vec(vec![]).iter().next(), None);
+
+        let basic = LuaUnionType::from_vec(vec![LuaType::Never, LuaType::Nil, LuaType::String]);
+        let mut iter = basic.iter();
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.next(), Some(&LuaType::Nil));
+        assert_eq!(iter.next_back(), Some(&LuaType::Never));
+        assert_eq!(iter.len(), 1);
+        assert_eq!(iter.next(), Some(&LuaType::String));
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+
+        let object: LuaType = LuaObjectType::new(vec![]).into();
+        for (union, last) in [
+            (LuaUnionType::Nullable(object.clone()), LuaType::Nil),
+            (
+                LuaUnionType::from_vec(vec![object, LuaType::IntegerConst(1)]),
+                LuaType::IntegerConst(1),
+            ),
+        ] {
+            let first = match &union {
+                LuaUnionType::Nullable(ty) => ty,
+                LuaUnionType::Multi(members) => &members.get_types()[0],
+                _ => unreachable!(),
+            };
+            let mut iter = union.iter();
+            assert_eq!(iter.len(), 2);
+            assert!(ptr::eq(iter.next().unwrap(), first));
+            assert_eq!(iter.next_back(), Some(&last));
+            assert_eq!(iter.len(), 0);
+            assert_eq!(iter.next(), None);
+        }
+    }
+
+    #[test]
+    fn test_multiline_union_optional() {
+        for (members, expected) in [
+            (vec![], false),
+            (vec![LuaType::Any], false),
+            (vec![LuaType::Any, LuaType::IntegerConst(1)], true),
+            (vec![LuaType::Nil], true),
+        ] {
+            let union = LuaMultiLineUnion::new(members.into_iter().map(|ty| (ty, None)).collect());
+            assert_eq!(
+                LuaType::MultiLineUnion(union.into()).is_optional(),
+                expected
+            );
+        }
     }
 }

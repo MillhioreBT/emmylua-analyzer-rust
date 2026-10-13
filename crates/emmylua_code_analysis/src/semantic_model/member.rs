@@ -793,11 +793,11 @@ fn collect_members(
         }
         // Union: union of component members; same-key member types merge (`(A|B).x` = `A.x | B.x`).
         LuaType::Union(union) => {
-            for component in union.into_vec() {
+            for component in union.iter() {
                 let mut component_members = Vec::new();
                 collect_members(
                     model,
-                    &component,
+                    component,
                     bindings,
                     name_bindings,
                     visited,

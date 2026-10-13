@@ -472,15 +472,14 @@ impl<'a> TypeHumanizer<'a> {
     }
 
     fn write_union<W: Write>(&mut self, union: &LuaUnionType, w: &mut W) -> fmt::Result {
-        let types = union.into_vec();
         let num = self.level.max_union_items();
 
         let mut seen = HashSet::new();
-        let mut unique: Vec<LuaType> = Vec::new();
+        let mut unique = Vec::new();
         let mut has_nil = false;
         let mut has_function = false;
 
-        for ty in types.iter() {
+        for ty in union.iter() {
             if ty.is_nil() {
                 has_nil = true;
                 continue;
@@ -494,7 +493,7 @@ impl<'a> TypeHumanizer<'a> {
             let _ = self.write_type(ty, &mut key);
             self.level = saved;
             if seen.insert(key) {
-                unique.push(ty.clone());
+                unique.push(ty);
             }
         }
 
@@ -686,7 +685,6 @@ impl<'a> TypeHumanizer<'a> {
             ))),
             Union(union) => Union(Rc::new(LuaUnionType::from_vec(
                 union
-                    .into_vec()
                     .iter()
                     .map(|t| self.substitute_named_refs(t, map))
                     .collect(),

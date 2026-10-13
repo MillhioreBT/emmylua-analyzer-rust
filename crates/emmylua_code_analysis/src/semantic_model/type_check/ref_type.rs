@@ -106,11 +106,11 @@ pub fn check_ref_type_compact(
         }
         // The alias's expected type must accept every branch of the actual union.
         if let LuaType::Union(compact_union) = compact_type {
-            for compact_sub_type in compact_union.into_vec() {
+            for compact_sub_type in compact_union.iter() {
                 check_ref_type_compact(
                     context,
                     source_id,
-                    &compact_sub_type,
+                    compact_sub_type,
                     check_guard.next_level()?,
                 )?;
             }
@@ -187,11 +187,11 @@ fn check_ref_class(
         }
         LuaType::Table => Ok(()),
         LuaType::Union(union_type) => {
-            for typ in union_type.into_vec() {
+            for typ in union_type.iter() {
                 check_general_type_compact(
                     context,
                     &LuaType::Ref(source_id.clone()),
-                    &typ,
+                    typ,
                     check_guard.next_level()?,
                 )?;
             }

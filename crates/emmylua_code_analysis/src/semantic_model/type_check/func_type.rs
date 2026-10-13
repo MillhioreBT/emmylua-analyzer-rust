@@ -42,11 +42,11 @@ pub fn check_doc_func_type_compact(
             }
         }
         LuaType::Union(union) => {
-            for union_type in union.into_vec() {
+            for union_type in union.iter() {
                 check_doc_func_type_compact(
                     context,
                     source_func,
-                    &union_type,
+                    union_type,
                     check_guard.next_level()?,
                 )?;
             }

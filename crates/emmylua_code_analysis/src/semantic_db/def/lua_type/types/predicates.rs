@@ -95,7 +95,7 @@ impl LuaType {
         match self {
             LuaType::Nil => true,
             LuaType::Union(u) => u.is_nullable(),
-            LuaType::MultiLineUnion(u) => u.to_union().is_nullable(),
+            LuaType::MultiLineUnion(u) => u.iter().any(LuaType::is_nullable),
             _ => false,
         }
     }
@@ -104,7 +104,7 @@ impl LuaType {
         match self {
             LuaType::Nil | LuaType::Any | LuaType::Unknown => true,
             LuaType::Union(u) => u.is_optional(),
-            LuaType::MultiLineUnion(u) => u.to_union().is_optional(),
+            LuaType::MultiLineUnion(u) => u.is_optional(),
             LuaType::Variadic(_) => true,
             _ => false,
         }
@@ -115,7 +115,7 @@ impl LuaType {
             LuaType::Nil | LuaType::Boolean | LuaType::Any | LuaType::Unknown => false,
             LuaType::BooleanConst(boolean) | LuaType::DocBooleanConst(boolean) => *boolean,
             LuaType::Union(u) => u.is_always_truthy(),
-            LuaType::MultiLineUnion(u) => u.to_union().is_always_truthy(),
+            LuaType::MultiLineUnion(u) => u.iter().all(LuaType::is_always_truthy),
             LuaType::TypeGuard(_) => false,
             _ => true,
         }
@@ -125,7 +125,7 @@ impl LuaType {
         match self {
             LuaType::Nil | LuaType::BooleanConst(false) | LuaType::DocBooleanConst(false) => true,
             LuaType::Union(u) => u.is_always_falsy(),
-            LuaType::MultiLineUnion(u) => u.to_union().is_always_falsy(),
+            LuaType::MultiLineUnion(u) => u.iter().all(LuaType::is_always_falsy),
             LuaType::TypeGuard(_) => false,
             _ => false,
         }
@@ -240,8 +240,7 @@ impl LuaType {
             }
             LuaType::Union(union) => {
                 let slot_types = union
-                    .into_vec()
-                    .into_iter()
+                    .iter()
                     .map(|ty| ty.get_result_slot_type(idx))
                     .collect::<Vec<_>>();
                 if !slot_types.iter().any(|ty| ty.is_some()) {
@@ -311,7 +310,7 @@ impl LuaType {
                 for typ in types {
                     match typ {
                         LuaType::Union(u) => {
-                            for t in u.into_vec() {
+                            for t in u.iter().cloned() {
                                 if hash_set.insert(t.clone()) {
                                     result_types.push(t);
                                 }
@@ -343,6 +342,6 @@ fn union_contains_multi_return(union: &LuaUnionType) -> bool {
     match union {
         LuaUnionType::Basic(_) => false,
         LuaUnionType::Nullable(ty) => ty.contain_multi_return(),
-        LuaUnionType::Multi(types) => types.iter().any(LuaType::contain_multi_return),
+        LuaUnionType::Multi(types) => types.get_types().iter().any(LuaType::contain_multi_return),
     }
 }

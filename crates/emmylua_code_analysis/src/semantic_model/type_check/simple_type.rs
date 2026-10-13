@@ -92,7 +92,7 @@ pub fn check_simple_type_compact(
             }
             // Union targets such as `string|true`: a boolean constant matching any component is compatible.
             if let LuaType::Union(union) = compact_type
-                && union.into_vec().iter().any(|ty| ty.is_boolean())
+                && union.iter().any(|ty| ty.is_boolean())
             {
                 return Ok(());
             }
@@ -288,8 +288,8 @@ pub fn check_simple_type_compact(
     }
 
     if let LuaType::Union(union) = compact_type {
-        for sub_compact in union.into_vec() {
-            check_simple_type_compact(context, source, &sub_compact, check_guard.next_level()?)?;
+        for sub_compact in union.iter() {
+            check_simple_type_compact(context, source, sub_compact, check_guard.next_level()?)?;
         }
         return Ok(());
     }

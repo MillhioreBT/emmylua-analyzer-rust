@@ -67,11 +67,11 @@ pub fn check_generic_type_compact(
             Ok(())
         }
         LuaType::Union(union) => {
-            for sub in union.into_vec() {
+            for sub in union.iter() {
                 check_generic_type_compact(
                     context,
                     source_generic,
-                    &sub,
+                    sub,
                     check_guard.next_level()?,
                 )?;
             }
