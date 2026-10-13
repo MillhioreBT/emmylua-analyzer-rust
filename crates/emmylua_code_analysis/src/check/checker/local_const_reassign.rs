@@ -3,7 +3,7 @@
 //! Mirrors the old `diagnostic::checker::local_const_reassign`:
 //! `<const>` locals -> `LocalConstReassign`; for-loop variables -> `IterVariableReassign`.
 
-use emmylua_parser::LuaSyntaxKind;
+use emmylua_parser::{LuaAssignStat, LuaAstNode};
 
 use crate::DiagnosticCode;
 use crate::semantic_db::def::DeclKind;
@@ -37,14 +37,17 @@ impl Checker for LocalConstReassignChecker {
                 if use_.name != decl.name {
                     continue;
                 }
-                // Write position: name is an assignment target (parent is AssignStat).
                 let Some(root) = &root else { continue };
                 let Some(node) = use_.syntax.to_node_from_root(root) else {
                     continue;
                 };
                 let is_write = node
                     .parent()
-                    .is_some_and(|parent| parent.kind() == LuaSyntaxKind::AssignStat.into());
+                    .and_then(LuaAssignStat::cast)
+                    .is_some_and(|assign| {
+                        let (vars, _) = assign.get_var_and_expr_list();
+                        vars.iter().any(|var| var.syntax() == &node)
+                    });
                 if !is_write {
                     continue;
                 }
