@@ -68,6 +68,7 @@ pub enum Instr {
         /// Static member key (`Name` / `Integer`); `None` means a dynamic key (`t[k]`).
         key: Option<LuaMemberKey>,
         dynamic: bool,
+        key_syntax: Option<LuaSyntaxId>,
     },
     /// Pop callee + n args -> call inference (unify and substitute return).
     Call {
@@ -123,6 +124,7 @@ enum CTask {
     },
     EmitIndex {
         key: Option<LuaMemberKey>,
+        key_syntax: LuaSyntaxId,
     },
     Call {
         arg_count: usize,
@@ -156,8 +158,13 @@ pub fn compile(expr: LuaExpr, file_id: FileId, out: &mut Vec<Instr>) {
             CTask::Index { key } => out.push(Instr::IndexMember {
                 key,
                 dynamic: false,
+                key_syntax: None,
             }),
-            CTask::EmitIndex { key } => out.push(Instr::IndexMember { key, dynamic: true }),
+            CTask::EmitIndex { key, key_syntax } => out.push(Instr::IndexMember {
+                key,
+                dynamic: true,
+                key_syntax: Some(key_syntax),
+            }),
             CTask::Call {
                 arg_count,
                 colon_call,
@@ -275,7 +282,10 @@ fn compile_expr(expr: &LuaExpr, file_id: FileId, out: &mut Vec<Instr>, stack: &m
             if let Some(prefix) = index_expr.get_prefix_expr() {
                 if let Some(LuaIndexKey::Expr(key_expr)) = index_key {
                     // Dynamic key: prefix, key, IndexMember(dynamic).
-                    stack.push(CTask::EmitIndex { key });
+                    stack.push(CTask::EmitIndex {
+                        key,
+                        key_syntax: key_expr.get_syntax_id(),
+                    });
                     stack.push(CTask::Expr(key_expr));
                     stack.push(CTask::Expr(prefix));
                 } else {
@@ -472,10 +482,24 @@ impl<'a> InferVm<'a> {
                 let value = self.load_name(&name, offset);
                 self.stack.push(value);
             }
-            Instr::IndexMember { key, dynamic } => {
+            Instr::IndexMember {
+                key,
+                dynamic,
+                key_syntax,
+            } => {
                 if dynamic {
-                    let key_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
+                    let mut key_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
                     let owner_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
+                    // A named cast can narrow a member used as the key. Apply its
+                    // flow-sensitive type to the key, not to the indexed value.
+                    if let Some(syntax) = key_syntax {
+                        let flow_ty = self
+                            .model
+                            .type_of_expr_at(syntax, syntax.get_range().start());
+                        if !matches!(flow_ty, LuaType::Unknown | LuaType::Any) {
+                            key_value.ty = flow_ty;
+                        }
+                    }
                     let value = self.index_member_dynamic(owner_value, key_value);
                     self.stack.push(value);
                 } else {

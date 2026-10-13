@@ -1068,6 +1068,11 @@ pub(super) fn apply_expr_casts(
                     let Some(cast) = cast_ptr.to_node(&chunk) else {
                         continue;
                     };
+                    // Named casts narrow their target through trace_decl/trace_member.
+                    // Sharing that flow node does not make another expression a target.
+                    if cast.get_key_expr().is_some() {
+                        continue;
+                    }
                     for op_type in cast.get_op_types() {
                         let Some(doc_type) = op_type.get_type() else {
                             // `-?`: ? is not a DocType node, only the subtraction operator → remove nil.
