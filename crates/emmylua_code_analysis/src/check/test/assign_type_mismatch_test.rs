@@ -4,6 +4,58 @@ mod tests {
     use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
+    fn test_table_literal_numeric_key_uses_index_signature() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Record
+            ---@field ["[9223372036854774784]"]? integer
+            ---@field [integer] string
+            ---@type Record
+            local value = {[9223372036854774784.0] = "ok"}
+            return value
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn test_table_literal_numeric_key_rejects_wrong_index_value() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Record
+            ---@field ["[9223372036854774784]"]? integer
+            ---@field [integer] string
+            ---@type Record
+            local value = {[9223372036854774784.0] = 1}
+            return value
+            "#,
+        );
+        assert_eq!(
+            diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+            vec![DiagnosticCode::AssignTypeMismatch],
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_table_literal_numeric_and_string_fields_have_distinct_types() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Numeric
+            ---@field [1]? integer
+            ---@class Record: Numeric
+            ---@field ["[1]"]? string
+            ---@type Record
+            local numeric = {[1] = 1}
+            ---@type Record
+            local named = {["[1]"] = "ok"}
+            return numeric, named
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
     fn test_table_literal_nullable_tuple() {
         let diagnostics = check_source(
             r#"
@@ -79,6 +131,40 @@ mod tests {
                 "{target}: {diagnostics:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_table_literal_tuple_rejects_missing_required_element() {
+        for target in ["[integer, integer]", "[integer, integer]?", "Pair", "Pair?"] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@alias Pair [integer, integer]
+                ---@type {target}
+                local pair = {{1}}
+                return pair
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                vec![DiagnosticCode::AssignTypeMismatch],
+                "{target}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_literal_tuple_allows_optional_and_extra_elements() {
+        let diagnostics = check_source(
+            r#"
+            ---@alias Pair [integer, integer?]
+            ---@type Pair?
+            local short = {1}
+            ---@type [integer, integer]
+            local long = {1, 2, 3}
+            return short, long
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]

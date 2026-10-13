@@ -4,6 +4,117 @@ mod test {
     use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
+    fn test_table_literal_integral_float_keys() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Numeric
+            ---@field [0] integer
+            ---@field [1] integer
+            ---@type Numeric
+            local decimal = {[0.0] = 0, [1.0] = 1}
+            ---@type Numeric
+            local exponent = {[0e0] = 0, [1e0] = 1}
+
+            ---@class LargeNumeric
+            ---@field [9223372036854774784] integer
+            ---@type LargeNumeric
+            local large = {[9223372036854774784.0] = 1}
+            return decimal, exponent, large
+            "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn test_table_literal_integral_float_key_rejects_wrong_value() {
+        for key in ["1", "9223372036854774784"] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@class Numeric
+                ---@field [{key}]? integer
+                ---@type Numeric
+                local value = {{[{key}.0] = "bad"}}
+                return value
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                vec![DiagnosticCode::AssignTypeMismatch],
+                "{key}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_literal_float_key_must_match_integer_key() {
+        for (field, key) in [
+            ("1", "1.5"),
+            ("9223372036854775807", "9223372036854775808.0"),
+        ] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@class Numeric
+                ---@field [{field}]? integer
+                ---@type Numeric
+                local value = {{[{key}] = 1}}
+                return value
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                vec![DiagnosticCode::InjectField],
+                "{key}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_literal_numeric_and_string_keys_are_distinct() {
+        for (field, key) in [("1", "\"[1]\""), ("\"[1]\"", "1")] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@class Record
+                ---@field [{field}] integer
+                ---@type Record
+                local value = {{[{key}] = 1}}
+                return value
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                vec![DiagnosticCode::InjectField, DiagnosticCode::MissingFields],
+                "{field}, {key}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_literal_numeric_and_string_keys_inherited() {
+        let diagnostics = check_source(
+            r#"
+            ---@class Numeric
+            ---@field [1] integer
+            ---@class Mixed: Numeric
+            ---@field ["[1]"] integer
+            ---@type Mixed
+            local t = {["[1]"] = 1}
+            return t
+            "#,
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|d| (d.code, d.message.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(
+                DiagnosticCode::MissingFields,
+                "Missing required fields: `[1]`"
+            )],
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn test_table_literal_dictionary_index() {
         let diagnostics = check_source(
             r#"

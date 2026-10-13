@@ -16,7 +16,7 @@ use crate::{
     Decl, LuaMemberKey, LuaType, LuaTypeNode, SemanticId, TypeDef, TypeDefKind, TypeScope,
 };
 
-use super::{CheckContext, Checker};
+use super::{CheckContext, Checker, check_field::static_member_key};
 use crate::semantic_model::member::type_def_of;
 use crate::semantic_model::render::humanize_type;
 use crate::semantic_model::type_check::is_assign_compatible as type_check_is_assign_compatible;
@@ -841,7 +841,7 @@ fn check_table_fields(
     let Some(target_def) = named_def(semantic_model, target) else {
         return;
     };
-    let mut members: Vec<(String, LuaType)> = Vec::new();
+    let mut members = HashMap::new();
     let mut required_members: Vec<(String, LuaType)> = Vec::new();
     let mut index_signatures: Vec<(String, LuaType)> = Vec::new();
     collect_members_with_index_signatures(
@@ -852,14 +852,19 @@ fn check_table_fields(
         &mut required_members,
         &mut index_signatures,
     );
-    let fields = table.get_fields_with_keys();
-    let member_by_name: HashMap<&str, &LuaType> = members
-        .iter()
-        .map(|(name, ty)| (name.as_str(), ty))
+    let fields: Vec<_> = table
+        .get_fields_with_keys()
+        .into_iter()
+        .map(|(field, key)| {
+            let member_key = match &key {
+                LuaIndexKey::Expr(_) => None,
+                _ => static_member_key(semantic_model, &key),
+            };
+            (field, key, member_key)
+        })
         .collect();
-    for (field, key) in fields.iter() {
-        let field_name = key.get_path_part();
-        if let Some(expected) = member_by_name.get(field_name.as_str()) {
+    for (field, key, member_key) in &fields {
+        if let Some(expected) = member_key.as_ref().and_then(|key| members.get(key)) {
             let Some(value_expr) = field.get_value_expr() else {
                 continue;
             };
@@ -882,13 +887,20 @@ fn check_table_fields(
     // (an Opts with `@field [integer] string` still requires the parent's `@field foo boolean`).
     if fields
         .iter()
-        .any(|(_, key)| matches!(key, LuaIndexKey::Integer(_) | LuaIndexKey::Idx(_)))
+        .any(|(_, key, _)| matches!(key, LuaIndexKey::Integer(_) | LuaIndexKey::Idx(_)))
     {
-        let field_names: HashSet<String> =
-            fields.iter().map(|(_, key)| key.get_path_part()).collect();
+        let field_names: HashSet<String> = fields
+            .iter()
+            .map(|(_, key, member_key)| {
+                member_key
+                    .as_ref()
+                    .map(|key| key.to_path())
+                    .unwrap_or_else(|| key.get_path_part())
+            })
+            .collect();
         for (name, required_ty) in &required_members {
             if !field_names.contains(name.as_str()) {
-                if let Some((first_field, _)) = fields.first()
+                if let Some((first_field, _, _)) = fields.first()
                     && let Some(value_expr) = first_field.get_value_expr()
                 {
                     let value_ty = semantic_model.type_of_expr_at(
@@ -998,7 +1010,7 @@ fn collect_members_with_index_signatures(
     semantic_model: &SemanticModel<'_>,
     def: &TypeDef,
     visited: &mut Vec<SemanticId>,
-    out: &mut Vec<(String, LuaType)>,
+    out: &mut HashMap<LuaMemberKey, LuaType>,
     required_out: &mut Vec<(String, LuaType)>,
     index_signatures: &mut Vec<(String, LuaType)>,
 ) {
@@ -1025,9 +1037,7 @@ fn collect_members_with_index_signatures(
                 index_signatures.push((name, ty));
             }
         } else {
-            if !out.iter().any(|(existing, _)| existing == &name) {
-                out.push((name.clone(), ty.clone()));
-            }
+            out.entry(member.key.clone()).or_insert_with(|| ty.clone());
             if !member.is_nullable && !required_out.iter().any(|(existing, _)| existing == &name) {
                 required_out.push((name, ty));
             }
