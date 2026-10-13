@@ -5,18 +5,22 @@ use googletest::prelude::*;
 fn local_type(ws: &VirtualWorkspace, file: FileId, name: &str) -> LuaType {
     let model = ws.analysis.semantic_model(file);
     let chunk = model.chunk().expect("chunk");
-    let local = chunk
+    let locals: Vec<_> = chunk
         .descendants::<LuaLocalName>()
-        .find(|local| {
+        .filter(|local| {
             local
                 .get_name_token()
                 .is_some_and(|token| token.get_name_text() == name)
         })
-        .expect("local declaration");
+        .collect();
+    assert_eq!(locals.len(), 1, "expected one local named {name:?}");
+    let local = &locals[0];
     let decl = model
         .decl_by_offset(local.get_name_token().expect("name token").get_position())
-        .expect("declaration");
-    model.type_of_decl(&decl).expect("local type")
+        .unwrap_or_else(|| panic!("missing declaration for {name:?}"));
+    model
+        .type_of_decl(&decl)
+        .unwrap_or_else(|| panic!("missing type for {name:?}"))
 }
 
 #[gtest]
@@ -154,4 +158,101 @@ fn inline_expression_casts_still_apply() {
     let widened = ws.ty("string|nil|boolean");
     expect_that!(local_type(&ws, file, "widened"), eq(&widened));
     expect_that!(local_type(&ws, file, "replaced"), eq(&LuaType::Integer));
+}
+
+#[gtest]
+fn named_owner_cast_and_keyless_statement_cast_still_apply() {
+    let mut ws = VirtualWorkspace::new();
+    let file = ws.def(
+        r#"
+        ---@param values unknown
+        local function cast_owner(values)
+            ---@cast values string[]
+            local owner_cast = values[1]
+            return owner_cast
+        end
+        ---@param values string[]
+        local function cast_expression(values)
+            ---@cast -?
+            local expression_cast = values[1]
+            return expression_cast
+        end
+        "#,
+    );
+    let optional = ws.ty("string?");
+    expect_that!(local_type(&ws, file, "owner_cast"), eq(&optional));
+    expect_that!(
+        local_type(&ws, file, "expression_cast"),
+        eq(&LuaType::String)
+    );
+}
+
+#[gtest]
+fn dynamic_keys_preserve_nil_and_never_casts() {
+    let mut ws = VirtualWorkspace::new();
+    let file = ws.def(
+        r#"
+        ---@class KeyPosition
+        ---@field index integer
+        local KeyPosition = {}
+        ---@param values string[]
+        ---@param position KeyPosition
+        local function nil_key(values, position)
+            ---@cast position.index nil
+            local nil_index = position.index
+            local nil_result = values[position.index]
+            return nil_result
+        end
+        ---@param values string[]
+        ---@param position KeyPosition
+        local function never_key(values, position)
+            ---@cast position.index never
+            local never_index = position.index
+            local never_result = values[position.index]
+            return never_result
+        end
+        "#,
+    );
+    expect_that!(local_type(&ws, file, "nil_index"), eq(&LuaType::Nil));
+    expect_that!(local_type(&ws, file, "never_index"), eq(&LuaType::Never));
+    // A nil/unreachable key cannot produce a useful array element type.
+    expect_that!(local_type(&ws, file, "nil_result"), eq(&LuaType::Unknown));
+    expect_that!(local_type(&ws, file, "never_result"), eq(&LuaType::Unknown));
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn nested_dynamic_keys_and_recursive_dependencies_terminate() {
+    let mut ws = VirtualWorkspace::new();
+    let mut config = ws.get_emmyrc();
+    config.strict.array_index = false;
+    ws.update_emmyrc(config);
+    let mut key = "index".to_owned();
+    for _ in 0..64 {
+        key = format!("indices[{key}]");
+    }
+    let file = ws.def(&format!(
+        r#"
+        ---@param indices integer[]
+        ---@param index integer
+        local function nested(indices, index)
+            local nested_result = indices[{key}]
+            return nested_result
+        end
+        "#,
+    ));
+    assert_eq!(local_type(&ws, file, "nested_result"), LuaType::Integer);
+    let recursive = ws.def(
+        r#"
+        local values = {}
+        local function key()
+            return values[key()]
+        end
+        local recursive_result = values[key()]
+        "#,
+    );
+    assert_eq!(
+        local_type(&ws, recursive, "recursive_result"),
+        LuaType::Unknown
+    );
 }

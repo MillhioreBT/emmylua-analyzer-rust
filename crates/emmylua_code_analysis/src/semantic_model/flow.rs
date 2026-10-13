@@ -1068,8 +1068,8 @@ pub(super) fn apply_expr_casts(
                     let Some(cast) = cast_ptr.to_node(&chunk) else {
                         continue;
                     };
-                    // Named casts narrow their target through trace_decl/trace_member.
-                    // Sharing that flow node does not make another expression a target.
+                    // trace_decl/trace_member already apply named casts to their target.
+                    // Applying them here would also cast unrelated enclosing expressions.
                     if cast.get_key_expr().is_some() {
                         continue;
                     }
