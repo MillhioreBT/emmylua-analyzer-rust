@@ -16,10 +16,12 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use emmylua_parser::{
-    BinaryOperator, LuaAssignStat, LuaAstNode, LuaCallExprStat, LuaDocTagAs, LuaExpr,
+    BinaryOperator, LuaAssignStat, LuaAstNode, LuaCallExprStat, LuaComment, LuaExpr,
     LuaLiteralToken, UnaryOperator,
 };
 use rowan::TextSize;
+
+use ExprCastMode::{All, AsOnly};
 
 use crate::semantic_db::def::{SemanticId, Signature};
 use crate::semantic_db::flow::{FlowAntecedent, FlowEffect, FlowId, FlowNodeKind, FlowTree};
@@ -440,9 +442,14 @@ pub fn type_of_expr_at(
     match &expr {
         LuaExpr::NameExpr(name_expr) => {
             if let Some(decl) = model.resolve_name(name_expr.get_position()) {
-                return model.type_of_decl_at(&decl, offset);
+                return apply_expr_casts(
+                    model,
+                    expr_syntax,
+                    model.type_of_decl_at(&decl, offset),
+                    AsOnly,
+                );
             }
-            model.type_of_expr(expr_syntax)
+            type_of_expr_with_cast(model, expr_syntax, AsOnly)
         }
         LuaExpr::IndexExpr(index_expr) => {
             if let Some(resolved) = model.resolve_member(index_expr)
@@ -493,7 +500,7 @@ pub fn type_of_expr_at(
                     ) && let Some(prefix_member_ty) = model.member_type(&prefix_ty, &key)
                         && !matches!(prefix_member_ty, LuaType::Unknown)
                     {
-                        return apply_expr_casts(model, expr_syntax, prefix_member_ty);
+                        return apply_expr_casts(model, expr_syntax, prefix_member_ty, All);
                     }
                 }
                 // Computed-key fields in table literals (`[key] = 1`) keep literal values in type queries:
@@ -516,16 +523,16 @@ pub fn type_of_expr_at(
                             // Dynamic access to a computed key `[key] = 1` can return `integer`;
                             // named fields still keep `number` through the existing projection.
                             LuaType::IntegerConst(_) | LuaType::DocIntegerConst(_) => {
-                                return apply_expr_casts(model, expr_syntax, LuaType::Integer);
+                                return apply_expr_casts(model, expr_syntax, LuaType::Integer, All);
                             }
                             LuaType::StringConst(_) | LuaType::DocStringConst(_) => {
-                                return apply_expr_casts(model, expr_syntax, expr_ty);
+                                return apply_expr_casts(model, expr_syntax, expr_ty, All);
                             }
                             _ => {}
                         }
                     }
                     if let Some(ty) = model.member_type(&prefix_ty, &member_def.key) {
-                        return apply_expr_casts(model, expr_syntax, ty);
+                        return apply_expr_casts(model, expr_syntax, ty, All);
                     }
                 }
                 if let SemanticId::Decl(owner_decl) = &resolved.owner
@@ -541,7 +548,7 @@ pub fn type_of_expr_at(
                     {
                         let runtime_ty = type_of_member_at(model, &runtime_member.id, offset);
                         if !matches!(runtime_ty, LuaType::Unknown) {
-                            return apply_expr_casts(model, expr_syntax, runtime_ty);
+                            return apply_expr_casts(model, expr_syntax, runtime_ty, All);
                         }
                     }
                 }
@@ -556,19 +563,19 @@ pub fn type_of_expr_at(
                         && (member_type_more_specific(model, &prefix_member_ty, &member_ty)
                             || matches!(&prefix_ty, LuaType::Generic(_)))
                     {
-                        return apply_expr_casts(model, expr_syntax, prefix_member_ty);
+                        return apply_expr_casts(model, expr_syntax, prefix_member_ty, All);
                     }
                 }
-                return member_ty;
+                return apply_expr_casts(model, expr_syntax, member_ty, AsOnly);
             }
             // Inside a `#d == n` branch, `d[1]` no longer carries nil when the array length is known.
             if let Some(known_ty) = array_index_with_known_len(model, &index_expr, offset) {
-                return apply_expr_casts(model, expr_syntax, known_ty);
+                return apply_expr_casts(model, expr_syntax, known_ty, All);
             }
-            apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax))
+            apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax), All)
         }
         LuaExpr::CallExpr(_) | LuaExpr::TableExpr(_) | LuaExpr::LiteralExpr(_) => {
-            apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax))
+            apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax), All)
         }
         LuaExpr::ClosureExpr(closure_expr) => {
             // Anonymous closure keeps its actual signature on the flow path, avoiding the assigned function value degrading to bare `Function`.
@@ -576,14 +583,14 @@ pub fn type_of_expr_at(
                 .type_of_signature(closure_expr.get_syntax_id())
                 .map(|fun| LuaType::DocFunction(Rc::new(fun)))
                 .unwrap_or_else(|| model.type_of_expr(expr_syntax));
-            apply_expr_casts(model, expr_syntax, base)
+            apply_expr_casts(model, expr_syntax, base, All)
         }
         LuaExpr::BinaryExpr(binary_expr) => {
             let Some(op_token) = binary_expr.get_op_token() else {
-                return apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax));
+                return apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax), All);
             };
             let Some((left_expr, right_expr)) = binary_expr.get_exprs() else {
-                return apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax));
+                return apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax), All);
             };
             // Preserve the legacy semantics that "array table literals in short-circuit expressions are tuple":
             // only when the right side is a sequential array table and the left side is a logical short-circuit, replace the right table type with tuple.
@@ -594,7 +601,7 @@ pub fn type_of_expr_at(
             {
                 let left_ty = type_of_expr_at(model, left_expr.get_syntax_id(), offset);
                 let result = logical_binary_type(model, op_token.get_op(), left_ty, tuple_ty);
-                return apply_expr_casts(model, expr_syntax, result);
+                return apply_expr_casts(model, expr_syntax, result, All);
             }
             // General binary expressions: subexpressions first use flow-sensitive types (member/variable branch narrowing),
             // then merge with the same VM operator rules, ensuring `right.value + 1` uses the narrow type of `right.value` in the branch.
@@ -614,23 +621,23 @@ pub fn type_of_expr_at(
             ) && (matches!(&left_ty, LuaType::Unknown | LuaType::Any)
                 || matches!(&right_ty, LuaType::Unknown | LuaType::Any))
             {
-                return apply_expr_casts(model, expr_syntax, LuaType::Unknown);
+                return apply_expr_casts(model, expr_syntax, LuaType::Unknown, All);
             }
             let result = binary_type(model, op_token.get_op(), &left_ty, &right_ty);
-            apply_expr_casts(model, expr_syntax, result)
+            apply_expr_casts(model, expr_syntax, result, All)
         }
-        _ => model.type_of_expr(expr_syntax),
+        _ => type_of_expr_with_cast(model, expr_syntax, AsOnly),
     }
 }
 
-/// Type query that additionally applies inline casts on the expression beyond the flow-sensitive branch.
-/// Used for contexts like closure return inference that need "bare VM type + `---@as`", avoiding changing
-/// the existing behavior of `type_of_expr_at` for ordinary expressions.
+/// Infer the VM type, then apply the selected inline casts.
+/// New initializer and assignment reads use `AsOnly` to preserve named-cast scope.
 pub(crate) fn type_of_expr_with_cast(
     model: &SemanticModel,
     expr_syntax: emmylua_parser::LuaSyntaxId,
+    mode: ExprCastMode,
 ) -> LuaType {
-    apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax))
+    apply_expr_casts(model, expr_syntax, model.type_of_expr(expr_syntax), mode)
 }
 
 /// Simple array table literal → `LuaType::Tuple` (legacy `{ 'a' }` stays tuple in short-circuit expressions).
@@ -1014,12 +1021,20 @@ fn branch_path_reachable(
     false
 }
 
+/// Select which cast effects an expression query can apply.
+#[derive(Clone, Copy)]
+pub(crate) enum ExprCastMode {
+    All,
+    AsOnly,
+}
+
 /// Apply inline casts bound to this expression (e.g. `A:get(1) --[[@cast -?]]`).
 /// `+T` widens, `-T` (including `-?`) removes, and no operator replaces.
-fn apply_expr_casts(
+pub(super) fn apply_expr_casts(
     model: &SemanticModel,
     expr_syntax: emmylua_parser::LuaSyntaxId,
     base: LuaType,
+    mode: ExprCastMode,
 ) -> LuaType {
     let Some(tree) = model.flow_tree() else {
         return base;
@@ -1046,7 +1061,7 @@ fn apply_expr_casts(
     for flow_id in flow_ids {
         for effect in tree.get_flow_effects(flow_id) {
             match effect {
-                FlowEffect::TagCast(cast_ptr) => {
+                FlowEffect::TagCast(cast_ptr) if matches!(mode, All) => {
                     let Some(chunk) = model.chunk() else {
                         continue;
                     };
@@ -1084,6 +1099,18 @@ fn apply_expr_casts(
                     let Some(as_tag) = as_ptr.to_node(&chunk) else {
                         continue;
                     };
+                    let Some(owner) = as_tag
+                        .get_parent::<LuaComment>()
+                        .and_then(|comment| comment.get_owner())
+                    else {
+                        continue;
+                    };
+                    // Statement comments cast the last value, never its operands or later reads.
+                    let target = LuaExpr::cast(owner.syntax().clone())
+                        .or_else(|| owner.children::<LuaExpr>().last());
+                    if target.is_none_or(|expr| expr.get_syntax_id() != expr_syntax) {
+                        continue;
+                    }
                     if let Some(doc_type) = as_tag.get_type() {
                         ty = model.doc_type_lua(doc_type.get_syntax_id());
                     }
@@ -1465,11 +1492,6 @@ fn trace_decl_uncached(
                     collect_decl_cast(model, decl, cast_ptr, path);
                 }
             }
-            FlowNodeKind::AsCast(as_ptr) => {
-                if options.casts {
-                    collect_decl_as_cast(model, decl, as_ptr, path);
-                }
-            }
             // Backtracked to the start (e.g. function parameters with no DeclPosition node): use the declaration type as the base and apply path guards/casts.
             FlowNodeKind::Start | FlowNodeKind::Unreachable => {
                 if matches!(node.kind, FlowNodeKind::Unreachable) && mode == TraceMode::MergeBranch
@@ -1591,7 +1613,7 @@ fn trace_member(
                             narrowings: Vec::new(),
                             casts: path.casts.clone(),
                         };
-                        let mut value_ty = model.type_of_expr(*value_syntax);
+                        let mut value_ty = type_of_expr_with_cast(model, *value_syntax, AsOnly);
                         if let Some(annotation) = member_annotation_type(model, member) {
                             if model.type_check(&annotation, &value_ty) {
                                 value_ty = widen_const_type(value_ty);
@@ -1605,9 +1627,6 @@ fn trace_member(
             }
             FlowNodeKind::TagCast(cast_ptr) => {
                 collect_member_cast(model, member, cast_ptr, path);
-            }
-            FlowNodeKind::AsCast(as_ptr) => {
-                collect_member_as_cast(model, member, as_ptr, path);
             }
             FlowNodeKind::TrueCondition(cond_ptr) => {
                 if let Some(narrowing) = narrow_member_condition(model, member, cond_ptr, true) {
@@ -1876,46 +1895,6 @@ fn collect_member_cast(
     }
 }
 
-/// Inline assertion `--[[@as T]]`: when matching the current decl's path, replace the path type directly with T.
-fn collect_decl_as_cast(
-    model: &SemanticModel,
-    _decl: &SemanticId,
-    as_ptr: &emmylua_parser::LuaAstPtr<LuaDocTagAs>,
-    path: &mut PathState,
-) {
-    let Some(ty) = as_cast_type(model, as_ptr) else {
-        return;
-    };
-    if !matches!(ty, LuaType::Unknown) {
-        path.casts.push(CastOp::Replace(ty));
-    }
-}
-
-/// Inline assertion `--[[@as T]]`: when matching the current member's path, replace the path type directly with T.
-fn collect_member_as_cast(
-    model: &SemanticModel,
-    _member: &SemanticId,
-    as_ptr: &emmylua_parser::LuaAstPtr<LuaDocTagAs>,
-    path: &mut PathState,
-) {
-    let Some(ty) = as_cast_type(model, as_ptr) else {
-        return;
-    };
-    if !matches!(ty, LuaType::Unknown) {
-        path.casts.push(CastOp::Replace(ty));
-    }
-}
-
-fn as_cast_type(
-    model: &SemanticModel,
-    as_ptr: &emmylua_parser::LuaAstPtr<LuaDocTagAs>,
-) -> Option<LuaType> {
-    let chunk = model.chunk()?;
-    let as_tag = as_ptr.to_node(&chunk)?;
-    let doc_type = as_tag.get_type()?;
-    Some(model.doc_type_lua(doc_type.get_syntax_id()))
-}
-
 /// RHS type of an assignment: if decl is a multi-return slot on this assignment, take the matching return type by `return_index`;
 /// otherwise fall back to ordinary expression inference.
 fn assigned_value_type(
@@ -1972,11 +1951,8 @@ fn assigned_value_type(
             model.type_of_expr(value_syntax),
         );
     };
-    let expanded =
-        model.infer_expr_list_types(&[LuaExpr::CallExpr(call)], Some(reference.return_index + 1));
-    expanded
-        .get(reference.return_index)
-        .map(|(ty, _)| ty.clone())
+    type_of_expr_with_cast(model, call.get_syntax_id(), AsOnly)
+        .get_result_slot_type(reference.return_index)
         .unwrap_or_else(|| {
             if reference.return_index > 0 {
                 // When a finite-return call is assigned to multiple variables, slots beyond the return count are nil.

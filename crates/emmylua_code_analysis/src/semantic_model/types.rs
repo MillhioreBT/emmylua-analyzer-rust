@@ -220,7 +220,12 @@ impl<'db> SemanticModel<'db> {
                 && let Some(closure) = LuaClosureExpr::cast(node)
                 && let Some(fun) = self.type_of_signature(closure.get_syntax_id())
             {
-                return Some(LuaType::DocFunction(Rc::new(fun)));
+                return Some(flow::apply_expr_casts(
+                    self,
+                    value_syntax,
+                    LuaType::DocFunction(Rc::new(fun)),
+                    flow::ExprCastMode::AsOnly,
+                ));
             }
             // Initializer expression: VM inference; re-entrant declaration/expression queries
             // return `None` through `CacheEntry::InProgress`.
@@ -234,7 +239,7 @@ impl<'db> SemanticModel<'db> {
                 let ty = if use_flow {
                     self.type_of_expr_at(value_syntax, value_syntax.get_range().start())
                 } else {
-                    self.type_of_expr(value_syntax)
+                    flow::type_of_expr_with_cast(self, value_syntax, flow::ExprCastMode::AsOnly)
                 };
                 if !matches!(ty, LuaType::Unknown) {
                     // Multi-return assignment slot: the `b` in `local a, b = f()` takes f()'s 2nd return.
@@ -782,9 +787,13 @@ impl<'db> SemanticModel<'db> {
                 let node = value_syntax.to_node_from_root(&tree.get_red_root())?;
                 let expr = LuaExpr::cast(node)?;
                 let eval = if self.is_initializer_table_field(member, &member_def) {
-                    self.type_of_expr(expr.get_syntax_id())
+                    flow::type_of_expr_with_cast(
+                        self,
+                        expr.get_syntax_id(),
+                        flow::ExprCastMode::AsOnly,
+                    )
                 } else if matches!(expr, LuaExpr::CallExpr(_)) {
-                    self.type_of_expr(value_syntax)
+                    flow::type_of_expr_with_cast(self, value_syntax, flow::ExprCastMode::AsOnly)
                 } else {
                     return None;
                 };
@@ -802,6 +811,15 @@ impl<'db> SemanticModel<'db> {
             .type_shell_lua_in(member_file, &shell, &generic_names);
         let ty = type_eval::expand_alias_generic(self, &ty);
         let ty = type_eval::eval_conditionals(self, &ty);
+        let ty = if let Some(facts) = self.file_facts_of(member_file)
+            && let Some(member_def) = facts.member_by_id(member)
+            && member_def.doc_type_syntax.is_none()
+            && let Some(value_syntax) = member_def.value_syntax
+        {
+            flow::apply_expr_casts(self, value_syntax, ty, flow::ExprCastMode::AsOnly)
+        } else {
+            ty
+        };
         Some(ty)
     }
     /// Whether this is a table-literal field in a declaration initializer.
