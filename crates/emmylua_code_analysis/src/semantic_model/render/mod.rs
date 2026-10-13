@@ -21,6 +21,9 @@ use crate::{
 use super::type_eval::{eval_conditionals, expand_alias_generic, expand_index_call, expand_mapped};
 use super::{SemanticModel, infer};
 
+#[cfg(test)]
+mod tests;
+
 // ─── RenderLevel ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -317,7 +320,9 @@ impl<'a> TypeHumanizer<'a> {
 
     /// Resolves default generic arguments of a type definition, supporting forward/backward references and iterating to a fixpoint.
     fn resolve_generic_defaults(&self, def: &TypeDef, provided: &[LuaType]) -> Vec<LuaType> {
-        let n = def.generic_params.len();
+        // Built-ins such as table have no declared generic parameters. Preserve
+        // explicit arguments even when the definition declares fewer parameters.
+        let n = def.generic_params.len().max(provided.len());
         let mut resolved: Vec<Option<LuaType>> = vec![None; n];
         for (i, ty) in provided.iter().enumerate() {
             if i < n {
