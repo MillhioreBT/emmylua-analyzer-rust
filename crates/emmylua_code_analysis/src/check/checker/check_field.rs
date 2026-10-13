@@ -376,6 +376,12 @@ fn check_against_type(
         return;
     }
     match target {
+        // A dictionary has an open key space, not the closed member surface of
+        // the standard library's `table` class. Match assignment checking's
+        // treatment of table<K, V>; this checker only validates record fields.
+        LuaType::Generic(generic) if generic.get_base_type_id().get_name() == "table" => {
+            return;
+        }
         LuaType::Intersection(intersection) => {
             for component in intersection.get_types() {
                 check_against_type(context, semantic_model, component, table);
