@@ -111,39 +111,6 @@ impl<'db> SemanticModel<'db> {
     }
     // -- Type / member association --
 
-    pub fn resolve_type_def(&self, name: &str) -> Option<TypeDef> {
-        self.view.resolve_type_def(name)
-    }
-    /// Resolves a named type in a specified file scope (used for cross-file constraint/default projection).
-    pub fn resolve_type_def_in(&self, file_id: FileId, name: &str) -> Option<TypeDef> {
-        self.analysis().resolve_type_def(file_id, name)
-    }
-    /// Type name string -> `LuaType` (semantic facade uniformly handles built-in and named types).
-    /// Named types that are aliases expand to the alias target type.
-    pub fn type_from_name(&self, name: &str) -> LuaType {
-        let ty = self.analysis().resolve_named(self.view.file_id(), name);
-        if let LuaType::Ref(id) | LuaType::Def(id) = &ty
-            && let Some(def) = self.resolve_type_def(id.get_name())
-            && def.kind == TypeDefKind::Alias
-            && let Some(target) = self.alias_target(&def)
-        {
-            return target;
-        }
-        ty
-    }
-    /// Type declaration identity of `LuaType::Ref/Def` -> `TypeDef`.
-    pub fn type_def_of(&self, id: &LuaTypeDeclId) -> Option<TypeDef> {
-        member::type_def_of(self, id)
-    }
-    /// 将类型定义转换为引用类型, 保留声明作用域.
-    pub fn type_def_ref(&self, def: &TypeDef) -> LuaType {
-        LuaType::Ref(def.type_decl_id())
-    }
-    /// All definition locations of a named type (used by duplicate-type checks).
-    pub fn type_def_locations(&self, name: &str) -> Vec<TypeDef> {
-        self.analysis()
-            .type_def_locations(self.view.file_id(), name)
-    }
     pub fn member_keys_of_owner(&self, owner: &SemanticId) -> Vec<SmolStr> {
         self.analysis().member_keys_of_owner(owner.clone())
     }

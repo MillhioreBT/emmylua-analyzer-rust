@@ -15,7 +15,6 @@ use crate::{LuaMemberKey, LuaType, LuaUnionType};
 use super::assign_type_mismatch::signature_matches_key;
 use super::param_type_check::callable_candidates;
 use super::{CheckContext, Checker};
-use crate::semantic_model::member::type_def_of;
 use crate::semantic_model::render::humanize_type;
 
 pub struct CheckFieldChecker;
@@ -183,7 +182,7 @@ fn expand_alias_type(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> Option
                 };
             }
         };
-        let def = type_def_of(semantic_model, &id)?;
+        let def = semantic_model.type_def_of(&id)?;
         if def.kind != TypeDefKind::Alias {
             return if visited.is_empty() {
                 None
@@ -512,10 +511,10 @@ fn check_against_type(
 /// Target type -> named type id (Ref/Def/Generic base class).
 fn resolve_target(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> Option<SemanticId> {
     match ty {
-        LuaType::Ref(id) | LuaType::Def(id) => type_def_of(semantic_model, id).map(|def| def.id),
-        LuaType::Generic(generic) => {
-            type_def_of(semantic_model, &generic.get_base_type_id()).map(|def| def.id)
-        }
+        LuaType::Ref(id) | LuaType::Def(id) => semantic_model.type_def_of(id).map(|def| def.id),
+        LuaType::Generic(generic) => semantic_model
+            .type_def_of(&generic.get_base_type_id())
+            .map(|def| def.id),
         _ => None,
     }
 }

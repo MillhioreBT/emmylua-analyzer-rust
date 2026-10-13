@@ -824,7 +824,7 @@ impl<'db> SemanticModel<'db> {
                 _ => None,
             };
             if let Some(id) = type_id
-                && let Some(def) = member::type_def_of(self, id)
+                && let Some(def) = self.type_def_of(id)
             {
                 // Class types also consider runtime implementations (`---@class Game` + `local Game = {}` +
                 // `function Game:add()`); enums/aliases only look at the `@field` surface to avoid
@@ -1035,13 +1035,12 @@ impl<'db> SemanticModel<'db> {
         // same-name member resolution on unions is left to flow narrowing to avoid breaking dynamic field tests on `Foo|Bar`.
         if let Some(prefix_ty) = &prefix_ty {
             let is_class = match prefix_ty {
-                LuaType::Ref(id) | LuaType::Def(id) => {
-                    member::type_def_of(self, id).is_some_and(|def| def.kind == TypeDefKind::Class)
-                }
-                LuaType::Generic(generic) => {
-                    member::type_def_of(self, generic.get_base_type_id_ref())
-                        .is_some_and(|def| def.kind == TypeDefKind::Class)
-                }
+                LuaType::Ref(id) | LuaType::Def(id) => self
+                    .type_def_of(id)
+                    .is_some_and(|def| def.kind == TypeDefKind::Class),
+                LuaType::Generic(generic) => self
+                    .type_def_of(generic.get_base_type_id_ref())
+                    .is_some_and(|def| def.kind == TypeDefKind::Class),
                 _ => false,
             };
             if is_class {
@@ -1072,7 +1071,7 @@ impl<'db> SemanticModel<'db> {
             LuaType::Generic(generic) => Some(generic.get_base_type_id_ref()),
             _ => None,
         };
-        let Some(def) = type_id.and_then(|id| member::type_def_of(self, id)) else {
+        let Some(def) = type_id.and_then(|id| self.type_def_of(id)) else {
             return false;
         };
         self.members_of_owner(&def.id)

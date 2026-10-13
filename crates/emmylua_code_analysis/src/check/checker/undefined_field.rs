@@ -13,7 +13,6 @@ use rowan::TextRange;
 use crate::DiagnosticCode;
 use crate::semantic_db::def::{Decl, DeclKind, ModuleExport, TypeDef, TypeDefKind, TypeVisibility};
 use crate::semantic_model::SemanticModel;
-use crate::semantic_model::member::type_def_of;
 use crate::semantic_model::type_check::is_compatible;
 use crate::{FileId, InFiled, LuaMemberKey, LuaType, LuaTypeDeclId, TypeScope};
 
@@ -129,7 +128,7 @@ fn expand_alias_type(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> Option
                 };
             }
         };
-        let def = type_def_of(semantic_model, &id)?;
+        let def = semantic_model.type_def_of(&id)?;
         if def.kind != TypeDefKind::Alias {
             return if visited.is_empty() {
                 None
@@ -511,7 +510,7 @@ fn named_type_def(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> Option<Ty
         }
         _ => return None,
     };
-    type_def_of(semantic_model, id)
+    semantic_model.type_def_of(id)
 }
 
 /// Whether the alias target is a mapped type (`{ [K in keyof T]: ... }`).

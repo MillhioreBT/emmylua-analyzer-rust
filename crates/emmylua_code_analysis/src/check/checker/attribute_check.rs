@@ -13,7 +13,6 @@ use emmylua_parser::{
 
 use crate::DiagnosticCode;
 use crate::semantic_model::SemanticModel;
-use crate::semantic_model::member;
 use crate::semantic_model::type_check;
 use crate::semantic_model::type_check::{TypeCheckFailReason, check_type_detail};
 use crate::{LuaFunctionType, LuaType, LuaTypeDeclId, TypeDef, TypeScope};
@@ -67,7 +66,7 @@ fn check_attribute_use(
         .iter()
         .map(|arg| semantic_model.type_of_expr(LuaExpr::LiteralExpr(arg.clone()).get_syntax_id()))
         .collect::<Vec<_>>();
-    let Some(def) = member::type_def_of(semantic_model, decl_id) else {
+    let Some(def) = semantic_model.type_def_of(decl_id) else {
         return;
     };
     let Some(func) = select_attribute_overload(semantic_model, &def, &call_arg_types) else {
@@ -80,7 +79,7 @@ fn check_attribute_use(
 
 /// Whether the type (transitively) inherits from `Attribute`.
 fn is_attribute_class(semantic_model: &SemanticModel<'_>, decl_id: &LuaTypeDeclId) -> bool {
-    let Some(def) = member::type_def_of(semantic_model, decl_id) else {
+    let Some(def) = semantic_model.type_def_of(decl_id) else {
         return false;
     };
     let mut visited = vec![def.id.clone()];

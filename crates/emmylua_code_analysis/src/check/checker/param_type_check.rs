@@ -16,7 +16,7 @@ use crate::semantic_model::infer::unify;
 use crate::semantic_model::infer::vm::unify_call_bindings;
 use crate::semantic_model::render::humanize_type;
 use crate::semantic_model::type_check::is_compatible;
-use crate::semantic_model::{SemanticModel, member, type_check, type_eval};
+use crate::semantic_model::{SemanticModel, type_check, type_eval};
 use crate::{
     DiagnosticCode, LuaFunctionType, LuaMemberKey, LuaTupleStatus, LuaTupleType, LuaType,
     LuaTypeDeclId, LuaTypeNode, TypeDef, TypeDefKind, VariadicType,
@@ -857,7 +857,7 @@ fn generic_table_required_mismatch(
         }
         _ => return None,
     };
-    let def = member::type_def_of(semantic_model, &id)?;
+    let def = semantic_model.type_def_of(&id)?;
     if def.kind != TypeDefKind::Class {
         return None;
     }
@@ -978,7 +978,7 @@ fn generic_constraint_type(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> 
     let (LuaType::Ref(id) | LuaType::Def(id)) = ty else {
         return None;
     };
-    if member::type_def_of(semantic_model, id).is_some() {
+    if semantic_model.type_def_of(id).is_some() {
         return None;
     }
     let name = id.get_name();
@@ -1046,7 +1046,7 @@ fn value_kind_inner(
                 return ValueKind::Other;
             }
             visited.push(id.clone());
-            let Some(def) = member::type_def_of(semantic_model, id) else {
+            let Some(def) = semantic_model.type_def_of(id) else {
                 return ValueKind::Other;
             };
             match def.kind {
@@ -1201,7 +1201,7 @@ fn doc_function_of(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> Option<L
             semantic_model.function_type_by_signature_id(signature_id)
         }
         LuaType::Ref(id) | LuaType::Def(id) => {
-            let def = member::type_def_of(semantic_model, id)?;
+            let def = semantic_model.type_def_of(id)?;
             if def.kind != TypeDefKind::Alias {
                 return None;
             }
@@ -1259,7 +1259,7 @@ fn literal_values(
                 return None;
             }
             visited.push(id.clone());
-            let def = member::type_def_of(semantic_model, id)?;
+            let def = semantic_model.type_def_of(id)?;
             if def.kind == TypeDefKind::Alias {
                 return semantic_model
                     .alias_target(&def)

@@ -18,7 +18,7 @@ use crate::{
     AsyncState, FileId, GenericTplId, LuaFunctionType, LuaGenericType, LuaMemberKey, LuaType,
     SemanticId, TypeDef, VariadicType,
 };
-use crate::{LuaTypeDeclId, TypeDefKind, semantic_model::member};
+use crate::{LuaTypeDeclId, TypeDefKind};
 
 use super::{CheckContext, Checker};
 
@@ -202,7 +202,7 @@ fn generic_callee_fallback(
     callee: &LuaExpr,
     generic: &LuaGenericType,
 ) -> Vec<LuaFunctionType> {
-    let Some(def) = member::type_def_of(semantic_model, &generic.get_base_type_id()) else {
+    let Some(def) = semantic_model.type_def_of(&generic.get_base_type_id()) else {
         return Vec::new();
     };
     if def.call_overloads.is_empty() {
@@ -715,7 +715,7 @@ fn param_count_range(
             matches!(ty, LuaType::Variadic(variadic) if matches!(
                 variadic.as_ref(),
                 VariadicType::Base(LuaType::Ref(id) | LuaType::Def(id))
-                    if member::type_def_of(semantic_model, id).is_none()
+                    if semantic_model.type_def_of(id).is_none()
             ))
         })
     });
@@ -777,7 +777,7 @@ fn is_optional_inner(
         return false;
     }
     visited.push(id.clone());
-    let Some(def) = member::type_def_of(semantic_model, id) else {
+    let Some(def) = semantic_model.type_def_of(id) else {
         return false;
     };
     if def.kind != TypeDefKind::Alias {
@@ -800,7 +800,7 @@ pub(crate) fn callable_functions(
             .into_iter()
             .collect(),
         LuaType::Ref(id) | LuaType::Def(id) => {
-            let Some(def) = member::type_def_of(semantic_model, id) else {
+            let Some(def) = semantic_model.type_def_of(id) else {
                 return Vec::new();
             };
             let mut out = Vec::new();
@@ -845,7 +845,7 @@ pub(crate) fn callable_functions(
             .flat_map(|component| callable_functions(semantic_model, component))
             .collect(),
         LuaType::Generic(generic) => {
-            let Some(def) = member::type_def_of(semantic_model, &generic.get_base_type_id()) else {
+            let Some(def) = semantic_model.type_def_of(&generic.get_base_type_id()) else {
                 return Vec::new();
             };
             if def.kind == TypeDefKind::Alias {

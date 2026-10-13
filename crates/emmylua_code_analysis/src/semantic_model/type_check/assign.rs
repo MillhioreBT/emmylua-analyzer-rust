@@ -5,7 +5,6 @@
 use crate::{LuaMemberKey, LuaType, SemanticId, TypeDef, TypeScope};
 
 use crate::semantic_model::SemanticModel;
-use crate::semantic_model::member::type_def_of;
 
 use super::context::TypeCheckContext;
 use super::guard::TypeCheckGuard;
@@ -203,7 +202,7 @@ fn named_def(model: &SemanticModel<'_>, ty: &LuaType) -> Option<TypeDef> {
         }
         _ => return None,
     };
-    type_def_of(model, id)
+    model.type_def_of(id)
 }
 
 fn collect_named_members(

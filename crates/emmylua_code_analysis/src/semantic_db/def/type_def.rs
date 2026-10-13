@@ -106,7 +106,6 @@ impl TypeDef {
         }
     }
 
-    /// 获取类型声明的完整身份, 保留作用域和完整名称.
     pub(crate) fn type_decl_id(&self) -> LuaTypeDeclId {
         let SemanticId::TypeDef(key) = &self.id else {
             unreachable!("type definition must have a type identity");

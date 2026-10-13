@@ -9,7 +9,6 @@ use crate::DiagnosticCode;
 use crate::LuaType;
 use crate::semantic_db::def::TypeDefKind;
 use crate::semantic_model::SemanticModel;
-use crate::semantic_model::member::type_def_of;
 
 use super::{CheckContext, Checker};
 use crate::semantic_model::render::humanize_type;
@@ -96,7 +95,7 @@ fn is_callable(model: &SemanticModel, ty: &LuaType) -> bool {
         // Named types: check after alias expansion; otherwise callable if it has `---@operator call`.
         // Unresolved types are handled by analyze_error, so call-non-callable is not reported here.
         LuaType::Ref(id) | LuaType::Def(id) => {
-            let Some(def) = type_def_of(model, id) else {
+            let Some(def) = model.type_def_of(id) else {
                 return true;
             };
             if def.kind == TypeDefKind::Alias

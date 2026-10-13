@@ -8,7 +8,6 @@ use emmylua_parser::{LuaAstNode, LuaClosureExpr, LuaReturnStat};
 
 use crate::LuaType;
 use crate::semantic_model::SemanticModel;
-use crate::semantic_model::member::type_def_of;
 use crate::semantic_model::type_check::is_compatible;
 use crate::{DiagnosticCode, SemanticId, SignatureDoc, TypeDef, TypeScope};
 
@@ -263,7 +262,7 @@ fn generic_constraint_type(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> 
     let (LuaType::Ref(id) | LuaType::Def(id)) = ty else {
         return None;
     };
-    if type_def_of(semantic_model, id).is_some() {
+    if semantic_model.type_def_of(id).is_some() {
         return None;
     }
     let name = id.get_name();

@@ -19,7 +19,6 @@ use crate::{
 };
 
 use super::{CheckContext, Checker, check_field::static_member_key};
-use crate::semantic_model::member::type_def_of;
 use crate::semantic_model::render::humanize_type;
 use crate::semantic_model::type_check::is_assign_compatible as type_check_is_assign_compatible;
 
@@ -1089,7 +1088,7 @@ fn named_def(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> Option<TypeDef
         }
         _ => return None,
     };
-    type_def_of(semantic_model, id)
+    semantic_model.type_def_of(id)
 }
 
 /// The `---@type C` comment immediately before an assignment statement -> target type (`_ = c` scenario).

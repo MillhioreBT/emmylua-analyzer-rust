@@ -1,8 +1,60 @@
 use super::prelude::*;
+use crate::LuaTypeIdentifier;
 use crate::semantic_db::TypeDefList;
 
 impl<'db> SemanticModel<'db> {
     // -- Types --
+
+    /// 按当前文件的命名空间和可见性规则解析类型名称.
+    pub fn resolve_type_def(&self, name: &str) -> Option<TypeDef> {
+        self.view.resolve_type_def(name)
+    }
+
+    /// Resolves a named type in a specified file scope (used for cross-file constraint/default projection).
+    pub fn resolve_type_def_in(&self, file_id: FileId, name: &str) -> Option<TypeDef> {
+        self.analysis().resolve_type_def(file_id, name)
+    }
+
+    /// Type name string -> `LuaType` (semantic facade uniformly handles built-in and named types).
+    /// Named types that are aliases expand to the alias target type.
+    pub fn type_from_name(&self, name: &str) -> LuaType {
+        let ty = self.analysis().resolve_named(self.view.file_id(), name);
+        if let LuaType::Ref(id) | LuaType::Def(id) = &ty
+            && let Some(def) = self.type_def_of(id)
+            && def.kind == TypeDefKind::Alias
+            && let Some(target) = self.alias_target(&def)
+        {
+            return target;
+        }
+        ty
+    }
+
+    /// Type declaration identity of `LuaType::Ref/Def` -> `TypeDef`.
+    pub fn type_def_of(&self, id: &LuaTypeDeclId) -> Option<TypeDef> {
+        let (scope, name) = match id.get_id() {
+            LuaTypeIdentifier::Global(name) => (TypeScope::Global, name.as_str()),
+            LuaTypeIdentifier::Internal(workspace_id, name) => {
+                (TypeScope::Internal(*workspace_id), name.as_str())
+            }
+            LuaTypeIdentifier::File(file_id, name) => (TypeScope::File(*file_id), name.as_str()),
+        };
+        self.analysis()
+            .type_defs_in_scope(scope, name)
+            .iter()
+            .next()
+            .cloned()
+    }
+
+    /// Convert the `TypeDef` to a `LuaType::Ref`.
+    pub fn type_def_ref(&self, def: &TypeDef) -> LuaType {
+        LuaType::Ref(def.type_decl_id())
+    }
+
+    /// All definition locations of a named type (used by duplicate-type checks).
+    pub fn type_def_locations(&self, name: &str) -> Vec<TypeDef> {
+        self.analysis()
+            .type_def_locations(self.view.file_id(), name)
+    }
 
     /// Whether the doc syntax node is a bare name type (`Base`, not `Base<T>`).
     pub(crate) fn doc_type_is_bare_name(&self, syntax: LuaSyntaxId) -> bool {
@@ -421,7 +473,7 @@ impl<'db> SemanticModel<'db> {
         };
         // Expand function aliases (`---@alias foo fun(...)` -> DocFunction).
         if let LuaType::Ref(id) | LuaType::Def(id) = &iter_ty
-            && let Some(def) = member::type_def_of(self, id)
+            && let Some(def) = self.type_def_of(id)
         {
             if let Some(target) = self.alias_target(&def) {
                 iter_ty = target;
@@ -522,7 +574,7 @@ impl<'db> SemanticModel<'db> {
                 break;
             }
             visited.push(id.clone());
-            let Some(def) = member::type_def_of(self, id) else {
+            let Some(def) = self.type_def_of(id) else {
                 break;
             };
             let mut target = self.alias_target(&def);
@@ -615,7 +667,7 @@ impl<'db> SemanticModel<'db> {
                 (key_ty, value_ty)
             }
             LuaType::Ref(id) | LuaType::Def(id) => {
-                let def = member::type_def_of(self, id)?;
+                let def = self.type_def_of(id)?;
                 let mut values: Vec<LuaType> = Vec::new();
                 for member_ref in self.members_of_owner(&def.id).iter() {
                     let Some(facts) = self.file_facts_of(member_ref.file_id) else {
@@ -697,7 +749,7 @@ impl<'db> SemanticModel<'db> {
         id: &LuaTypeDeclId,
         index: usize,
     ) -> Option<LuaType> {
-        let def = member::type_def_of(self, id)?;
+        let def = self.type_def_of(id)?;
         let mut values: Vec<LuaType> = Vec::new();
         for member_ref in self.members_of_owner(&def.id).iter() {
             let facts = self.file_facts_of(member_ref.file_id)?;
@@ -1293,7 +1345,7 @@ impl<'db> SemanticModel<'db> {
             LuaType::Ref(id) | LuaType::Def(id) => id,
             _ => return None,
         };
-        let def = member::type_def_of(self, decl_id)?;
+        let def = self.type_def_of(decl_id)?;
         // Alias forwarding: `AliasType` -> `Origin`, where the operator is defined on Origin.
         if def.kind == TypeDefKind::Alias
             && let Some(target) = self.alias_target(&def)
@@ -1330,79 +1382,5 @@ fn remove_nil_from_type(ty: LuaType) -> LuaType {
         }
         LuaType::Nil => LuaType::Unknown,
         other => other,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{LuaType, LuaTypeDeclId, VirtualWorkspace, WorkspaceFolder};
-
-    #[test]
-    fn type_references_preserve_declaring_scope() {
-        let mut ws = VirtualWorkspace::new();
-        for library in ["lib_a", "lib_b"] {
-            ws.analysis.add_library_workspace(&WorkspaceFolder::new(
-                ws.virtual_url_generator.new_path(library),
-                true,
-            ));
-        }
-        let public_file = ws.def_file(
-            "public.lua",
-            "---@namespace Shared\n---@class Value\nlocal Value = {}",
-        );
-        let internal_a = ws.def_file(
-            "lib_a/types.lua",
-            "---@namespace Shared\n---@class (internal) Value\nlocal Value = {}",
-        );
-        let internal_b = ws.def_file(
-            "lib_b/types.lua",
-            "---@namespace Shared\n---@class (internal) Value\nlocal Value = {}",
-        );
-        let private_a = ws.def_file(
-            "lib_a/private.lua",
-            "---@namespace Shared\n---@class (file) Value\nlocal Value = {}",
-        );
-        let private_b = ws.def_file(
-            "lib_b/private.lua",
-            "---@namespace Shared\n---@class (file) Value\nlocal Value = {}",
-        );
-        let consumer = ws.def_file("main.lua", "local value = nil");
-        let model = ws.analysis.semantic_model(consumer);
-        let workspace_a = model.workspace_id_of(internal_a).unwrap();
-        let workspace_b = model.workspace_id_of(internal_b).unwrap();
-        assert_ne!(workspace_a, workspace_b);
-
-        let cases = [
-            (public_file, LuaTypeDeclId::global("Shared.Value")),
-            (
-                internal_a,
-                LuaTypeDeclId::internal(workspace_a, "Shared.Value"),
-            ),
-            (
-                internal_b,
-                LuaTypeDeclId::internal(workspace_b, "Shared.Value"),
-            ),
-            (private_a, LuaTypeDeclId::file(private_a, "Shared.Value")),
-            (private_b, LuaTypeDeclId::file(private_b, "Shared.Value")),
-        ];
-        for (file, id) in &cases {
-            let defining_model = ws.analysis.semantic_model(*file);
-            let def = defining_model.resolve_type_def("Shared.Value").unwrap();
-            let expected = LuaType::Ref(id.clone());
-            assert_eq!(defining_model.type_from_name("Shared.Value"), expected);
-
-            for caller in [
-                consumer,
-                public_file,
-                internal_a,
-                internal_b,
-                private_a,
-                private_b,
-            ] {
-                let model = ws.analysis.semantic_model(caller);
-                assert_eq!(model.type_def_ref(&def), expected);
-                assert_eq!(model.type_def_of(id).unwrap().id, def.id);
-            }
-        }
     }
 }

@@ -3,15 +3,12 @@ use std::rc::Rc;
 
 use emmylua_parser::{LuaAstNode, LuaTableExpr, LuaTableField};
 
-use crate::semantic_db::def::{DeclKind, MemberRef, SemanticId, TypeDef, TypeDefKind, TypeScope};
+use crate::semantic_db::def::{DeclKind, MemberRef, SemanticId, TypeDef, TypeDefKind};
 use crate::semantic_model::infer::unify::{self, TplBindings};
 use crate::semantic_model::type_eval::{
     eval_conditionals, expand_alias_generic, substitute_named_refs,
 };
-use crate::{
-    FileId, GenericTplId, InFiled, LuaMemberKey, LuaType, LuaTypeDeclId, LuaTypeIdentifier,
-    WorkspaceId,
-};
+use crate::{FileId, GenericTplId, InFiled, LuaMemberKey, LuaType};
 use crate::{Member, semantic_db::facts::FileFacts};
 use smol_str::SmolStr;
 
@@ -178,7 +175,7 @@ fn direct_member_info_alias(
         if visited.contains(&id) {
             return None;
         }
-        let def = type_def_of(model, &id)?;
+        let def = model.type_def_of(&id)?;
         if def.kind != TypeDefKind::Alias {
             return direct_member_info(model, &current, key);
         }
@@ -194,7 +191,7 @@ fn direct_member_info(
 ) -> Option<MemberInfo> {
     match prefix_type {
         LuaType::Ref(id) | LuaType::Def(id) => {
-            let def = type_def_of(model, id)?;
+            let def = model.type_def_of(id)?;
             if def.kind == TypeDefKind::Alias {
                 return direct_member_info_alias(model, prefix_type, key);
             }
@@ -234,7 +231,7 @@ fn direct_member_info(
             }
         }
         LuaType::Generic(generic) => {
-            let def = type_def_of(model, &generic.get_base_type_id())?;
+            let def = model.type_def_of(&generic.get_base_type_id())?;
             if def.kind == TypeDefKind::Alias {
                 let expanded = expand_alias_generic(model, prefix_type);
                 return direct_member_info(model, &expanded, key);
@@ -573,7 +570,7 @@ fn collect_members(
     match prefix_type {
         // Named type: @field + inheritance + runtime value members.
         LuaType::Ref(decl_id) | LuaType::Def(decl_id) => {
-            if let Some(def) = type_def_of(model, decl_id) {
+            if let Some(def) = model.type_def_of(decl_id) {
                 // Alias: collect members of the alias target instead of looking for `@field` on the alias
                 // definition itself. The visited set also guards recursive aliases.
                 if def.kind == TypeDefKind::Alias {
@@ -651,14 +648,14 @@ fn collect_members(
         }
         // Generic instance: base type members + argument substitution.
         LuaType::Generic(generic) => {
-            if let Some(def) = type_def_of(model, &generic.get_base_type_id())
+            if let Some(def) = model.type_def_of(&generic.get_base_type_id())
                 && def.kind == TypeDefKind::Alias
             {
                 let expanded = expand_alias_generic(model, prefix_type);
                 collect_members(model, &expanded, None, None, visited, out, filter);
                 return;
             }
-            let def = type_def_of(model, &generic.get_base_type_id());
+            let def = model.type_def_of(&generic.get_base_type_id());
             let params = generic.get_params().to_vec();
             let bindings: TplBindings = params
                 .iter()
@@ -1131,28 +1128,6 @@ fn dedup_by_key(infos: Vec<MemberInfo>) -> Vec<MemberInfo> {
         }
     }
     out
-}
-
-/// `LuaTypeDeclId` → type definition (look up the workspace type index by identifier scope + full name).
-pub(crate) fn type_def_of(model: &SemanticModel, decl_id: &LuaTypeDeclId) -> Option<TypeDef> {
-    let (scope, name) = match decl_id.get_id() {
-        LuaTypeIdentifier::Global(name) => (TypeScope::Global, name.as_str()),
-        LuaTypeIdentifier::Internal(workspace_id, name) => (
-            TypeScope::Internal(WorkspaceId {
-                id: workspace_id.id,
-            }),
-            name.as_str(),
-        ),
-        LuaTypeIdentifier::File(file_id, name) => {
-            (TypeScope::File(FileId::new(file_id.id)), name.as_str())
-        }
-    };
-    model
-        .analysis()
-        .type_defs_in_scope(scope, name)
-        .iter()
-        .next()
-        .cloned()
 }
 
 /// `def::LuaMemberKey` → value-domain `LuaMemberKey` (already unified; passed through directly).

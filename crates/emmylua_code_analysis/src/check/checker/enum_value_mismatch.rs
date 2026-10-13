@@ -9,7 +9,6 @@ use crate::DiagnosticCode;
 use crate::LuaType;
 use crate::semantic_db::def::TypeDefKind;
 use crate::semantic_model::SemanticModel;
-use crate::semantic_model::member::type_def_of;
 
 use super::{CheckContext, Checker};
 
@@ -72,7 +71,7 @@ fn check_pair(
     let (LuaType::Ref(id) | LuaType::Def(id)) = enum_type else {
         return;
     };
-    let Some(def) = type_def_of(semantic_model, id) else {
+    let Some(def) = semantic_model.type_def_of(id) else {
         return;
     };
     if def.kind != TypeDefKind::Enum {
