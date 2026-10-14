@@ -47,6 +47,13 @@ use crate::{
     LuaMappedType, LuaMultiLineUnion,
 };
 
+/// The operand determines both the index metadata and the stack shape.
+#[derive(Debug, Clone)]
+pub enum IndexKey {
+    Static(LuaMemberKey),
+    Dynamic(LuaSyntaxId),
+}
+
 #[derive(Debug, Clone)]
 pub enum Instr {
     /// Literal primitive.
@@ -63,12 +70,8 @@ pub enum Instr {
         name: String,
         offset: rowan::TextSize,
     },
-    /// Pop owner value -> member access -> push (member_type, member_id).
-    IndexMember {
-        /// Static member key (`Name` / `Integer`); `None` means a dynamic key (`t[k]`).
-        key: Option<LuaMemberKey>,
-        dynamic: bool,
-    },
+    /// Pop owner (and dynamic key, if any), then push the member value.
+    IndexMember(IndexKey),
     /// Pop callee + n args -> call inference (unify and substitute return).
     Call {
         arg_count: usize,
@@ -118,12 +121,7 @@ impl Value {
 
 enum CTask {
     Expr(LuaExpr),
-    Index {
-        key: Option<LuaMemberKey>,
-    },
-    EmitIndex {
-        key: Option<LuaMemberKey>,
-    },
+    Index(IndexKey),
     Call {
         arg_count: usize,
         colon_call: bool,
@@ -153,11 +151,7 @@ pub fn compile(expr: LuaExpr, file_id: FileId, out: &mut Vec<Instr>) {
     while let Some(task) = stack.pop() {
         match task {
             CTask::Expr(expr) => compile_expr(&expr, file_id, out, &mut stack),
-            CTask::Index { key } => out.push(Instr::IndexMember {
-                key,
-                dynamic: false,
-            }),
-            CTask::EmitIndex { key } => out.push(Instr::IndexMember { key, dynamic: true }),
+            CTask::Index(key) => out.push(Instr::IndexMember(key)),
             CTask::Call {
                 arg_count,
                 colon_call,
@@ -275,11 +269,13 @@ fn compile_expr(expr: &LuaExpr, file_id: FileId, out: &mut Vec<Instr>, stack: &m
             if let Some(prefix) = index_expr.get_prefix_expr() {
                 if let Some(LuaIndexKey::Expr(key_expr)) = index_key {
                     // Dynamic key: prefix, key, IndexMember(dynamic).
-                    stack.push(CTask::EmitIndex { key });
+                    stack.push(CTask::Index(IndexKey::Dynamic(key_expr.get_syntax_id())));
                     stack.push(CTask::Expr(key_expr));
                     stack.push(CTask::Expr(prefix));
                 } else {
-                    stack.push(CTask::Index { key });
+                    // Preserve the unknown-member fallback for incomplete Lua syntax.
+                    let key = key.unwrap_or_else(|| LuaMemberKey::Name(SmolStr::new("")));
+                    stack.push(CTask::Index(IndexKey::Static(key)));
                     stack.push(CTask::Expr(prefix));
                 }
             } else {
@@ -472,29 +468,42 @@ impl<'a> InferVm<'a> {
                 let value = self.load_name(&name, offset);
                 self.stack.push(value);
             }
-            Instr::IndexMember { key, dynamic } => {
-                if dynamic {
-                    let key_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
-                    let owner_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
-                    let value = self.index_member_dynamic(owner_value, key_value);
-                    self.stack.push(value);
-                } else {
-                    let owner_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
-                    let key = key.unwrap_or(LuaMemberKey::Name(SmolStr::new("")));
-                    if let LuaMemberKey::Integer(_) = &key
-                        && let LuaType::Array(array) = &owner_value.ty
-                    {
-                        let base = array.get_base().clone();
-                        let ty = if self.model.strict_array_index() {
-                            LuaType::from_vec(vec![base, LuaType::Nil])
-                        } else {
-                            base
-                        };
-                        self.stack.push(Value::plain(ty));
+            Instr::IndexMember(IndexKey::Dynamic(syntax)) => {
+                debug_assert!(
+                    self.stack.len() >= 2,
+                    "dynamic index needs an owner and key"
+                );
+                let mut key_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
+                let owner_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
+                // Query the key subtree, not the enclosing index. Results are cached
+                // by syntax/offset; ordinary inference also guards dependency cycles.
+                let flow_ty = self
+                    .model
+                    .type_of_expr_at(syntax, syntax.get_range().start());
+                // Nil and Never can be valid narrowing results, not inference failures.
+                // Casts can also widen types, so a subtype-only replacement is incorrect.
+                if !matches!(flow_ty, LuaType::Unknown | LuaType::Any) {
+                    key_value.ty = flow_ty;
+                }
+                let value = self.index_member_dynamic(owner_value, key_value);
+                self.stack.push(value);
+            }
+            Instr::IndexMember(IndexKey::Static(key)) => {
+                debug_assert!(!self.stack.is_empty(), "static index needs an owner");
+                let owner_value = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
+                if let LuaMemberKey::Integer(_) = &key
+                    && let LuaType::Array(array) = &owner_value.ty
+                {
+                    let base = array.get_base().clone();
+                    let ty = if self.model.strict_array_index() {
+                        LuaType::from_vec(vec![base, LuaType::Nil])
                     } else {
-                        let value = self.index_member(owner_value, &key);
-                        self.stack.push(value);
-                    }
+                        base
+                    };
+                    self.stack.push(Value::plain(ty));
+                } else {
+                    let value = self.index_member(owner_value, &key);
+                    self.stack.push(value);
                 }
             }
             Instr::Call {

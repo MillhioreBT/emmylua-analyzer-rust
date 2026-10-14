@@ -1068,6 +1068,14 @@ pub(super) fn apply_expr_casts(
                     let Some(cast) = cast_ptr.to_node(&chunk) else {
                         continue;
                     };
+                    // Declaration/member tracing handles named casts with a unique target.
+                    // Ambiguous union members have no member ID; retain their immediate
+                    // cast only for the exact owner/path, never an enclosing expression.
+                    if let Some(target) = cast.get_key_expr()
+                        && !ambiguous_cast_target_matches(model, &target, expr_syntax)
+                    {
+                        continue;
+                    }
                     for op_type in cast.get_op_types() {
                         let Some(doc_type) = op_type.get_type() else {
                             // `-?`: ? is not a DocType node, only the subtraction operator → remove nil.
@@ -1120,6 +1128,59 @@ pub(super) fn apply_expr_casts(
         }
     }
     ty
+}
+
+fn ambiguous_cast_target_matches(
+    model: &SemanticModel,
+    target: &LuaExpr,
+    expr_syntax: emmylua_parser::LuaSyntaxId,
+) -> bool {
+    let Some(tree) = model.syntax_tree() else {
+        return false;
+    };
+    let Some(node) = expr_syntax.to_node_from_root(&tree.get_red_root()) else {
+        return false;
+    };
+    let Some(LuaExpr::IndexExpr(index)) = LuaExpr::cast(node) else {
+        return false;
+    };
+    let mut left = target.clone();
+    let mut right = LuaExpr::IndexExpr(index.clone());
+    loop {
+        match (left, right) {
+            (LuaExpr::IndexExpr(left_index), LuaExpr::IndexExpr(right_index)) => {
+                let static_key =
+                    |index: &emmylua_parser::LuaIndexExpr| match index.get_index_key()? {
+                        emmylua_parser::LuaIndexKey::Name(name) => {
+                            Some(name.get_name_text().to_owned())
+                        }
+                        emmylua_parser::LuaIndexKey::String(string) => Some(string.get_value()),
+                        _ => None,
+                    };
+                let Some(key) = static_key(&left_index) else {
+                    return false;
+                };
+                if static_key(&right_index).as_ref() != Some(&key) {
+                    return false;
+                }
+                let (Some(left_prefix), Some(right_prefix)) =
+                    (left_index.get_prefix_expr(), right_index.get_prefix_expr())
+                else {
+                    return false;
+                };
+                left = left_prefix;
+                right = right_prefix;
+            }
+            (LuaExpr::NameExpr(left), LuaExpr::NameExpr(right)) => {
+                return model.resolve_name(left.get_position()).is_some_and(|decl| {
+                    model.resolve_name(right.get_position()).as_ref() == Some(&decl)
+                }) && !model
+                    .resolve_member(&index)
+                    .is_some_and(|member| member.member_id.is_some());
+            }
+            _ => return false,
+        }
+    }
 }
 
 /// `---@cast` path operation: widen / remove / replace.
