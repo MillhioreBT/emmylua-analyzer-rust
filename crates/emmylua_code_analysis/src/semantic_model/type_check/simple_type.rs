@@ -2,11 +2,12 @@
 //! `semantic::type_check::simple_type`, with db access going through the semantic context).
 
 use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::{LuaMemberKey, LuaType, LuaTypeDeclId, VariadicType};
 
 use super::TypeCheckResult;
-use super::context::TypeCheckContext;
+use super::context::{TypeCheckContext, TypeCheckMode};
 use super::guard::TypeCheckGuard;
 use super::sub_type::{base_type_name, get_base_type_id, is_sub_type_of};
 
@@ -27,7 +28,10 @@ pub fn check_simple_type_compact(
             if let (LuaType::TableConst(_), LuaType::Tuple(tuple)) = (source, compact_type) {
                 // Table entries use assignment rules, including optional and union elements.
                 let mut element_context = TypeCheckContext {
-                    assign_mode: true,
+                    mode: match context.mode {
+                        TypeCheckMode::Compatibility => TypeCheckMode::Assignment,
+                        mode => mode,
+                    },
                     ..context.clone()
                 };
                 let next_guard = check_guard.next_level()?;
@@ -158,13 +162,13 @@ pub fn check_simple_type_compact(
         },
         LuaType::IntegerConst(value) => match compact_type {
             LuaType::IntegerConst(other) => {
-                if context.assign_mode || value == other {
+                if context.mode.uses_assignment_rules() || value == other {
                     return Ok(());
                 }
                 return Err(context.mismatch(source, compact_type));
             }
             LuaType::DocIntegerConst(other) => {
-                if context.assign_mode || value == other {
+                if context.mode.uses_assignment_rules() || value == other {
                     return Ok(());
                 }
                 return Err(context.mismatch(source, compact_type));
@@ -349,19 +353,45 @@ fn check_variadic_type_compact(
     compact_type: &LuaType,
     check_guard: TypeCheckGuard,
 ) -> TypeCheckResult {
+    let mut element_context = TypeCheckContext {
+        mode: match context.mode {
+            TypeCheckMode::Compatibility => TypeCheckMode::Result,
+            mode => mode,
+        },
+        ..context.clone()
+    };
     match &source_type {
-        VariadicType::Base(source_base) => match compact_type {
+        VariadicType::Base(source_base) | VariadicType::Repeat(source_base) => match compact_type {
             LuaType::Variadic(compact_variadic) => match compact_variadic.deref() {
-                VariadicType::Base(compact_base) => {
-                    if source_base == compact_base {
-                        return Ok(());
+                VariadicType::Base(_) | VariadicType::Repeat(_) => {
+                    let count = compact_variadic
+                        .get_max_len()
+                        .or_else(|| source_type.get_max_len())
+                        .unwrap_or(1);
+                    for index in 0..count {
+                        let source = source_type.get_type(index).cloned().unwrap_or(LuaType::Nil);
+                        let compact = compact_variadic
+                            .get_type(index)
+                            .cloned()
+                            .unwrap_or(LuaType::Nil);
+                        super::check_general_type_compact(
+                            &mut element_context,
+                            &source,
+                            &compact,
+                            check_guard.next_level()?,
+                        )?;
                     }
                 }
                 VariadicType::Multi(compact_multi) => {
-                    for compact_type in compact_multi {
-                        check_simple_type_compact(
-                            context,
-                            source_base,
+                    for (index, compact_type) in compact_multi.iter().enumerate() {
+                        let source = if compact_type.contain_multi_return() {
+                            LuaType::Variadic(Rc::new(source_type.get_new_variadic_from(index)))
+                        } else {
+                            source_type.get_type(index).cloned().unwrap_or(LuaType::Nil)
+                        };
+                        super::check_general_type_compact(
+                            &mut element_context,
+                            &source,
                             compact_type,
                             check_guard.next_level()?,
                         )?;

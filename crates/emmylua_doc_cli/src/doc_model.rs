@@ -709,7 +709,7 @@ fn expand_returns(ret: &LuaType) -> Vec<LuaType> {
     match ret {
         LuaType::Variadic(variadic) => match variadic.as_ref() {
             VariadicType::Multi(types) => types.clone(),
-            VariadicType::Base(base) => vec![base.clone()],
+            VariadicType::Base(base) | VariadicType::Repeat(base) => vec![base.clone()],
         },
         _ => vec![ret.clone()],
     }
@@ -812,7 +812,9 @@ impl TypeTextRenderer<'_> {
                         .join(", ");
                     format!("({parts})")
                 }
-                VariadicType::Base(base) => format!("{}...", self.render(base)),
+                VariadicType::Base(base) | VariadicType::Repeat(base) => {
+                    format!("{}...", self.render(base))
+                }
             },
             LuaType::Signature(_) => "fun(...)".to_string(),
             LuaType::Instance(instance) => self.render(instance.get_base()),

@@ -6,7 +6,7 @@ use crate::{LuaMemberKey, LuaType, SemanticId, TypeDef, TypeScope};
 
 use crate::semantic_model::SemanticModel;
 
-use super::context::TypeCheckContext;
+use super::context::{TypeCheckContext, TypeCheckMode};
 use super::guard::TypeCheckGuard;
 use super::{TypeCheckResult, check_general_type_compact};
 
@@ -22,7 +22,9 @@ pub(crate) fn check_special(
     if let Some(result) = check_named_intersection(context, source, target, guard) {
         return Some(result);
     }
-    if let Some(result) = check_function_assign(context, source, target, guard) {
+    if context.mode == TypeCheckMode::Assignment
+        && let Some(result) = check_function_assign(context, source, target, guard)
+    {
         return Some(result);
     }
     None

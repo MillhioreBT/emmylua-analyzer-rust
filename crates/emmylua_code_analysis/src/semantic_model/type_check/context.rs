@@ -12,12 +12,37 @@ use super::fail_reason::TypeCheckFailReason;
 use crate::semantic_model::SemanticModel;
 use crate::semantic_model::render::humanize_type;
 
+/// Rules for comparing a value's type with the expected type.
+/// Call argument counts are checked separately.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TypeCheckMode {
+    /// General compatibility checks, such as checking function arguments.
+    /// If `Dog` extends `Animal`, a `Dog` can supply an `Animal` parameter.
+    Compatibility,
+
+    /// Check assignments to declared variables and table entries.
+    /// For example, a `string` can be assigned to `string | nil`.
+    /// Function types use the assignment-specific parameter rules.
+    Assignment,
+
+    /// Check result sequences during a compatibility check.
+    /// For example, `integer...` can supply `number...`, but not the reverse.
+    /// Use assignment rules for result values and `Compatibility` rules
+    /// for function parameters.
+    Result,
+}
+
+impl TypeCheckMode {
+    pub(crate) fn uses_assignment_rules(self) -> bool {
+        self != Self::Compatibility
+    }
+}
+
 #[derive(Clone)]
 pub struct TypeCheckContext<'db> {
     pub detail: bool,
     pub model: &'db SemanticModel<'db>,
-    /// Assignment semantic mode (`number -> integer`, any matching union target component, etc.).
-    pub assign_mode: bool,
+    pub mode: TypeCheckMode,
     /// Strict subtype mode (legacy `type_check_subtype`: all components of a union target, object field level).
     pub strict_union: bool,
     pub strict_object: bool,
@@ -30,7 +55,7 @@ impl<'db> TypeCheckContext<'db> {
         Self {
             detail,
             model,
-            assign_mode: false,
+            mode: TypeCheckMode::Compatibility,
             strict_union: false,
             strict_object: false,
             strict_generic: false,

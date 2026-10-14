@@ -5,6 +5,58 @@ mod test {
     use tokio_util::sync::CancellationToken;
 
     #[test]
+    fn test_vararg_first_function_is_callable() {
+        let diagnostics = crate::check::test::check_source(
+            r#"
+            ---@param ... fun(value: integer): integer
+            local function apply(...)
+                return (...)(1)
+            end
+            print(apply(function(value) return value end))
+        "#,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn test_vararg_first_function_checks_arguments() {
+        let diagnostics = crate::check::test::check_source(
+            r#"
+            ---@param ... fun(value: integer): integer
+            local function apply(...)
+                return (...)('bad')
+            end
+            print(apply(function(value) return value end))
+        "#,
+        );
+        assert_eq!(
+            crate::check::test::count_by_code(&diagnostics, DiagnosticCode::ParamTypeMismatch),
+            1
+        );
+        assert_eq!(
+            crate::check::test::count_by_code(&diagnostics, DiagnosticCode::CallNonCallable),
+            0
+        );
+    }
+
+    #[test]
+    fn test_vararg_first_number_is_not_callable() {
+        let diagnostics = crate::check::test::check_source(
+            r#"
+            ---@param ... integer
+            local function apply(...)
+                return (...)(1)
+            end
+            print(apply(2))
+        "#,
+        );
+        assert_eq!(
+            crate::check::test::count_by_code(&diagnostics, DiagnosticCode::CallNonCallable),
+            1
+        );
+    }
+
+    #[test]
     fn test_callable_table_accepts_valid_arguments() {
         let mut ws = VirtualWorkspace::new_with_init_std_lib();
         let file_id = ws.def(

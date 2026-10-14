@@ -554,7 +554,7 @@ impl<'a> TypeHumanizer<'a> {
 
     fn write_variadic<W: Write>(&mut self, variadic: &VariadicType, w: &mut W) -> fmt::Result {
         match variadic {
-            VariadicType::Base(base) => {
+            VariadicType::Base(base) | VariadicType::Repeat(base) => {
                 self.write_type(base, w)?;
                 w.write_str("...")
             }
@@ -714,6 +714,9 @@ impl<'a> TypeHumanizer<'a> {
             Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
                 VariadicType::Base(base) => {
                     VariadicType::Base(self.substitute_named_refs(base, map))
+                }
+                VariadicType::Repeat(base) => {
+                    VariadicType::Repeat(self.substitute_named_refs(base, map))
                 }
                 VariadicType::Multi(types) => VariadicType::Multi(
                     types

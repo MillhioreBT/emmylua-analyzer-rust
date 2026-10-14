@@ -197,7 +197,7 @@ impl LuaTypeNode for VariadicType {
                     stack.push(ty);
                 }
             }
-            VariadicType::Base(ty) => stack.push(ty),
+            VariadicType::Base(ty) | VariadicType::Repeat(ty) => stack.push(ty),
         }
     }
 }

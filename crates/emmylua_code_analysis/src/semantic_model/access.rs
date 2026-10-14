@@ -227,11 +227,8 @@ impl<'db> SemanticModel<'db> {
         {
             return Some(def.id);
         }
-        // 4. Name use point (right side of `x = 1`, etc.) -> Decl.
-        if kind == LuaSyntaxKind::NameExpr {
-            return self.resolve_name(offset);
-        }
-        None
+        // 4. Binding use (name expression or vararg literal) -> Decl.
+        self.resolve_name(offset)
     }
     /// Syntax location (node / token) -> semantic info (type + declaration identity).
     /// Shared query for LSP features such as hover / semantic_token and checkers.
@@ -321,13 +318,9 @@ impl<'db> SemanticModel<'db> {
             });
         }
 
-        // 5. Expression -> type (name expressions carry declaration identity).
+        // 5. Expression -> type and declaration identity for binding uses.
         if let Some(expr) = LuaExpr::cast(parent) {
-            let decl = if let LuaExpr::NameExpr(name_expr) = &expr {
-                self.resolve_name(name_expr.get_position())
-            } else {
-                None
-            };
+            let decl = self.resolve_name(offset);
             let typ = if matches!(&expr, LuaExpr::NameExpr(_)) {
                 self.assignment_target_value_type(&expr)
                     .unwrap_or_else(|| self.type_of_expr(expr.get_syntax_id()))

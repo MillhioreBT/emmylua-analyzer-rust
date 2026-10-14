@@ -6,6 +6,33 @@ mod tests {
     use crate::handlers::test_lib::{ProviderVirtualWorkspace, VirtualLocation, check};
     use googletest::prelude::*;
 
+    #[gtest]
+    fn test_vararg_references_stay_in_the_declaring_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(
+            ws.check_references(
+                r#"
+                local function outer(...)
+                    print(.<??>..)
+                    local function inner(...)
+                        print(...)
+                    end
+                    return ...
+                end
+            "#,
+                vec![],
+                vec![1, 2, 6]
+                    .into_iter()
+                    .map(|line| VirtualLocation {
+                        file: "".to_string(),
+                        line,
+                    })
+                    .collect()
+            )
+        );
+        Ok(())
+    }
+
     // M3 batch 2 retirement: module export alias following (`export.flush = flush` → `require("mod").flush`
     // binding chain) requires cross-file alias chain queries at the semantic layer; see migration notes §M3.
     #[gtest]

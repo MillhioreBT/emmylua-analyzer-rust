@@ -2497,7 +2497,7 @@ pub(crate) fn resolve_name(
         .or_else(|| global_decl_by_name(db, name_use.name.clone()))
 }
 
-/// All references to a declaration (name use sites).
+/// All references to a declaration (name use sites or vararg literals).
 pub(crate) fn decl_references(
     db: &SemanticDatabase,
     file: FileId,
@@ -2594,10 +2594,19 @@ pub(crate) fn signature_returns(
     let Some(closure) = LuaClosureExpr::cast(node) else {
         return Vec::new();
     };
-    let multi_path_returns = closure.descendants::<LuaReturnStat>().count() > 1;
+    let returns: Vec<_> = closure
+        .descendants::<LuaReturnStat>()
+        .filter(|ret| {
+            ret.ancestors::<LuaClosureExpr>()
+                .next()
+                .is_some_and(|owner| owner.get_syntax_id() == closure_syntax)
+        })
+        .collect();
+    let multi_path_returns = returns.len() > 1;
     let mut slots: Vec<TypeShell> = Vec::new();
-    for ret in closure.descendants::<LuaReturnStat>() {
-        for (index, expr) in ret.get_expr_list().enumerate() {
+    for ret in returns {
+        let exprs: Vec<_> = ret.get_expr_list().collect();
+        for (index, expr) in exprs.iter().enumerate() {
             let shell = match &expr {
                 LuaExpr::NameExpr(name) if name.get_name_text().as_deref() == Some("self") => {
                     method_self_return_shell(&facts, closure_syntax)
@@ -2618,6 +2627,11 @@ pub(crate) fn signature_returns(
                 _ => None,
             }
             .unwrap_or_else(|| expr_type_of(db, file, config, expr.get_syntax_id()));
+            let shell = if index + 1 < exprs.len() {
+                shell.first_result()
+            } else {
+                shell
+            };
             if let Some(slot) = slots.get_mut(index) {
                 slot.merge(&shell);
             } else {
@@ -2956,7 +2970,7 @@ fn expr_type_chain(
             ChainFrame::Index(index) => {
                 shell = expr_type_index(db, facts, file, config, index.clone(), shell);
             }
-            ChainFrame::Paren => {}
+            ChainFrame::Paren => shell = shell.first_result(),
         }
     }
     Some(shell)
@@ -2970,6 +2984,18 @@ fn expr_type_node(
     expr: LuaExpr,
 ) -> TypeShell {
     match expr {
+        LuaExpr::LiteralExpr(literal)
+            if matches!(literal.get_literal(), Some(LuaLiteralToken::Dots(_))) =>
+        {
+            let shell = resolve_name(db, file, literal.get_position())
+                .map(|decl| decl_type(db, file, config, decl))
+                .unwrap_or_else(TypeShell::unknown);
+            if matches!(shell.candidates.as_slice(), [TypeCandidate::Variadic(_)]) {
+                shell
+            } else {
+                TypeShell::from_repeat(shell)
+            }
+        }
         LuaExpr::LiteralExpr(literal) => literal_type(&literal),
         LuaExpr::TableExpr(table) => {
             TypeShell::from_table(TableId::from_range(file, table.get_range()))
@@ -3025,8 +3051,8 @@ fn expr_type_node(
             match op {
                 Some(BinaryOperator::OpOr) | Some(BinaryOperator::OpAnd) => {
                     if let Some((left, right)) = binary.get_exprs() {
-                        let mut shell = expr_type(db, facts, file, config, left);
-                        shell.merge(&expr_type(db, facts, file, config, right));
+                        let mut shell = expr_type(db, facts, file, config, left).first_result();
+                        shell.merge(&expr_type(db, facts, file, config, right).first_result());
                         return shell;
                     }
                     TypeShell::unknown()
@@ -3059,13 +3085,13 @@ fn expr_type_node(
             } else {
                 unary
                     .get_expr()
-                    .map(|expr| expr_type(db, facts, file, config, expr))
+                    .map(|expr| expr_type(db, facts, file, config, expr).first_result())
                     .unwrap_or_else(TypeShell::unknown)
             }
         }
         LuaExpr::ParenExpr(paren) => paren
             .get_expr()
-            .map(|expr| expr_type(db, facts, file, config, expr))
+            .map(|expr| expr_type(db, facts, file, config, expr).first_result())
             .unwrap_or_else(TypeShell::unknown),
         _ => TypeShell::unknown(),
     }
@@ -3278,6 +3304,11 @@ fn substitute_generics(
             }
             TypeCandidate::Variadic(base) => {
                 out.merge(&TypeShell::from_variadic(substitute_generics(
+                    base, params, args,
+                )));
+            }
+            TypeCandidate::Repeat(base) => {
+                out.merge(&TypeShell::from_repeat(substitute_generics(
                     base, params, args,
                 )));
             }

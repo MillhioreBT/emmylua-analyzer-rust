@@ -114,6 +114,9 @@ impl LuaType {
         match self {
             LuaType::Nil | LuaType::Boolean | LuaType::Any | LuaType::Unknown => false,
             LuaType::BooleanConst(boolean) | LuaType::DocBooleanConst(boolean) => *boolean,
+            LuaType::Variadic(_) => self
+                .get_result_slot_type(0)
+                .is_some_and(|ty| ty.is_always_truthy()),
             LuaType::Union(u) => u.is_always_truthy(),
             LuaType::MultiLineUnion(u) => u.iter().all(LuaType::is_always_truthy),
             LuaType::TypeGuard(_) => false,
@@ -124,6 +127,9 @@ impl LuaType {
     pub fn is_always_falsy(&self) -> bool {
         match self {
             LuaType::Nil | LuaType::BooleanConst(false) | LuaType::DocBooleanConst(false) => true,
+            LuaType::Variadic(_) => self
+                .get_result_slot_type(0)
+                .is_none_or(|ty| ty.is_always_falsy()),
             LuaType::Union(u) => u.is_always_falsy(),
             LuaType::MultiLineUnion(u) => u.iter().all(LuaType::is_always_falsy),
             LuaType::TypeGuard(_) => false,
@@ -218,7 +224,8 @@ impl LuaType {
     pub fn get_result_slot_type(&self, idx: usize) -> Option<LuaType> {
         match self {
             LuaType::Variadic(variadic) => match variadic.as_ref() {
-                VariadicType::Base(base) => Some(base.clone()),
+                VariadicType::Base(_) => variadic.get_type(idx).cloned(),
+                VariadicType::Repeat(base) => Some(base.clone()),
                 VariadicType::Multi(types) => {
                     let last_idx = types.len().checked_sub(1)?;
                     if idx < last_idx {

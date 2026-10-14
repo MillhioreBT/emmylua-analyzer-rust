@@ -61,6 +61,8 @@ pub enum Instr {
     /// Concrete value type (string constants / anonymous table identity etc.).
     PushValue(LuaType),
     PushUnknown,
+    /// Reduce a multiple-value expression to its first value (nil when empty).
+    AdjustToOne,
     /// Closure reference (marks syntax for Call to back-infer params).
     PushClosure {
         syntax: LuaSyntaxId,
@@ -121,6 +123,7 @@ impl Value {
 
 enum CTask {
     Expr(LuaExpr),
+    AdjustToOne,
     Index(IndexKey),
     Call {
         arg_count: usize,
@@ -151,6 +154,7 @@ pub fn compile(expr: LuaExpr, file_id: FileId, out: &mut Vec<Instr>) {
     while let Some(task) = stack.pop() {
         match task {
             CTask::Expr(expr) => compile_expr(&expr, file_id, out, &mut stack),
+            CTask::AdjustToOne => out.push(Instr::AdjustToOne),
             CTask::Index(key) => out.push(Instr::IndexMember(key)),
             CTask::Call {
                 arg_count,
@@ -264,6 +268,7 @@ fn compile_expr(expr: &LuaExpr, file_id: FileId, out: &mut Vec<Instr>, stack: &m
             }
         }
         LuaExpr::IndexExpr(index_expr) => {
+            stack.push(CTask::AdjustToOne);
             let index_key = index_expr.get_index_key();
             let key = index_key.as_ref().and_then(index_key_to_member_key);
             if let Some(prefix) = index_expr.get_prefix_expr() {
@@ -337,6 +342,7 @@ fn compile_expr(expr: &LuaExpr, file_id: FileId, out: &mut Vec<Instr>, stack: &m
         }
         LuaExpr::ParenExpr(paren) => {
             if let Some(inner) = paren.get_expr() {
+                stack.push(CTask::AdjustToOne);
                 stack.push(CTask::Expr(inner));
             } else {
                 out.push(Instr::PushUnknown);
@@ -458,6 +464,11 @@ impl<'a> InferVm<'a> {
             }
             Instr::PushValue(ty) => self.stack.push(Value::plain(ty)),
             Instr::PushUnknown => self.stack.push(Value::plain(LuaType::Unknown)),
+            Instr::AdjustToOne => {
+                if let Some(value) = self.stack.last_mut() {
+                    value.ty = value.ty.get_result_slot_type(0).unwrap_or(LuaType::Nil);
+                }
+            }
             Instr::PushClosure { syntax } => self.stack.push(Value {
                 ty: LuaType::Function,
                 owner: None,
@@ -485,6 +496,7 @@ impl<'a> InferVm<'a> {
                 if !matches!(flow_ty, LuaType::Unknown | LuaType::Any) {
                     key_value.ty = flow_ty;
                 }
+                key_value.ty = key_value.ty.get_result_slot_type(0).unwrap_or(LuaType::Nil);
                 let value = self.index_member_dynamic(owner_value, key_value);
                 self.stack.push(value);
             }
@@ -519,6 +531,7 @@ impl<'a> InferVm<'a> {
                 // Inline `--[[@as T]]` and other flow casts are attached to arg expression
                 // nodes; use flow-sensitive expression types to override bare VM types so
                 // generic calls can back-infer from the cast type.
+                let arg_count = args.len();
                 for (index, arg) in args.iter_mut().enumerate() {
                     if let Some(syntax) = arg_syntaxes.get(index) {
                         let flow_ty = self
@@ -529,6 +542,10 @@ impl<'a> InferVm<'a> {
                             arg.ty = flow_ty;
                         }
                     }
+                    // Only the last argument can supply multiple values.
+                    if index + 1 < arg_count {
+                        arg.ty = arg.ty.get_result_slot_type(0).unwrap_or(LuaType::Nil);
+                    }
                 }
                 let callee = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
                 let value = self.call(callee, &args, colon_call, &generic_type_syntaxes);
@@ -536,7 +553,8 @@ impl<'a> InferVm<'a> {
             }
             Instr::UnaryOp { op } => {
                 let operand = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
-                let ty = unary_type(self.model, op, &operand.ty);
+                let operand_ty = operand.ty.get_result_slot_type(0).unwrap_or(LuaType::Nil);
+                let ty = unary_type(self.model, op, &operand_ty);
                 self.stack.push(Value::plain(ty));
             }
             Instr::Binary {
@@ -546,6 +564,8 @@ impl<'a> InferVm<'a> {
             } => {
                 let mut right = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
                 let mut left = self.stack.pop().unwrap_or(Value::plain(LuaType::Unknown));
+                left.ty = left.ty.get_result_slot_type(0).unwrap_or(LuaType::Nil);
+                right.ty = right.ty.get_result_slot_type(0).unwrap_or(LuaType::Nil);
                 if matches!(op, BinaryOperator::OpAnd | BinaryOperator::OpOr) {
                     if let Some(left_syntax) = left_syntax {
                         if let Some(nullable_extra) =
@@ -570,6 +590,12 @@ impl<'a> InferVm<'a> {
     }
 
     fn load_name(&mut self, name: &str, offset: rowan::TextSize) -> Value {
+        // A vararg use carries the whole sequence, even though it resolves to a parameter.
+        if name == "..." {
+            return Value::plain(self.enclosing_variadic_type(offset).unwrap_or_else(|| {
+                LuaType::Variadic(Rc::new(VariadicType::Repeat(LuaType::Unknown)))
+            }));
+        }
         // Local declaration.
         if let Some(decl) = self.model.resolve_name(offset) {
             // Closure param: look up the environment.
@@ -614,12 +640,6 @@ impl<'a> InferVm<'a> {
             && let Some(value) = self.method_self_value(offset)
         {
             return value;
-        }
-        // Variadic args `...`: take the enclosing closure's variadic type.
-        if name == "..."
-            && let Some(ty) = self.enclosing_variadic_type(offset)
-        {
-            return Value::plain(ty);
         }
         // Global name.
         let owner = SemanticId::name(SmolStr::new(name));
@@ -726,8 +746,9 @@ impl<'a> InferVm<'a> {
             if name == "..." {
                 let base = ty.clone().unwrap_or(LuaType::Unknown);
                 return Some(match base {
-                    LuaType::Variadic(_) => base,
-                    _ => LuaType::Variadic(Rc::new(VariadicType::Base(base))),
+                    // A declared `T...` expands tuple slots; a plain `T` repeats whole values.
+                    LuaType::Variadic(_) => self.expand_unpack_return(base),
+                    _ => LuaType::Variadic(Rc::new(VariadicType::Repeat(base))),
                 });
             }
         }
@@ -1527,7 +1548,7 @@ impl<'a> InferVm<'a> {
                         } else {
                             base
                         };
-                        return Value::plain(LuaType::Variadic(Rc::new(VariadicType::Base(
+                        return Value::plain(LuaType::Variadic(Rc::new(VariadicType::Repeat(
                             element,
                         ))));
                     }
@@ -1535,25 +1556,20 @@ impl<'a> InferVm<'a> {
                 }
                 // select(n, ...) / select('#', ...)
                 "select" => {
-                    // `select('#', ...)`: returns the number of remaining args.
+                    let values = VariadicType::Multi(
+                        args.iter()
+                            .skip(1)
+                            .map(|arg| widen_const(&arg.ty))
+                            .collect(),
+                    );
+                    // Nested result sequences can have an unbounded tail.
                     if let Some(first) = args.first() {
                         if let LuaType::StringConst(s) | LuaType::DocStringConst(s) = &first.ty {
                             if s.as_str() == "#" {
-                                let mut count = 0usize;
-                                let mut has_unbounded = false;
-                                for arg in args.iter().skip(1) {
-                                    match &arg.ty {
-                                        LuaType::Variadic(variadic) => match variadic.as_ref() {
-                                            VariadicType::Multi(types) => count += types.len(),
-                                            VariadicType::Base(_) => has_unbounded = true,
-                                        },
-                                        _ => count += 1,
-                                    }
-                                }
-                                if has_unbounded {
-                                    return Value::plain(LuaType::Integer);
-                                }
-                                return Value::plain(LuaType::IntegerConst(count as i64));
+                                return Value::plain(match values.get_max_len() {
+                                    Some(count) => LuaType::IntegerConst(count as i64),
+                                    None => LuaType::Integer,
+                                });
                             }
                         }
                     }
@@ -1568,48 +1584,11 @@ impl<'a> InferVm<'a> {
                         })
                         .unwrap_or(1)
                         .max(1);
-                    let mut tail: Vec<LuaType> = Vec::new();
-                    let mut has_unbounded = false;
-                    let mut remaining = n.saturating_sub(1);
-                    for arg in args.iter().skip(1) {
-                        match &arg.ty {
-                            LuaType::Variadic(variadic) => match variadic.as_ref() {
-                                VariadicType::Multi(types) => {
-                                    for ty in types {
-                                        if remaining > 0 {
-                                            remaining -= 1;
-                                        } else {
-                                            tail.push(widen_const(ty));
-                                        }
-                                    }
-                                }
-                                VariadicType::Base(base) => {
-                                    // Unbounded variadic: once entered, all later values are
-                                    // the base type.
-                                    if remaining > 0 {
-                                        remaining = 0;
-                                    }
-                                    tail.push(widen_const(base));
-                                    has_unbounded = true;
-                                }
-                            },
-                            ty => {
-                                if remaining > 0 {
-                                    remaining -= 1;
-                                } else {
-                                    tail.push(widen_const(ty));
-                                }
-                            }
-                        }
-                    }
-                    if has_unbounded {
-                        let base = tail.first().cloned().unwrap_or(LuaType::Unknown);
-                        return Value::plain(LuaType::Variadic(Rc::new(VariadicType::Base(base))));
-                    }
-                    if tail.is_empty() {
+                    let tail = values.get_new_variadic_from(n - 1);
+                    if tail.get_max_len() == Some(0) {
                         return Value::plain(LuaType::Nil);
                     }
-                    return Value::plain(LuaType::Variadic(Rc::new(VariadicType::Multi(tail))));
+                    return Value::plain(LuaType::Variadic(Rc::new(tail)));
                 }
                 _ => {}
             }
@@ -1727,6 +1706,7 @@ impl<'a> InferVm<'a> {
                         }
                         if let LuaType::Variadic(variadic) = &substituted {
                             let slot_types: Vec<LuaType> = match variadic.as_ref() {
+                                VariadicType::Repeat(base) => vec![base.clone()],
                                 VariadicType::Base(base) => {
                                     if let LuaType::Tuple(tuple) = base {
                                         tuple.get_types().to_vec()
@@ -2004,58 +1984,13 @@ impl<'a> InferVm<'a> {
             LuaType::Variadic(v) => {
                 if let VariadicType::Base(LuaType::TplRef(tpl)) = v.as_ref() {
                     bindings.insert(tpl.get_tpl_id(), callback_ret.clone());
-                } else if let VariadicType::Multi(types) = v.as_ref() {
-                    // For `R1, R...` ("fixed first return + variadic tail return"), do not
-                    // unify the actual callback's entire return list with the param return
-                    // structure directly; first take the fixed slot from the actual callback's
-                    // first return, then bind the remaining returns as the tail R.
-                    let Some(LuaType::Variadic(tail_v)) = types.last() else {
-                        let _ = unify_call_bindings(
-                            self.model,
-                            substituted_callback_ret,
-                            callback_ret,
-                            bindings,
-                        );
-                        return;
-                    };
-                    let VariadicType::Base(tail_base) = tail_v.as_ref() else {
-                        let _ = unify_call_bindings(
-                            self.model,
-                            substituted_callback_ret,
-                            callback_ret,
-                            bindings,
-                        );
-                        return;
-                    };
-                    let callback_types: Vec<LuaType> = match callback_ret {
-                        LuaType::Variadic(callback_variadic) => match callback_variadic.as_ref() {
-                            VariadicType::Multi(callback_types) => callback_types.clone(),
-                            VariadicType::Base(base) => vec![base.clone()],
-                        },
-                        other => vec![other.clone()],
-                    };
-                    let fixed_count = types.len() - 1;
-                    let mut ok = true;
-                    for (param, actual) in types[..fixed_count].iter().zip(callback_types.iter()) {
-                        if !unify_call_bindings(self.model, param, actual, bindings) {
-                            ok = false;
-                            break;
-                        }
-                    }
-                    if ok {
-                        let rest = if callback_types.len() > fixed_count {
-                            if callback_types.len() == fixed_count + 1 {
-                                callback_types[fixed_count].clone()
-                            } else {
-                                LuaType::Variadic(Rc::new(VariadicType::Multi(
-                                    callback_types[fixed_count..].to_vec(),
-                                )))
-                            }
-                        } else {
-                            LuaType::Variadic(Rc::new(VariadicType::Base(LuaType::Nil)))
-                        };
-                        let _ = unify_call_bindings(self.model, tail_base, &rest, bindings);
-                    }
+                } else if matches!(v.as_ref(), VariadicType::Multi(_)) {
+                    let _ = unify_call_bindings(
+                        self.model,
+                        original_callback_ret,
+                        callback_ret,
+                        bindings,
+                    );
                 } else {
                     let _ = unify_call_bindings(
                         self.model,
@@ -2155,6 +2090,11 @@ impl<'a> InferVm<'a> {
         };
         let return_exprs: Vec<LuaExpr> = closure
             .descendants::<LuaReturnStat>()
+            .filter(|ret| {
+                ret.ancestors::<LuaClosureExpr>()
+                    .next()
+                    .is_some_and(|owner| owner.get_syntax_id() == closure_syntax)
+            })
             .flat_map(|ret| ret.get_expr_list())
             .collect();
         if return_exprs.is_empty() {
@@ -2193,6 +2133,15 @@ impl<'a> InferVm<'a> {
         // For `T...` where T is a tuple/mapped tuple: expand the single tuple slot into
         // multi-return slots.
         if let LuaType::Variadic(variadic) = &ty {
+            if let VariadicType::Multi(types) = variadic.as_ref() {
+                return LuaType::Variadic(Rc::new(VariadicType::Multi(
+                    types
+                        .iter()
+                        .cloned()
+                        .map(|ty| self.expand_unpack_return(ty))
+                        .collect(),
+                )));
+            }
             if let VariadicType::Base(base) = variadic.as_ref() {
                 let slots: Option<Vec<LuaType>> = match base {
                     LuaType::Tuple(tuple) => Some(tuple.get_types().to_vec()),
@@ -2249,7 +2198,7 @@ impl<'a> InferVm<'a> {
             }
             LuaType::Array(array) => {
                 let element = LuaType::from_vec(vec![array.get_base().clone(), LuaType::Nil]);
-                LuaType::Variadic(Rc::new(VariadicType::Base(element)))
+                LuaType::Variadic(Rc::new(VariadicType::Repeat(element)))
             }
             LuaType::Tuple(tuple) => {
                 LuaType::Variadic(Rc::new(VariadicType::Multi(tuple.get_types().to_vec())))
@@ -2330,7 +2279,7 @@ impl<'a> InferVm<'a> {
                 }
                 _ => arg_fun.get_params().to_vec(),
             },
-            VariadicType::Multi(_) => return ret,
+            VariadicType::Multi(_) | VariadicType::Repeat(_) => return ret,
         };
         let mut ret_ty = sanitize_unresolved_generics(fun.get_ret(), &HashSet::new());
         // After degradation, an unbound `R...` should not retain the "unknown variadic return"
@@ -2710,6 +2659,22 @@ impl<'a> InferVm<'a> {
         }
 
         let mut ret = self.return_overload_types_lua(file_id, docs, generic_params, None);
+        // Parameter docs must not hide inferred return slots.
+        if matches!(ret, LuaType::Unknown)
+            && docs.returns.is_empty()
+            && docs.return_overloads.is_empty()
+        {
+            let generic_names: Vec<_> = generic_params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect();
+            ret = self.model.signature_return_type(
+                file_id,
+                signature.closure_syntax,
+                signature,
+                &generic_names,
+            );
+        }
         let generic_tpls = self.generic_tpls_with_metadata(file_id, generic_params);
         ret = bind_signature_generics(&ret, &generic_tpls);
         let async_state = if docs.is_async {
@@ -2771,7 +2736,7 @@ impl<'a> InferVm<'a> {
             for ty in types {
                 match ty {
                     LuaType::Variadic(variadic) => match variadic.as_ref() {
-                        VariadicType::Base(base) => {
+                        VariadicType::Base(base) | VariadicType::Repeat(base) => {
                             if tail.is_none() {
                                 *tail = Some(base.clone());
                             }
@@ -3594,6 +3559,7 @@ pub(crate) fn replace_self_type(ty: &LuaType, self_ty: &LuaType) -> LuaType {
         )),
         Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => VariadicType::Base(replace_self_type(base, self_ty)),
+            VariadicType::Repeat(base) => VariadicType::Repeat(replace_self_type(base, self_ty)),
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
                     .iter()
@@ -3664,6 +3630,9 @@ fn resolve_function_ret_defaults(ty: &LuaType, fun: &LuaFunctionType) -> LuaType
             let resolved = match variadic.as_ref() {
                 VariadicType::Base(base) => {
                     VariadicType::Base(resolve_function_ret_defaults(base, fun))
+                }
+                VariadicType::Repeat(base) => {
+                    VariadicType::Repeat(resolve_function_ret_defaults(base, fun))
                 }
                 VariadicType::Multi(types) => VariadicType::Multi(
                     types
@@ -3879,9 +3848,12 @@ pub(crate) fn unify_call_bindings(
             true
         }
         Variadic(param_variadic) => match param_variadic.as_ref() {
-            VariadicType::Base(base) => match arg {
+            VariadicType::Base(base) | VariadicType::Repeat(base) => match arg {
+                Variadic(_) if matches!(param_variadic.as_ref(), VariadicType::Base(TplRef(_))) => {
+                    unify_call_bindings(model, base, arg, bindings)
+                }
                 Variadic(arg_variadic) => match arg_variadic.as_ref() {
-                    VariadicType::Base(arg_base) => {
+                    VariadicType::Base(arg_base) | VariadicType::Repeat(arg_base) => {
                         unify_call_bindings(model, base, arg_base, bindings)
                     }
                     VariadicType::Multi(arg_types) => {
@@ -3899,33 +3871,57 @@ pub(crate) fn unify_call_bindings(
                 Unknown | Any => true,
                 _ => unify_call_bindings(model, base, arg, bindings),
             },
-            VariadicType::Multi(param_types) => match arg {
-                Variadic(arg_variadic) => match arg_variadic.as_ref() {
-                    VariadicType::Multi(arg_types) if param_types.len() == arg_types.len() => {
-                        for (p, a) in param_types.iter().zip(arg_types.iter()) {
-                            if !unify_call_bindings(model, p, a, bindings) {
-                                return false;
-                            }
+            VariadicType::Multi(param_types) => {
+                if let Some(Variadic(tail)) = param_types.last()
+                    && let VariadicType::Base(base @ TplRef(_)) = tail.as_ref()
+                {
+                    if matches!(arg, Unknown | Any) {
+                        return true;
+                    }
+                    let fixed_count = param_types.len() - 1;
+                    for (index, param) in param_types[..fixed_count].iter().enumerate() {
+                        let actual = arg.get_result_slot_type(index).unwrap_or(Nil);
+                        if !unify_call_bindings(model, param, &actual, bindings) {
+                            return false;
                         }
-                        true
+                    }
+                    // For `First, Rest...`, slice result slots without losing repeated values.
+                    let rest = match arg {
+                        Variadic(variadic) => variadic.get_new_variadic_from(fixed_count),
+                        _ => VariadicType::Multi(vec![arg.clone()])
+                            .get_new_variadic_from(fixed_count),
+                    };
+                    let rest = Variadic(Rc::new(rest));
+                    return unify_call_bindings(model, base, &rest, bindings);
+                }
+                match arg {
+                    Variadic(arg_variadic) => match arg_variadic.as_ref() {
+                        VariadicType::Multi(arg_types) if param_types.len() == arg_types.len() => {
+                            for (p, a) in param_types.iter().zip(arg_types.iter()) {
+                                if !unify_call_bindings(model, p, a, bindings) {
+                                    return false;
+                                }
+                            }
+                            true
+                        }
+                        _ => false,
+                    },
+                    Unknown | Any => true,
+                    _ if param_types.len() == 1 => {
+                        unify_call_bindings(model, &param_types[0], arg, bindings)
+                    }
+                    // A `R1, R...` param return is compatible with an actual function that returns
+                    // only `R1`: the trailing variadic return may be empty.
+                    _ if matches!(
+                        param_types.last(),
+                        Some(Variadic(v)) if matches!(v.as_ref(), VariadicType::Base(_))
+                    ) && param_types.len() == 2 =>
+                    {
+                        unify_call_bindings(model, &param_types[0], arg, bindings)
                     }
                     _ => false,
-                },
-                Unknown | Any => true,
-                _ if param_types.len() == 1 => {
-                    unify_call_bindings(model, &param_types[0], arg, bindings)
                 }
-                // A `R1, R...` param return is compatible with an actual function that returns
-                // only `R1`: the trailing variadic return may be empty.
-                _ if matches!(
-                    param_types.last(),
-                    Some(Variadic(v)) if matches!(v.as_ref(), VariadicType::Base(_))
-                ) && param_types.len() == 2 =>
-                {
-                    unify_call_bindings(model, &param_types[0], arg, bindings)
-                }
-                _ => false,
-            },
+            }
         },
         Generic(param_generic) => {
             if let Generic(arg_generic) = arg {
@@ -4009,7 +4005,7 @@ pub(crate) fn unify_call_bindings(
                                 Tuple(tuple) => tuple.get_types().len(),
                                 Variadic(v) => match v.as_ref() {
                                     VariadicType::Multi(types) => types.len(),
-                                    VariadicType::Base(_) => 1,
+                                    VariadicType::Base(_) | VariadicType::Repeat(_) => 1,
                                 },
                                 _ => 1,
                             }
@@ -4229,7 +4225,7 @@ pub(crate) fn score_param_match(param_ty: &LuaType, arg_ty: &LuaType) -> i32 {
 pub(crate) fn variadic_base_type(ty: &LuaType) -> Option<LuaType> {
     match ty {
         LuaType::Variadic(variadic) => match variadic.as_ref() {
-            VariadicType::Base(base) => Some(base.clone()),
+            VariadicType::Base(base) | VariadicType::Repeat(base) => Some(base.clone()),
             VariadicType::Multi(types) => types.first().cloned(),
         },
         _ => Some(ty.clone()),
@@ -4910,6 +4906,9 @@ pub(crate) fn bind_signature_generics(ty: &LuaType, generics: &[GenericTpl]) -> 
                 VariadicType::Base(base) => {
                     VariadicType::Base(bind_signature_generics(base, generics))
                 }
+                VariadicType::Repeat(base) => {
+                    VariadicType::Repeat(bind_signature_generics(base, generics))
+                }
                 VariadicType::Multi(types) => VariadicType::Multi(
                     types
                         .iter()
@@ -5040,6 +5039,9 @@ fn remove_nil_from_type(ty: LuaType) -> LuaType {
                 LuaType::Variadic(Rc::new(VariadicType::Multi(new_types)))
             }
             VariadicType::Base(base) => LuaType::Variadic(Rc::new(VariadicType::Base(
+                remove_nil_from_type(base.clone()),
+            ))),
+            VariadicType::Repeat(base) => LuaType::Variadic(Rc::new(VariadicType::Repeat(
                 remove_nil_from_type(base.clone()),
             ))),
         },

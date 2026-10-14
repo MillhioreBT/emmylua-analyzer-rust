@@ -217,14 +217,20 @@ pub fn unify_bindings(param: &LuaType, arg: &LuaType, bindings: &mut TplBindings
         // Variadic types: `T...` can unify with a single value or a structurally
         // matching Variadic.
         Variadic(param_variadic) => match (param_variadic.as_ref(), arg) {
-            (VariadicType::Base(p), Variadic(arg_variadic)) => match arg_variadic.as_ref() {
-                VariadicType::Base(a) => unify_bindings(p, a, bindings),
-                VariadicType::Multi(_) => false,
-            },
-            (VariadicType::Base(p), _) if !matches!(arg, Unknown | Any) => {
+            (VariadicType::Base(p) | VariadicType::Repeat(p), Variadic(arg_variadic)) => {
+                match arg_variadic.as_ref() {
+                    VariadicType::Base(a) | VariadicType::Repeat(a) => {
+                        unify_bindings(p, a, bindings)
+                    }
+                    VariadicType::Multi(_) => false,
+                }
+            }
+            (VariadicType::Base(p) | VariadicType::Repeat(p), _)
+                if !matches!(arg, Unknown | Any) =>
+            {
                 unify_bindings(p, arg, bindings)
             }
-            (VariadicType::Base(_), _) => true,
+            (VariadicType::Base(_) | VariadicType::Repeat(_), _) => true,
             (VariadicType::Multi(p_types), Variadic(arg_variadic)) => {
                 if let VariadicType::Multi(a_types) = arg_variadic.as_ref()
                     && p_types.len() == a_types.len()
@@ -407,6 +413,7 @@ pub fn substitute(ty: &LuaType, bindings: &TplBindings) -> LuaType {
                     }
                     VariadicType::Base(sub)
                 }
+                VariadicType::Repeat(base) => VariadicType::Repeat(substitute(base, bindings)),
                 VariadicType::Multi(types) => {
                     VariadicType::Multi(types.iter().map(|t| substitute(t, bindings)).collect())
                 }

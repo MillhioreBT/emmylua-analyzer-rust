@@ -730,6 +730,7 @@ fn param_count_range(
                     None
                 }
             }
+            VariadicType::Repeat(_) => None,
             VariadicType::Multi(types) => Some(types.len()),
         },
         _ => None,

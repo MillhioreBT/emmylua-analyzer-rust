@@ -22,7 +22,7 @@ pub fn check_complex_type_compact(
                     compact_array.get_base(),
                     check_guard.next_level()?,
                 ),
-                LuaType::Object(object) if context.assign_mode => {
+                LuaType::Object(object) if context.mode.uses_assignment_rules() => {
                     let array_base = source_array.get_base();
                     for (key_ty, expected) in object.get_index_access() {
                         if matches!(

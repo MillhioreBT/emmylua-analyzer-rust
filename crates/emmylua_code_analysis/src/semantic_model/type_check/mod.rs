@@ -24,7 +24,7 @@ mod test;
 
 use std::ops::Deref;
 
-pub use context::TypeCheckContext;
+pub use context::{TypeCheckContext, TypeCheckMode};
 pub use fail_reason::TypeCheckFailReason;
 
 use crate::semantic_model::SemanticModel;
@@ -86,7 +86,7 @@ pub fn check_assign_type_detail(
     target: &LuaType,
 ) -> TypeCheckResult {
     let mut context = TypeCheckContext::new(model, true);
-    context.assign_mode = true;
+    context.mode = TypeCheckMode::Assignment;
     check_general_type_compact(&mut context, source, target, guard::TypeCheckGuard::new())
 }
 
@@ -156,7 +156,7 @@ fn check_general_type_compact(
     }
 
     // Assignment mode: integer is assignable to number; number is not assignable to integer.
-    if context.assign_mode {
+    if context.mode.uses_assignment_rules() {
         match (source, compact_type) {
             (
                 LuaType::Integer | LuaType::IntegerConst(_) | LuaType::DocIntegerConst(_),
@@ -210,7 +210,7 @@ fn check_general_type_compact(
     }
 
     // Assignment-specific checks: semantics for object/intersection/function assignment not yet in the general path.
-    if context.assign_mode
+    if context.mode.uses_assignment_rules()
         && let Some(result) = assign::check_special(context, source, compact_type, check_guard)
     {
         return result;
@@ -328,7 +328,7 @@ fn check_union_intersection_source(
     match source {
         LuaType::Union(union) => {
             // Assignment mode: every member of the source union must be assignable to the target.
-            if context.assign_mode {
+            if context.mode.uses_assignment_rules() {
                 for member in union.iter() {
                     check_general_type_compact(
                         context,

@@ -1,6 +1,6 @@
 //! unbalanced_assignments: not enough values for `local a, b = 1` / `a, b = 1`.
 
-use emmylua_parser::{LuaAstNode, LuaExpr, LuaStat};
+use emmylua_parser::{LuaAstNode, LuaExpr, LuaLiteralToken, LuaStat};
 
 use crate::DiagnosticCode;
 use crate::semantic_model::SemanticModel;
@@ -38,11 +38,14 @@ fn check_unbalanced<T: LuaAstNode>(
     vars: &[T],
     value_exprs: &[LuaExpr],
 ) {
-    // No values (`local a, b`) is valid; if the last value is a call (may return multiple values), skip in M0.
+    // Calls and varargs can supply multiple values only at the end of the list.
     let Some(last) = value_exprs.last() else {
         return;
     };
-    if matches!(last, LuaExpr::CallExpr(_)) {
+    if matches!(last, LuaExpr::CallExpr(_))
+        || matches!(last, LuaExpr::LiteralExpr(literal)
+            if matches!(literal.get_literal(), Some(LuaLiteralToken::Dots(_))))
+    {
         return;
     }
     let value_len = value_exprs.len();

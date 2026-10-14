@@ -100,6 +100,8 @@ pub enum TypeCandidate {
     Array(Arc<TypeShell>),
     /// Variadic: `T...` → base type.
     Variadic(Arc<TypeShell>),
+    /// Repeated runtime values; tuple values do not expand into their fields.
+    Repeat(Arc<TypeShell>),
     /// Tuple: `[number, string]` → per-slot types.
     Tuple(Vec<TypeShell>),
     Function(Arc<FunctionShell>),
@@ -209,6 +211,39 @@ impl TypeShell {
         Self {
             candidates: vec![TypeCandidate::Variadic(Arc::new(base))],
         }
+    }
+
+    pub fn from_repeat(base: TypeShell) -> Self {
+        Self {
+            candidates: vec![TypeCandidate::Repeat(Arc::new(base))],
+        }
+    }
+
+    /// Reduce repeated result types to one value; ordinary value types stay unchanged.
+    pub(crate) fn first_result(&self) -> Self {
+        let mut out = Self::unknown();
+        for candidate in &self.candidates {
+            match candidate {
+                TypeCandidate::Variadic(base) => {
+                    for candidate in &base.candidates {
+                        if let TypeCandidate::Tuple(types) = candidate {
+                            if let Some(first) = types.first() {
+                                out.merge(first);
+                            }
+                        } else {
+                            out.merge(&Self {
+                                candidates: vec![candidate.clone()],
+                            });
+                        }
+                    }
+                }
+                TypeCandidate::Repeat(base) => out.merge(base),
+                _ => out.merge(&Self {
+                    candidates: vec![candidate.clone()],
+                }),
+            }
+        }
+        out
     }
 
     /// Tuple candidate: `[number, string]`.

@@ -1688,6 +1688,26 @@ impl FactsBuilder {
                     });
                 }
             }
+            LuaAst::LuaLiteralExpr(literal)
+                if matches!(literal.get_literal(), Some(LuaLiteralToken::Dots(_))) =>
+            {
+                // Varargs bind only in the nearest function; they cannot be captured.
+                if literal
+                    .ancestors::<LuaClosureExpr>()
+                    .next()
+                    .and_then(|closure| closure.get_params_list())
+                    .is_some_and(|params| {
+                        params
+                            .get_params()
+                            .any(|param| param.is_dots() && param.get_name_token().is_none())
+                    })
+                {
+                    self.name_uses.push(NameUse {
+                        syntax: literal.get_syntax_id(),
+                        name: SmolStr::new("..."),
+                    });
+                }
+            }
             LuaAst::LuaIndexExpr(index_expr) => {
                 self.member_uses.push(index_expr.get_syntax_id());
             }

@@ -729,8 +729,34 @@ impl From<LuaGenericType> for LuaType {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum VariadicType {
+    /// Result slots whose types are already known, with an optional variadic tail.
+    /// A function declared with `---@return string, integer` has two result slots:
+    /// `Multi([String, Integer])`. A call can return `'a', 1`.
     Multi(Vec<LuaType>),
+
+    /// A declared `T...`; a tuple `T` supplies separate result slots.
+    ///
+    /// ```lua
+    /// ---@param ... [string, integer]...
+    /// local function forward(...) return ... end
+    /// forward('a', 1)
+    /// ```
+    /// The annotation gives `Base(Tuple([String, Integer]))`. This expands to
+    /// `Multi([String, Integer])`: two separate results, a string and an integer.
+    /// With a generic `T`, expansion can wait until `T` is known.
     Base(LuaType),
+
+    /// Any number of whole values of the same type.
+    ///
+    /// ```lua
+    /// ---@param ... [string, integer]
+    /// local function tuples(...) local packed = {...} end
+    /// tuples({'a', 1}, {'b', 2})
+    /// ```
+    /// Here, each argument is a tuple table. The type of `...` is
+    /// `Repeat(Tuple([String, Integer]))`. In `packed`, element 1 is `{'a', 1}`
+    /// and element 2 is `{'b', 2}`; both elements have the whole tuple type.
+    Repeat(LuaType),
 }
 
 impl VariadicType {
@@ -761,6 +787,7 @@ impl VariadicType {
                 LuaType::Tuple(tuple) => tuple.get_types().get(idx),
                 _ => Some(t),
             },
+            VariadicType::Repeat(t) => Some(t),
         }
     }
 
@@ -776,15 +803,33 @@ impl VariadicType {
                     new_types.extend_from_slice(&types[idx..]);
                 } else {
                     let last = types.len() - 1;
-                    if let LuaType::Variadic(multi) = &types[last] {
-                        let rest_offset = idx - last;
-                        return multi.get_new_variadic_from(rest_offset);
+                    let rest_offset = idx - last;
+                    match &types[last] {
+                        LuaType::Variadic(multi) => {
+                            return multi.get_new_variadic_from(rest_offset);
+                        }
+                        LuaType::Union(union) if types[last].contain_multi_return() => {
+                            let tails = union
+                                .iter()
+                                .map(|ty| {
+                                    let tail = VariadicType::Multi(vec![ty.clone()])
+                                        .get_new_variadic_from(rest_offset);
+                                    LuaType::Variadic(Rc::new(tail))
+                                })
+                                .collect();
+                            return VariadicType::Multi(vec![LuaType::from_vec(tails)]);
+                        }
+                        _ => {}
                     }
                 }
 
                 VariadicType::Multi(new_types)
             }
+            VariadicType::Base(LuaType::Tuple(tuple)) => {
+                VariadicType::Multi(tuple.get_types().iter().skip(idx).cloned().collect())
+            }
             VariadicType::Base(t) => VariadicType::Base(t.clone()),
+            VariadicType::Repeat(t) => VariadicType::Repeat(t.clone()),
         }
     }
 
@@ -794,6 +839,7 @@ impl VariadicType {
 
     pub fn get_min_len(&self) -> Option<usize> {
         match self {
+            VariadicType::Repeat(_) => None,
             VariadicType::Base(base) => match base {
                 LuaType::Tuple(tuple) => Some(tuple.get_types().len()),
                 _ => None,
@@ -818,6 +864,7 @@ impl VariadicType {
 
     pub fn get_max_len(&self) -> Option<usize> {
         match self {
+            VariadicType::Repeat(_) => None,
             VariadicType::Base(base) => match base {
                 LuaType::Tuple(tuple) => Some(tuple.get_types().len()),
                 _ => None,
@@ -828,6 +875,8 @@ impl VariadicType {
                     if let LuaType::Variadic(variadic) = t {
                         let len = variadic.get_max_len()?;
                         total_len += len;
+                    } else if t.contain_multi_return() {
+                        return None;
                     } else {
                         total_len += 1;
                     }

@@ -273,6 +273,9 @@ fn bind_mapped_param_ref(ty: &LuaType, param_id: GenericTplId, param_name: &str)
             VariadicType::Base(base) => {
                 VariadicType::Base(bind_mapped_param_ref(base, param_id, param_name))
             }
+            VariadicType::Repeat(base) => {
+                VariadicType::Repeat(bind_mapped_param_ref(base, param_id, param_name))
+            }
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
                     .iter()
@@ -372,6 +375,9 @@ pub fn sanitize_unresolved_generics(
             VariadicType::Base(base) => {
                 VariadicType::Base(sanitize_unresolved_generics(base, allowed))
             }
+            VariadicType::Repeat(base) => {
+                VariadicType::Repeat(sanitize_unresolved_generics(base, allowed))
+            }
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
                     .iter()
@@ -462,6 +468,9 @@ pub fn sanitize_unresolved_generics_with_model(
             VariadicType::Base(base) => VariadicType::Base(
                 sanitize_unresolved_generics_with_model(model, base, allowed),
             ),
+            VariadicType::Repeat(base) => VariadicType::Repeat(
+                sanitize_unresolved_generics_with_model(model, base, allowed),
+            ),
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
                     .iter()
@@ -536,6 +545,7 @@ fn sanitize_generic_param(model: &SemanticModel, ty: &LuaType) -> LuaType {
         )),
         Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => VariadicType::Base(sanitize_generic_param(model, base)),
+            VariadicType::Repeat(base) => VariadicType::Repeat(sanitize_generic_param(model, base)),
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
                     .iter()
@@ -686,6 +696,7 @@ pub fn substitute_named_refs(ty: &LuaType, map: &HashMap<String, LuaType>) -> Lu
         )),
         Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => VariadicType::Base(substitute_named_refs(base, map)),
+            VariadicType::Repeat(base) => VariadicType::Repeat(substitute_named_refs(base, map)),
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
                     .iter()
@@ -889,6 +900,9 @@ fn expand_alias_generic_inner(
         Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => {
                 VariadicType::Base(expand_alias_generic_inner(model, base, visited))
+            }
+            VariadicType::Repeat(base) => {
+                VariadicType::Repeat(expand_alias_generic_inner(model, base, visited))
             }
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
@@ -1112,6 +1126,9 @@ fn eval_conditionals_inner(
         Variadic(variadic) => Variadic(Rc::new(match variadic.as_ref() {
             VariadicType::Base(base) => {
                 VariadicType::Base(eval_conditionals_inner(model, base, visiting))
+            }
+            VariadicType::Repeat(base) => {
+                VariadicType::Repeat(eval_conditionals_inner(model, base, visiting))
             }
             VariadicType::Multi(types) => VariadicType::Multi(
                 types
@@ -1461,7 +1478,9 @@ pub fn contains_conditional_infer(ty: &LuaType) -> bool {
         Generic(generic) => generic.get_params().iter().any(contains_conditional_infer),
         TableGeneric(generic) => generic.iter().any(contains_conditional_infer),
         Variadic(variadic) => match variadic.as_ref() {
-            VariadicType::Base(base) => contains_conditional_infer(base),
+            VariadicType::Base(base) | VariadicType::Repeat(base) => {
+                contains_conditional_infer(base)
+            }
             VariadicType::Multi(types) => types.iter().any(contains_conditional_infer),
         },
         Call(call) => call.get_operands().iter().any(contains_conditional_infer),
@@ -1507,7 +1526,9 @@ fn contains_unbound_function_tpl(ty: &LuaType) -> bool {
             .any(contains_unbound_function_tpl),
         TableGeneric(generic) => generic.iter().any(contains_unbound_function_tpl),
         Variadic(variadic) => match variadic.as_ref() {
-            VariadicType::Base(base) => contains_unbound_function_tpl(base),
+            VariadicType::Base(base) | VariadicType::Repeat(base) => {
+                contains_unbound_function_tpl(base)
+            }
             VariadicType::Multi(types) => types.iter().any(contains_unbound_function_tpl),
         },
         Call(call) => call

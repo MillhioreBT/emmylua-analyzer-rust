@@ -650,7 +650,7 @@ fn render_function_params_and_ret_mode(
                 .map(|ty| humanize(model, ty))
                 .collect::<Vec<_>>()
                 .join(", "),
-            VariadicType::Base(ty) => humanize(model, ty),
+            VariadicType::Base(ty) | VariadicType::Repeat(ty) => humanize(model, ty),
         },
         ty => humanize(model, ty),
     };
