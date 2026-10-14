@@ -1,4 +1,4 @@
-//! Subtype (inheritance) determination: iteratively traverses semantic `super_names`.
+//! 子类型判断: 通过语义模型的直接父类型查询遍历继承关系.
 //!
 //! `is_sub_type_of(sub, super)`: whether sub's type definition (including the inheritance chain) contains super.
 
@@ -20,14 +20,30 @@ pub fn is_sub_type_of(
     let mut visited = HashSet::new();
     visited.insert(sub.clone());
     while let Some(current) = stack.pop() {
-        for super_type in context.super_types_of(&current) {
-            if let LuaType::Ref(super_id) = super_type {
-                if &super_id == sup {
-                    return true;
+        let mut pending = context.super_types_of(&current);
+        pending.reverse();
+        while let Some(super_type) = pending.pop() {
+            let super_id = match super_type {
+                LuaType::Ref(id) | LuaType::Def(id) => id,
+                LuaType::Generic(generic) => generic.get_base_type_id(),
+                LuaType::Intersection(intersection) => {
+                    pending.extend(intersection.get_types().iter().rev().cloned());
+                    continue;
                 }
-                if visited.insert(super_id.clone()) {
-                    stack.push(super_id);
+                LuaType::Union(union) => {
+                    pending.extend(union.into_vec().into_iter().rev());
+                    continue;
                 }
+                other => match get_base_type_id(&other) {
+                    Some(id) => id,
+                    None => continue,
+                },
+            };
+            if &super_id == sup {
+                return true;
+            }
+            if visited.insert(super_id.clone()) {
+                stack.push(super_id);
             }
         }
     }

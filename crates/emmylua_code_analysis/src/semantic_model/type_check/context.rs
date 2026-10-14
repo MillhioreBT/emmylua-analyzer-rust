@@ -1,7 +1,7 @@
 //! Check context: accesses the type environment only through `SemanticModel` (semantic).
 //!
 //! The old implementation held `&DbIndex` (type/member/signature/operator indexes);
-//! this code resolves everything through semantic: `resolve_type_def` + `super_names` + the member system.
+//! 类型定义, 直接父类型和成员均通过语义模型查询.
 //! Parts still missing from semantic (alias origin types, enum field unions, call operators) fall back to nominal checks.
 
 use crate::LuaType;
@@ -79,18 +79,12 @@ impl<'db> TypeCheckContext<'db> {
 
     /// `LuaTypeDeclId` → semantic type definition.
     pub fn type_def_of(&self, id: &LuaTypeDeclId) -> Option<TypeDef> {
-        self.model.resolve_type_def(id.get_name())
+        self.model.type_def_of(id)
     }
 
-    /// Direct parent types (A/B in `---@class C : A, B`, resolved as reference types).
+    /// Direct parent types (A/B in `---@class C : A, B`).
     pub fn super_types_of(&self, id: &LuaTypeDeclId) -> Vec<LuaType> {
-        let Some(def) = self.type_def_of(id) else {
-            return Vec::new();
-        };
-        def.super_names
-            .iter()
-            .map(|name| LuaType::Ref(LuaTypeDeclId::global(name)))
-            .collect()
+        self.model.base_types(id)
     }
 
     pub fn is_alias(&self, id: &LuaTypeDeclId) -> bool {

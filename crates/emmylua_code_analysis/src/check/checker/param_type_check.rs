@@ -1069,19 +1069,12 @@ fn value_kind_inner(
                     .map(|target| value_kind_inner(semantic_model, &target, visited))
                     .unwrap_or(ValueKind::Other),
                 TypeDefKind::Class => {
-                    if def
-                        .super_names
-                        .iter()
-                        .any(|name| matches!(name.as_str(), "integer" | "int"))
-                    {
+                    let base_types = semantic_model.base_types(&def.type_decl_id());
+                    if base_types.contains(&LuaType::Integer) {
                         ValueKind::Integer
-                    } else if def
-                        .super_names
-                        .iter()
-                        .any(|name| matches!(name.as_str(), "number"))
-                    {
+                    } else if base_types.contains(&LuaType::Number) {
                         ValueKind::Number
-                    } else if def.super_names.iter().any(|name| name.as_str() == "string") {
+                    } else if base_types.contains(&LuaType::String) {
                         ValueKind::String
                     } else {
                         ValueKind::Other

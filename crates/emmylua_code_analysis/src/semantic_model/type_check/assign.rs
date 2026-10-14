@@ -2,7 +2,7 @@
 //!
 //! These checks use semantic member/type-definition facilities; the goal is to gradually fold them into the general checks.
 
-use crate::{LuaMemberKey, LuaType, SemanticId, TypeDef, TypeScope};
+use crate::{LuaMemberKey, LuaType, SemanticId, TypeDef};
 
 use crate::semantic_model::SemanticModel;
 
@@ -232,19 +232,8 @@ fn collect_named_members(
             out.push((key, ty));
         }
     }
-    for super_name in &def.super_names {
-        let super_def = model
-            .resolve_type_def_in(def.file_id, super_name.as_str())
-            .or_else(|| {
-                model
-                    .type_defs_in_scope(TypeScope::Global, super_name.as_str())
-                    .iter()
-                    .next()
-                    .cloned()
-            });
-        if let Some(super_def) = super_def {
-            collect_named_members(model, &super_def, visited, out);
-        }
+    for super_def in model.base_type_defs(&def.type_decl_id()) {
+        collect_named_members(model, &super_def, visited, out);
     }
 }
 
@@ -287,20 +276,14 @@ fn collect_members_with_index_signatures(
             }
         }
     }
-    for super_name in &def.super_names {
-        if let Some(super_def) = model
-            .type_defs_in_scope(TypeScope::Global, super_name.as_str())
-            .into_iter()
-            .next()
-        {
-            collect_members_with_index_signatures(
-                model,
-                &super_def,
-                visited,
-                out,
-                required_out,
-                index_signatures,
-            );
-        }
+    for super_def in model.base_type_defs(&def.type_decl_id()) {
+        collect_members_with_index_signatures(
+            model,
+            &super_def,
+            visited,
+            out,
+            required_out,
+            index_signatures,
+        );
     }
 }

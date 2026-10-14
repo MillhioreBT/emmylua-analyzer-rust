@@ -6,7 +6,6 @@ use crate::{LuaGenericType, LuaType, LuaTypeDeclId};
 
 use super::context::TypeCheckContext;
 use super::guard::TypeCheckGuard;
-use super::ref_type;
 use super::sub_type::is_sub_type_of;
 use super::{TypeCheckResult, check_general_type_compact};
 
@@ -95,10 +94,7 @@ fn is_generic_sub_of_generic(
     let mut visited = HashSet::new();
     visited.insert(source_generic.get_base_type_id().clone());
     while let Some(current) = stack.pop() {
-        let Some(def) = context.type_def_of(&current) else {
-            continue;
-        };
-        for super_type in ref_type::full_super_types(context, &def) {
+        for super_type in context.super_types_of(&current) {
             match super_type {
                 LuaType::Generic(super_generic)
                     if super_generic.get_base_type_id() == target_base =>

@@ -2,8 +2,7 @@
 //!
 //! Parts still missing from semantic fall back: alias origin, enum field unions, call operator.
 
-use crate::{LuaGenericType, LuaType, LuaTypeDeclId, TypeDef};
-use emmylua_parser::{LuaAstNode, LuaDocTagClass};
+use crate::{LuaGenericType, LuaType, LuaTypeDeclId};
 
 use super::context::TypeCheckContext;
 use super::guard::TypeCheckGuard;
@@ -25,12 +24,7 @@ fn is_sub_type_of_generic(
     let mut visited = HashSet::new();
     visited.insert(sub.clone());
     while let Some(current) = stack.pop() {
-        let super_types = if let Some(def) = context.type_def_of(&current) {
-            full_super_types(context, &def)
-        } else {
-            context.super_types_of(&current)
-        };
-        for super_type in super_types {
+        for super_type in context.super_types_of(&current) {
             match super_type {
                 LuaType::Generic(super_generic)
                     if super_generic.get_base_type_id() == target_base =>
@@ -52,34 +46,6 @@ fn is_sub_type_of_generic(
         }
     }
     false
-}
-
-/// Extract full parent types from `---@class` annotations (preserving generic arguments such as `Holder<string>`).
-pub(crate) fn full_super_types(context: &TypeCheckContext, def: &TypeDef) -> Vec<LuaType> {
-    let Some(tree) = context.model.syntax_tree_of(def.file_id) else {
-        return Vec::new();
-    };
-    let root = tree.get_red_root();
-    let Some(token) = root.token_at_offset(def.name_range.start()).right_biased() else {
-        return Vec::new();
-    };
-    let Some(tag) = token.parent_ancestors().find_map(LuaDocTagClass::cast) else {
-        return Vec::new();
-    };
-    let Some(supers) = tag.get_supers() else {
-        return Vec::new();
-    };
-    supers
-        .get_types()
-        .filter_map(|super_ty| {
-            let ty = context.model.doc_type_lua_in(
-                def.file_id,
-                super_ty.get_syntax_id(),
-                &def.generic_params,
-            );
-            (!matches!(ty, LuaType::Unknown)).then_some(ty)
-        })
-        .collect()
 }
 
 pub fn check_ref_type_compact(

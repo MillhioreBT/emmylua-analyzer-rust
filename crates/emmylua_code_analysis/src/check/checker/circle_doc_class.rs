@@ -39,39 +39,31 @@ fn check_doc_tag_class(
     let Some(name_token) = tag.get_name_token() else {
         return;
     };
-    let name = name_token.get_name_text();
     let Some(facts) = semantic_model.file_facts() else {
         return;
     };
-    let Some(class_def) = facts.type_def_by_name(&name) else {
+    let Some(class_def) = facts.type_def_by_name_range(name_token.get_range()) else {
         return;
     };
     if class_def.kind != TypeDefKind::Class {
         return;
     }
     let class_id = class_def.id.clone();
-    let mut queue = vec![class_def.clone()];
+    let mut queue = semantic_model.base_type_defs(&class_def.type_decl_id());
     let mut visited = HashSet::new();
     while let Some(current) = queue.pop() {
+        if current.id == class_id {
+            context.add_diagnostic(
+                DiagnosticCode::CircleDocClass,
+                get_lint_range(tag).unwrap_or_else(|| tag.get_range()),
+                t!("Circularly inherited classes."),
+            );
+            return;
+        }
         if !visited.insert(current.id.clone()) {
             continue;
         }
-        for super_name in &current.super_names {
-            let Some(super_def) = semantic_model.resolve_type_def(super_name) else {
-                continue;
-            };
-            if super_def.id == class_id {
-                context.add_diagnostic(
-                    DiagnosticCode::CircleDocClass,
-                    get_lint_range(tag).unwrap_or_else(|| tag.get_range()),
-                    t!("Circularly inherited classes."),
-                );
-                return;
-            }
-            if !visited.contains(&super_def.id) {
-                queue.push(super_def);
-            }
-        }
+        queue.extend(semantic_model.base_type_defs(&current.type_decl_id()));
     }
 }
 

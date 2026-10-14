@@ -9,7 +9,7 @@ use emmylua_parser::{LuaAstNode, LuaClosureExpr, LuaReturnStat};
 use crate::LuaType;
 use crate::semantic_model::SemanticModel;
 use crate::semantic_model::type_check::is_compatible;
-use crate::{DiagnosticCode, SemanticId, SignatureDoc, TypeDef, TypeScope};
+use crate::{DiagnosticCode, SemanticId, SignatureDoc, TypeDef};
 
 use super::{CheckContext, Checker};
 use crate::semantic_model::render::humanize_type;
@@ -216,19 +216,8 @@ fn def_extends(
     if source.id == target.id {
         return true;
     }
-    for super_name in &source.super_names {
-        let super_def = semantic_model
-            .resolve_type_def_in(source.file_id, super_name.as_str())
-            .or_else(|| {
-                semantic_model
-                    .type_defs_in_scope(TypeScope::Global, super_name)
-                    .iter()
-                    .next()
-                    .cloned()
-            });
-        if let Some(super_def) = super_def
-            && def_extends(semantic_model, &super_def, target, visited)
-        {
+    for super_def in semantic_model.base_type_defs(&source.type_decl_id()) {
+        if def_extends(semantic_model, &super_def, target, visited) {
             return true;
         }
     }

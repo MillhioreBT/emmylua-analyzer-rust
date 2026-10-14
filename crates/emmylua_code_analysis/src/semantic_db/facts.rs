@@ -273,6 +273,12 @@ impl FileFacts {
         self.type_defs.get(*index)
     }
 
+    /// 使用精确范围查询声明, 用于区分同文件中的同名声明.
+    pub fn type_def_by_name_range(&self, range: TextRange) -> Option<&TypeDef> {
+        self.nearest_type_def_before(range.end())
+            .filter(|def| def.name_range == range)
+    }
+
     /// Type definitions whose own name or full-name tail matches `name` case-insensitively.
     pub fn type_defs_named_case_insensitive(&self, name: &str) -> impl Iterator<Item = &TypeDef> {
         let key = SmolStr::new(name.to_ascii_lowercase());
@@ -1141,11 +1147,7 @@ impl FactsBuilder {
                 LuaDocTag::Class(class_tag) => {
                     let supers = class_tag
                         .get_supers()
-                        .map(|list| {
-                            list.get_types()
-                                .flat_map(|doc_type| doc_type_names(&doc_type))
-                                .collect()
-                        })
+                        .map(|list| list.get_types().collect())
                         .unwrap_or_default();
                     self.push_type_def(
                         class_tag.get_name_token(),
@@ -1507,7 +1509,7 @@ impl FactsBuilder {
         name_token: Option<LuaNameToken>,
         kind: TypeDefKind,
         flag: Option<LuaDocTypeFlag>,
-        super_names: Vec<SmolStr>,
+        super_types: Vec<LuaDocType>,
         generic_params: Vec<DocGenericParam>,
         deprecated: bool,
         alias_type: Option<LuaSyntaxId>,
@@ -1517,6 +1519,10 @@ impl FactsBuilder {
             return;
         };
         let name: SmolStr = name_token.get_name_text().into();
+        let super_types = super_types
+            .into_iter()
+            .map(|ty| ty.get_syntax_id())
+            .collect();
         let mut def = TypeDef::new(
             self.file_id,
             self.workspace_id,
@@ -1525,7 +1531,7 @@ impl FactsBuilder {
             type_visibility(flag.clone()),
             kind,
             name_token.get_range(),
-            super_names,
+            super_types,
         );
         def.generic_params = generic_params;
         def.alias_type = alias_type;
@@ -2500,21 +2506,6 @@ fn doc_type_name(doc_type: &LuaDocType) -> Option<SmolStr> {
         LuaDocType::Name(name_type) => name_type.get_name_text().map(Into::into),
         LuaDocType::Generic(generic) => generic.get_name_type()?.get_name_text().map(Into::into),
         _ => None,
-    }
-}
-
-/// Expands a parent type list: `A & B` into [A, B].
-fn doc_type_names(doc_type: &LuaDocType) -> Vec<SmolStr> {
-    match doc_type {
-        LuaDocType::Binary(binary) => {
-            let mut names = Vec::new();
-            if let Some((left, right)) = binary.get_types() {
-                names.extend(doc_type_names(&left));
-                names.extend(doc_type_names(&right));
-            }
-            names
-        }
-        other => doc_type_name(other).into_iter().collect(),
     }
 }
 

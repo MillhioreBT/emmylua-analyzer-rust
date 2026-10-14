@@ -11,7 +11,7 @@ use crate::{
 pub use emmy_gutter_detail_request::*;
 pub use emmy_gutter_request::*;
 use emmylua_code_analysis::{
-    Emmyrc, LuaDocument, LuaType, SemanticDatabase, SemanticModel, TypeScope,
+    Emmyrc, LuaDocument, LuaType, LuaTypeDeclId, SemanticDatabase, SemanticModel,
 };
 use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaVarExpr};
 use lsp_types::Uri;
@@ -49,31 +49,36 @@ fn build_gutter_infos(
     emmyrc: &Emmyrc,
 ) -> Option<Vec<GutterInfo>> {
     let root = model.chunk()?;
+    let facts = model.file_facts()?;
     let mut gutters = Vec::new();
     for tag in root.descendants::<LuaAst>() {
         match tag {
             LuaAst::LuaDocTagAlias(alias) => {
                 let name_token = alias.get_name_token()?;
                 let range = name_token.get_range();
-                let name = name_token.get_text();
+                let Some(def) = facts.type_def_by_name_range(range) else {
+                    continue;
+                };
                 let lsp_range = document.to_lsp_range(range)?;
                 gutters.push(GutterInfo {
                     range: lsp_range,
                     kind: GutterKind::Alias,
                     detail: Some("type alias".to_string()),
-                    data: Some(name.to_string()),
+                    data: serde_json::to_string(&def.type_decl_id()).ok(),
                 });
             }
             LuaAst::LuaDocTagClass(class) => {
                 let name_token = class.get_name_token()?;
                 let range = name_token.get_range();
-                let name = name_token.get_text();
+                let Some(def) = facts.type_def_by_name_range(range) else {
+                    continue;
+                };
                 let lsp_range = document.to_lsp_range(range)?;
                 gutters.push(GutterInfo {
                     range: lsp_range,
                     kind: GutterKind::Class,
                     detail: Some("class".to_string()),
-                    data: Some(name.to_string()),
+                    data: serde_json::to_string(&def.type_decl_id()).ok(),
                 });
             }
             LuaAst::LuaDocTagEnum(enm) => {
@@ -121,28 +126,12 @@ fn build_func_override_gutter_info(
         let prefix_expr = index_expr.get_prefix_expr()?;
         let prefix_type = model.type_of_expr(prefix_expr.get_syntax_id());
         if let LuaType::Ref(id) | LuaType::Def(id) = prefix_type {
-            // Full-name chain of parent types (`@class B: A`).
-            let mut supers = Vec::new();
-            if let Some(def) = model
-                .type_defs_in_scope(TypeScope::Global, id.get_name())
-                .into_iter()
-                .find(|def| def.full_name.as_str() == id.get_name())
-            {
-                supers.extend(def.super_names.clone());
-            }
+            let supers = model.base_type_defs(&id);
 
             let index_key = index_expr.get_index_key()?;
             let member_name = index_key.get_path_part();
 
-            for super_name in supers {
-                let Some(super_def) = model
-                    .type_defs_in_scope(TypeScope::Global, &super_name)
-                    .iter()
-                    .next()
-                    .cloned()
-                else {
-                    continue;
-                };
+            for super_def in supers {
                 let Some(member_ref) = model
                     .members_of_owner(&super_def.id)
                     .iter()
@@ -191,7 +180,9 @@ pub async fn on_emmy_gutter_detail_handler(
     params: EmmyGutterDetailParams,
     cancel_token: CancellationToken,
 ) -> RequestOutcome<GutterDetailResponse> {
-    let type_name = params.data;
+    let Ok(type_id) = serde_json::from_str::<LuaTypeDeclId>(&params.data) else {
+        return RequestOutcome::Missing;
+    };
     snapshot_query(context.analysis(), cancel_token, move |analysis| {
         let locations = Mutex::new(Vec::new());
         analysis.db.parallel_for_each_file(|file_id, model| {
@@ -206,10 +197,10 @@ pub async fn on_emmy_gutter_detail_handler(
             };
             let mut locations = locations.lock().expect("gutter locations lock");
             for def in facts.type_defs.iter() {
-                if !def
-                    .super_names
+                if !model
+                    .base_type_defs(&def.type_decl_id())
                     .iter()
-                    .any(|super_name| super_name.as_str() == type_name)
+                    .any(|base| base.type_decl_id() == type_id)
                 {
                     continue;
                 }

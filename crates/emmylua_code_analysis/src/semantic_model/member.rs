@@ -112,35 +112,20 @@ fn find_type_def_member(
         return Some(info);
     }
 
-    for super_name in &def.super_names {
-        if let Some(bindings) = bindings {
-            let mut found_super = false;
-            for (index, param) in def.generic_params.iter().enumerate() {
-                let param_name = param.name.as_str();
-                if super_name.as_str() == param_name
-                    || super_name.as_str().starts_with(&format!("{param_name}<"))
-                {
-                    if let Some(bound) = bindings.get(&GenericTplId::Type(index as u32)) {
-                        if let Some(info) = member_info_impl(model, bound, key) {
-                            visited.pop();
-                            return Some(info);
-                        }
-                        found_super = true;
-                    }
-                    break;
-                }
-            }
-            if found_super {
-                continue;
-            }
-        }
-        if let Some(super_def) = model.resolve_type_def_in(def.file_id, super_name.as_str()) {
-            if let Some(info) =
-                find_type_def_member(model, &super_def, key, bindings, name_bindings, visited)
-            {
-                visited.pop();
-                return Some(info);
-            }
+    for super_type in inherited_base_types(model, def, bindings, name_bindings) {
+        let mut infos = Vec::new();
+        collect_members(
+            model,
+            &super_type,
+            None,
+            None,
+            visited,
+            &mut infos,
+            Some(key),
+        );
+        if let Some(info) = infos.into_iter().next() {
+            visited.pop();
+            return Some(info);
         }
     }
 
@@ -156,6 +141,36 @@ fn find_type_def_member(
 
     visited.pop();
     None
+}
+
+/// 按各基类型的声明替换实参.
+fn inherited_base_types(
+    model: &SemanticModel,
+    def: &TypeDef,
+    bindings: Option<&TplBindings>,
+    name_bindings: Option<&HashMap<String, LuaType>>,
+) -> Vec<LuaType> {
+    let mut bindings = bindings.cloned().unwrap_or_default();
+    if let Some(name_bindings) = name_bindings {
+        for (index, param) in def.generic_params.iter().enumerate() {
+            if let Some(value) = name_bindings.get(param.name.as_str()) {
+                bindings
+                    .entry(GenericTplId::Type(index as u32))
+                    .or_insert_with(|| value.clone());
+            }
+        }
+    }
+    model
+        .base_types(&def.type_decl_id())
+        .into_iter()
+        .map(|ty| {
+            if bindings.is_empty() {
+                ty
+            } else {
+                unify::substitute(&ty, &bindings)
+            }
+        })
+        .collect()
 }
 
 /// Follows alias references until reaching a non-alias named type/object/array/string.
@@ -923,39 +938,9 @@ fn collect_type_def_members(
         }
     }
 
-    // 2. Parent types (resolved in the defining file's scope: Private/Internal/Global all supported; recursion guarded by visited).
-    for super_name in &def.super_names {
-        // Generic inheritance `class foo<T>: T` / `class buz<T>: foo<T>`:
-        // if the parent type is a generic parameter of the current class, expand it with the substituted arguments (`foo<{a:string}>`).
-        if let Some(bindings) = bindings {
-            let mut found_super = false;
-            for (index, param) in def.generic_params.iter().enumerate() {
-                let param_name = param.name.as_str();
-                if super_name.as_str() == param_name
-                    || super_name.as_str().starts_with(&format!("{param_name}<"))
-                {
-                    if let Some(bound) = bindings.get(&GenericTplId::Type(index as u32)) {
-                        collect_members(model, bound, None, None, visited, out, filter);
-                        found_super = true;
-                    }
-                    break;
-                }
-            }
-            if found_super {
-                continue;
-            }
-        }
-        if let Some(super_def) = model.resolve_type_def_in(def.file_id, super_name.as_str()) {
-            collect_type_def_members(
-                model,
-                &super_def,
-                bindings,
-                name_bindings,
-                visited,
-                out,
-                filter,
-            );
-        }
+    // 2. Parent types
+    for super_type in inherited_base_types(model, def, bindings, name_bindings) {
+        collect_members(model, &super_type, None, None, visited, out, filter);
     }
 
     // 3. Runtime value members: members of the type's runtime value decl (same-file same-name `local M = {}`) (`M.x = 1`).

@@ -1,6 +1,7 @@
 use super::prelude::*;
 use crate::LuaTypeIdentifier;
 use crate::semantic_db::TypeDefList;
+use crate::semantic_model::type_eval::substitute_named_refs;
 
 impl<'db> SemanticModel<'db> {
     // -- Types --
@@ -31,6 +32,11 @@ impl<'db> SemanticModel<'db> {
 
     /// Type declaration identity of `LuaType::Ref/Def` -> `TypeDef`.
     pub fn type_def_of(&self, id: &LuaTypeDeclId) -> Option<TypeDef> {
+        self.type_defs_of(id).iter().next().cloned()
+    }
+
+    /// Type declaration identity of `LuaType::Ref/Def` -> `TypeDefList`.
+    pub fn type_defs_of(&self, id: &LuaTypeDeclId) -> TypeDefList {
         let (scope, name) = match id.get_id() {
             LuaTypeIdentifier::Global(name) => (TypeScope::Global, name.as_str()),
             LuaTypeIdentifier::Internal(workspace_id, name) => {
@@ -38,11 +44,7 @@ impl<'db> SemanticModel<'db> {
             }
             LuaTypeIdentifier::File(file_id, name) => (TypeScope::File(*file_id), name.as_str()),
         };
-        self.analysis()
-            .type_defs_in_scope(scope, name)
-            .iter()
-            .next()
-            .cloned()
+        self.analysis().type_defs_in_scope(scope, name)
     }
 
     /// Convert the `TypeDef` to a `LuaType::Ref`.
@@ -1043,7 +1045,7 @@ impl<'db> SemanticModel<'db> {
             map.insert(name.to_string(), param.clone());
         }
         let substituted = infer::unify::substitute(ty, &bindings);
-        type_eval::substitute_named_refs(&substituted, &map)
+        substitute_named_refs(&substituted, &map)
     }
     /// String-argument version of `substitute_generic_params_named` (for callers that don't directly depend on smol_str).
     pub fn substitute_generic_params_named_str(
@@ -1381,6 +1383,118 @@ impl<'db> SemanticModel<'db> {
     pub fn type_defs_in_scope(&self, scope: TypeScope, full_name: &str) -> TypeDefList {
         self.analysis().type_defs_in_scope(scope, full_name)
     }
+
+    // -- base type --
+
+    /// 类型的直接父类型模版
+    pub fn base_types(&self, id: &LuaTypeDeclId) -> Vec<LuaType> {
+        if let Some(cached) = self
+            .cache
+            .borrow()
+            .type_defs
+            .get(id)
+            .and_then(|cache| cache.base_types.as_ref())
+        {
+            return cached.clone();
+        }
+        let mut types = Vec::new();
+        for def in self.type_defs_of(id).iter() {
+            if def.kind != TypeDefKind::Class {
+                continue;
+            }
+            let Some(tree) = self.syntax_tree_of(def.file_id) else {
+                continue;
+            };
+            let root = tree.get_red_root();
+            // 具名形参在各自声明中转成位置模板, 避免合并后混用泛型名称.
+            let generic_bindings = def
+                .generic_params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    (
+                        param.name.to_string(),
+                        LuaType::TplRef(Rc::new(GenericTpl::new(
+                            GenericTplId::Type(index as u32),
+                            param.name.clone(),
+                            None,
+                            None,
+                            false,
+                            None,
+                        ))),
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            types.extend(def.base_types.iter().filter_map(|syntax| {
+                let doc_type = LuaDocType::cast(syntax.to_node_from_root(&root)?)?;
+                let mut ty = project_base_type(self, def, doc_type);
+                if !generic_bindings.is_empty() {
+                    ty = substitute_named_refs(&ty, &generic_bindings);
+                }
+                (!matches!(ty, LuaType::Unknown)).then_some(ty)
+            }));
+        }
+        self.cache
+            .borrow_mut()
+            .type_defs
+            .entry(id.clone())
+            .or_default()
+            .base_types = Some(types.clone());
+        types
+    }
+
+    /// 查询类型的直接父类型中的具名声明, 按声明身份去重.
+    pub fn base_type_defs(&self, id: &LuaTypeDeclId) -> Vec<TypeDef> {
+        let mut pending = self.base_types(id);
+        pending.reverse();
+        let mut defs = Vec::new();
+        let mut seen = HashSet::new();
+        while let Some(ty) = pending.pop() {
+            let id = match ty {
+                LuaType::Ref(id) | LuaType::Def(id) => id,
+                LuaType::Generic(generic) => generic.get_base_type_id(),
+                LuaType::Intersection(intersection) => {
+                    pending.extend(intersection.get_types().iter().rev().cloned());
+                    continue;
+                }
+                LuaType::Union(union) => {
+                    pending.extend(union.into_vec().into_iter().rev());
+                    continue;
+                }
+                _ => continue,
+            };
+            if let Some(base_def) = self.type_def_of(&id)
+                && seen.insert(base_def.id.clone())
+            {
+                defs.push(base_def);
+            }
+        }
+        defs
+    }
+}
+
+fn project_base_type(model: &SemanticModel<'_>, def: &TypeDef, doc_type: LuaDocType) -> LuaType {
+    if let LuaDocType::Binary(binary) = &doc_type {
+        let Some((left, right)) = binary.get_types() else {
+            return LuaType::Unknown;
+        };
+        match binary.get_op_token().map(|op| op.get_op()) {
+            Some(LuaTypeBinaryOperator::Intersection) => {
+                return LuaType::Intersection(Rc::new(LuaIntersectionType::new(vec![
+                    project_base_type(model, def, left),
+                    project_base_type(model, def, right),
+                ])));
+            }
+            Some(LuaTypeBinaryOperator::Union) => {
+                return LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![
+                    project_base_type(model, def, left),
+                    project_base_type(model, def, right),
+                ])));
+            }
+            _ => {}
+        }
+    }
+    model.doc_type_lua_in(def.file_id, doc_type.get_syntax_id(), &def.generic_params)
 }
 
 /// Removes nil from a type (used for generic for loop keys: the loop stops when the first value is nil).
@@ -1400,5 +1514,112 @@ fn remove_nil_from_type(ty: LuaType) -> LuaType {
         }
         LuaType::Nil => LuaType::Unknown,
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use crate::{LuaGenericType, LuaMemberKey, LuaType, LuaTypeDeclId, VirtualWorkspace};
+
+    fn named(name: &str) -> LuaType {
+        LuaType::Ref(LuaTypeDeclId::global(name))
+    }
+
+    fn generic(name: &str, params: Vec<LuaType>) -> LuaType {
+        LuaType::Generic(Rc::new(LuaGenericType::new(
+            LuaTypeDeclId::global(name),
+            params,
+        )))
+    }
+
+    #[test]
+    fn base_types_use_the_declaring_file_scope() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def_file("library.lua", "---@namespace Library\n---@class Parent<T>");
+        let declaration_file = ws.def_file(
+            "declaration.lua",
+            r#"
+            ---@namespace Library
+            ---@class (file) Private<T>
+            ---@class Child: Parent<string>, Library.Private<number>
+            "#,
+        );
+        let private_file = ws.def_file(
+            "private.lua",
+            r#"
+            ---@class (file) Private<T>
+            ---@class PrivateChild: Private<number>
+            "#,
+        );
+        let consumer_file = ws.def_file(
+            "consumer.lua",
+            r#"
+            ---@namespace Consumer
+            ---@class Parent<T>
+            ---@class Private<T>
+            "#,
+        );
+        let model = ws.analysis.semantic_model(consumer_file);
+        let child = model
+            .resolve_type_def_in(declaration_file, "Child")
+            .unwrap();
+        let private_id = LuaTypeDeclId::file(declaration_file, "Library.Private");
+        assert_eq!(
+            model.base_types(&child.type_decl_id()),
+            vec![
+                generic("Library.Parent", vec![LuaType::String]),
+                LuaType::Generic(Rc::new(LuaGenericType::new(
+                    private_id.clone(),
+                    vec![LuaType::Number]
+                ))),
+            ],
+        );
+        let bases = model.base_type_defs(&child.type_decl_id());
+        assert_eq!(bases.len(), 2);
+        assert_eq!(model.type_def_ref(&bases[0]), named("Library.Parent"));
+        assert_eq!(model.type_def_ref(&bases[1]), LuaType::Ref(private_id));
+        let private_child = model
+            .resolve_type_def_in(private_file, "PrivateChild")
+            .unwrap();
+        assert_eq!(
+            model.base_types(&private_child.type_decl_id()),
+            vec![LuaType::Generic(Rc::new(LuaGenericType::new(
+                LuaTypeDeclId::file(private_file, "Private"),
+                vec![LuaType::Number],
+            )))],
+        );
+    }
+
+    #[test]
+    fn base_types_feed_existing_member_substitution() {
+        let mut ws = VirtualWorkspace::new();
+        let file_id = ws.def(
+            r#"
+            ---@class Parent<T>
+            ---@field value T
+            ---@class Fixed<T>: Parent<string>
+            ---@class Swapped<A, B>: Parent<B>
+            "#,
+        );
+        let model = ws.analysis.semantic_model(file_id);
+        let key = LuaMemberKey::Name("value".into());
+        for ty in [
+            generic("Fixed", vec![LuaType::Number]),
+            generic("Swapped", vec![LuaType::Number, LuaType::String]),
+        ] {
+            assert_eq!(model.member_info(&ty, &key).unwrap().typ, LuaType::String);
+            let infos = model.member_infos(&ty);
+            assert_eq!(
+                infos.iter().find(|info| info.key == key).unwrap().typ,
+                LuaType::String
+            );
+        }
+        let fixed = model.resolve_type_def("Fixed").unwrap();
+        assert_eq!(
+            model.analysis().member_keys_of_type(file_id, fixed.id),
+            vec!["value"]
+        );
     }
 }

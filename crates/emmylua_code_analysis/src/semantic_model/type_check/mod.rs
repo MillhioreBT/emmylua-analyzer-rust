@@ -29,9 +29,7 @@ pub use fail_reason::TypeCheckFailReason;
 
 use crate::semantic_model::SemanticModel;
 use crate::semantic_model::type_eval::expand_alias_generic;
-use crate::{
-    InFiled, LuaType, LuaTypeDeclId, LuaUnionType, SemanticId, TypeDef, TypeDefKind, TypeScope,
-};
+use crate::{InFiled, LuaType, LuaTypeDeclId, LuaUnionType, SemanticId, TypeDef, TypeDefKind};
 
 pub type TypeCheckResult = Result<(), TypeCheckFailReason>;
 
@@ -439,19 +437,8 @@ fn def_extends_ctx(
         return false;
     }
     visited.push(source.id.clone());
-    for super_name in &source.super_names {
-        let super_def = model
-            .resolve_type_def_in(source.file_id, super_name.as_str())
-            .or_else(|| {
-                model
-                    .type_defs_in_scope(TypeScope::Global, super_name.as_str())
-                    .iter()
-                    .next()
-                    .cloned()
-            });
-        if let Some(super_def) = super_def
-            && def_extends_ctx(model, &super_def, target, visited)
-        {
+    for super_def in model.base_type_defs(&source.type_decl_id()) {
+        if def_extends_ctx(model, &super_def, target, visited) {
             return true;
         }
     }

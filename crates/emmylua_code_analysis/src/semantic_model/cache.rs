@@ -13,7 +13,7 @@ use crate::member_key::LuaMemberKey;
 use crate::semantic_db::MemberList;
 use crate::semantic_db::def::SemanticId;
 use crate::semantic_db::flow::FlowId;
-use crate::{FileId, LuaFunctionType, LuaType};
+use crate::{FileId, LuaFunctionType, LuaType, LuaTypeDeclId};
 
 use super::infer::unify::TplBindings;
 use super::member::MemberInfo;
@@ -39,6 +39,12 @@ pub(crate) struct TraceStateKey {
     pub(crate) casts: bool,
     pub(crate) assignments: bool,
     pub(crate) merge_branch: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct TypeDefCache {
+    /// None 表示尚未计算, Some 空列表表示已知没有父类型.
+    pub(crate) base_types: Option<Vec<LuaType>>,
 }
 
 #[derive(Default)]
@@ -71,4 +77,6 @@ pub(crate) struct SemanticLocalCache {
     pub(crate) type_check: HashMap<(LuaType, LuaType), bool>,
     pub(crate) callable_functions: HashMap<LuaType, Vec<LuaFunctionType>>,
     pub(crate) alias_targets: HashMap<SemanticId, Option<LuaType>>,
+
+    pub(crate) type_defs: HashMap<LuaTypeDeclId, TypeDefCache>,
 }

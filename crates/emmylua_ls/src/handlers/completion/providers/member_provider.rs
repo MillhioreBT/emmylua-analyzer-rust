@@ -1,7 +1,5 @@
 //! Member completion: `.` / `:` / `[]` / string-key contexts, based on semantic `member_infos`.
 
-use std::rc::Rc;
-
 use emmylua_code_analysis::{
     DeclKind, FileId, LuaAliasCallKind, LuaFunctionType, LuaGenericType, LuaMemberKey, LuaType,
     LuaTypeDeclId, MemberInfo, SemanticId, SemanticModel, TypeDefKind,
@@ -198,54 +196,8 @@ fn generic_super_member_infos(
 
     let mut out = Vec::new();
     let mut seen = Vec::new();
-    for super_name in &def.super_names {
-        // `box<T>: T`: the parent type is directly a generic placeholder.
-        if let Some(index) = def
-            .generic_params
-            .iter()
-            .position(|param| param.name.as_str() == super_name.as_str())
-            && let Some(bound) = params.get(index)
-        {
-            for info in model.member_infos(bound) {
-                if seen.contains(&info.key) {
-                    continue;
-                }
-                seen.push(info.key.clone());
-                out.push(info);
-            }
-            continue;
-        }
-        // `Matchers<T>` / `Inverse<T>`: base name + generic arguments.
-        let (base_name, args_text) = match super_name.split_once('<') {
-            Some((base, rest)) => (base, Some(rest.trim_end_matches('>').to_string())),
-            None => (super_name.as_str(), None),
-        };
-        let Some(parent) = model.resolve_type_def_in(def.file_id, base_name) else {
-            continue;
-        };
-        let bound_params = if let Some(args_text) = args_text {
-            args_text
-                .split(',')
-                .map(|arg| {
-                    let arg = arg.trim();
-                    def.generic_params
-                        .iter()
-                        .position(|param| param.name.as_str() == arg)
-                        .and_then(|index| params.get(index).cloned())
-                        .unwrap_or_else(|| LuaType::Any)
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let parent_type = if bound_params.is_empty() {
-            model.type_def_ref(&parent)
-        } else {
-            LuaType::Generic(Rc::new(LuaGenericType::new(
-                LuaTypeDeclId::global(parent.full_name.as_str()),
-                bound_params,
-            )))
-        };
+    for super_type in model.base_types(&base) {
+        let parent_type = model.substitute_generic_params(&super_type, &params);
         for info in model.member_infos(&parent_type) {
             if seen.contains(&info.key) {
                 continue;
@@ -416,17 +368,15 @@ fn associated_type_member_infos(
     let mut seen_keys = Vec::new();
     let mut owners = vec![def.id.clone(), decl.clone()];
     owners.dedup();
-    let mut super_stack = def.super_names.clone();
+    let mut super_stack = model.base_type_defs(&def.type_decl_id());
     let mut visited_supers = Vec::new();
-    while let Some(super_name) = super_stack.pop() {
-        if visited_supers.contains(&super_name) {
+    while let Some(parent) = super_stack.pop() {
+        if visited_supers.contains(&parent.id) {
             continue;
         }
-        visited_supers.push(super_name.clone());
-        if let Some(parent) = model.resolve_type_def_in(def.file_id, super_name.as_str()) {
-            owners.push(parent.id.clone());
-            super_stack.extend(parent.super_names.iter().cloned());
-        }
+        visited_supers.push(parent.id.clone());
+        owners.push(parent.id.clone());
+        super_stack.extend(model.base_type_defs(&parent.type_decl_id()));
     }
     owners.dedup();
     for owner in owners {

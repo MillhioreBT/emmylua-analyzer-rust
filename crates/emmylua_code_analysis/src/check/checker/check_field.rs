@@ -3,12 +3,12 @@ use std::rc::Rc;
 use std::collections::{HashMap, HashSet};
 
 use emmylua_parser::{
-    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexKey,
-    LuaLocalStat, LuaTableExpr, LuaVarExpr,
+    LuaAssignStat, LuaAst, LuaAstNode, LuaCallExpr, LuaDocType, LuaExpr, LuaIndexKey, LuaLocalStat,
+    LuaTableExpr, LuaVarExpr,
 };
 
 use crate::DiagnosticCode;
-use crate::semantic_db::def::{SemanticId, TypeDef, TypeDefKind, TypeScope};
+use crate::semantic_db::def::{SemanticId, TypeDef, TypeDefKind};
 use crate::semantic_model::SemanticModel;
 use crate::{LuaMemberKey, LuaType, LuaTypeDeclId, LuaUnionType};
 
@@ -140,7 +140,7 @@ fn check_index_assign(
             continue;
         };
         // Classes with a parent type or index signature (`[string]`) are handled broadly (M0).
-        if !def.super_names.is_empty()
+        if !def.base_types.is_empty()
             || semantic_model
                 .members_of_owner(&target_id)
                 .iter()
@@ -259,42 +259,30 @@ fn collect_object_super_fields(
         return;
     };
     let root = tree.get_red_root();
-    for class_tag in root
-        .descendants()
-        .filter_map(emmylua_parser::LuaDocTagClass::cast)
-    {
-        let Some(name_token) = class_tag.get_name_token() else {
+    for syntax in &def.base_types {
+        let Some(LuaDocType::Object(object)) =
+            syntax.to_node_from_root(&root).and_then(LuaDocType::cast)
+        else {
             continue;
         };
-        if name_token.syntax().text_range() != def.name_range {
-            continue;
-        }
-        let Some(supers) = class_tag.get_supers() else {
-            continue;
-        };
-        for super_ty in supers.get_types() {
-            let emmylua_parser::LuaDocType::Object(object) = super_ty else {
+        for field in object.get_fields() {
+            let Some(key) = field.get_field_key() else {
                 continue;
             };
-            for field in object.get_fields() {
-                let Some(key) = field.get_field_key() else {
-                    continue;
-                };
-                let key = match &key {
-                    emmylua_parser::LuaDocObjectFieldKey::Name(name) => {
-                        LuaMemberKey::Name(name.get_name_text().into())
-                    }
-                    emmylua_parser::LuaDocObjectFieldKey::String(str) => {
-                        LuaMemberKey::Name(str.get_value().into())
-                    }
-                    _ => continue,
-                };
-                let ty = field
-                    .get_type()
-                    .map(|ty| semantic_model.doc_type_lua_rich_in(def.file_id, ty.get_syntax_id()))
-                    .unwrap_or(LuaType::Unknown);
-                out.entry(key).or_insert(ty);
-            }
+            let key = match &key {
+                emmylua_parser::LuaDocObjectFieldKey::Name(name) => {
+                    LuaMemberKey::Name(name.get_name_text().into())
+                }
+                emmylua_parser::LuaDocObjectFieldKey::String(str) => {
+                    LuaMemberKey::Name(str.get_value().into())
+                }
+                _ => continue,
+            };
+            let ty = field
+                .get_type()
+                .map(|ty| semantic_model.doc_type_lua_rich_in(def.file_id, ty.get_syntax_id()))
+                .unwrap_or(LuaType::Unknown);
+            out.entry(key).or_insert(ty);
         }
     }
 }
@@ -310,10 +298,7 @@ fn is_mapped_alias(semantic_model: &SemanticModel<'_>, def: &TypeDef) -> bool {
     let Some(node) = syntax.to_node_from_root(&tree.get_red_root()) else {
         return false;
     };
-    matches!(
-        emmylua_parser::LuaDocType::cast(node),
-        Some(emmylua_parser::LuaDocType::Mapped(_))
-    )
+    matches!(LuaDocType::cast(node), Some(LuaDocType::Mapped(_)))
 }
 
 /// `f({ ... })`: check call-argument table literals for missing/extra fields against the parameter type.
@@ -570,16 +555,14 @@ fn collect_fields(
     }
     // Inheritance chain: locate the type definition; needs def info.
     if let Some(def) = find_type_def(semantic_model, type_def_id) {
-        for super_name in &def.super_names {
-            if let Some(super_def) = super_type_def(semantic_model, super_name) {
-                collect_fields(
-                    semantic_model,
-                    &super_def.id,
-                    visited,
-                    out,
-                    index_signatures,
-                );
-            }
+        for super_def in semantic_model.base_type_defs(&def.type_decl_id()) {
+            collect_fields(
+                semantic_model,
+                &super_def.id,
+                visited,
+                out,
+                index_signatures,
+            );
         }
     }
 }
@@ -591,15 +574,6 @@ fn find_type_def(semantic_model: &SemanticModel<'_>, type_def_id: &SemanticId) -
     };
     let defs = semantic_model.type_defs_in_scope(key.scope, &key.full_name);
     defs.iter().next().cloned()
-}
-
-/// Parent type (by full name, in Global scope).
-fn super_type_def(semantic_model: &SemanticModel<'_>, full_name: &str) -> Option<TypeDef> {
-    semantic_model
-        .type_defs_in_scope(TypeScope::Global, full_name)
-        .iter()
-        .next()
-        .cloned()
 }
 
 /// Whether the field is optional (nullable / unknown).

@@ -338,7 +338,8 @@ pub(crate) fn resolve_type_def_locations(
 }
 
 /// Resolve a named type in the current file scope (mirrors the old `find_type_decl` order):
-/// 1. file namespace qualification (Internal -> Global); 2. `@using` qualification (Internal -> Global);
+/// 1. file namespace qualification (Internal -> Global);
+/// 2. `@using` qualification (Internal -> Global);
 /// 3. bare name (**same-file Private** -> Internal -> Global).
 pub(crate) fn resolve_type_def(
     db: &SemanticDatabase,
@@ -2409,7 +2410,7 @@ pub(crate) fn member_keys_of_type(
     };
     let mut keys = Vec::new();
     let mut visited = Vec::new();
-    collect_type_keys(&facts, def.id.clone(), &mut visited, &mut keys);
+    collect_type_keys(db, &facts, def.id.clone(), &mut visited, &mut keys);
     keys.sort();
     keys.dedup();
     keys
@@ -2443,17 +2444,16 @@ pub(crate) fn type_member(
     }
 
     let def = facts.type_def_by_id(&type_def)?;
-    for super_name in &def.super_names {
-        if let Some(super_def) = facts.type_def_by_full_name(super_name) {
-            if let Some(shell) = type_member(db, facts, file, super_def.id.clone(), name, visited) {
-                return Some(shell);
-            }
+    for super_def in local_base_type_defs(db, facts, def) {
+        if let Some(shell) = type_member(db, facts, file, super_def.id.clone(), name, visited) {
+            return Some(shell);
         }
     }
     None
 }
 
 fn collect_type_keys(
+    db: &SemanticDatabase,
     facts: &FileFacts,
     type_def: SemanticId,
     visited: &mut Vec<SemanticId>,
@@ -2471,12 +2471,50 @@ fn collect_type_keys(
         out.push(member.key.to_path().into());
     }
     if let Some(def) = facts.type_def_by_id(&type_def) {
-        for super_name in &def.super_names {
-            if let Some(super_def) = facts.type_def_by_full_name(super_name) {
-                collect_type_keys(facts, super_def.id.clone(), visited, out);
+        for super_def in local_base_type_defs(db, facts, def) {
+            collect_type_keys(db, facts, super_def.id.clone(), visited, out);
+        }
+    }
+}
+
+fn local_base_type_defs<'a>(
+    db: &SemanticDatabase,
+    facts: &'a FileFacts,
+    def: &TypeDef,
+) -> Vec<&'a TypeDef> {
+    let root = syntax_tree(db, def.file_id).get_red_root();
+    let mut pending = def.base_types.iter().rev().copied().collect::<Vec<_>>();
+    let mut defs = Vec::new();
+    while let Some(syntax) = pending.pop() {
+        let Some(doc_type) = syntax.to_node_from_root(&root).and_then(LuaDocType::cast) else {
+            continue;
+        };
+        if let LuaDocType::Binary(binary) = doc_type
+            && matches!(
+                binary.get_op_token().map(|op| op.get_op()),
+                Some(LuaTypeBinaryOperator::Intersection | LuaTypeBinaryOperator::Union)
+            )
+            && let Some((left, right)) = binary.get_types()
+        {
+            pending.push(right.get_syntax_id());
+            pending.push(left.get_syntax_id());
+            continue;
+        }
+        let shell = lower_doc_type(db, def.file_id, syntax, &def.generic_params);
+        for candidate in &shell.candidates {
+            let name = match candidate {
+                TypeCandidate::Named(name) => name,
+                TypeCandidate::GenericInstance(instance) => &instance.name,
+                _ => continue,
+            };
+            if let Some(base) = resolve_type_def(db, def.file_id, name.clone())
+                && let Some(local_base) = facts.type_def_by_id(&base.id)
+            {
+                defs.push(local_base);
             }
         }
     }
+    defs
 }
 
 // ──────────────────────────────────────────────

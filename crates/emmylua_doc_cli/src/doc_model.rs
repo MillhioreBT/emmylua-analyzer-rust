@@ -327,22 +327,7 @@ impl DocModel {
             }
             members.sort_by(|a, b| a.name.cmp(&b.name));
 
-            let mut bases = Vec::new();
-            for def in &defs {
-                for super_name in &def.super_names {
-                    if let Some(super_def) = all_type_defs
-                        .iter()
-                        .find(|candidate| candidate.full_name == *super_name)
-                        .or_else(|| {
-                            all_type_defs
-                                .iter()
-                                .find(|candidate| candidate.name == *super_name)
-                        })
-                    {
-                        bases.push(LuaType::Ref(type_def_key(super_def).to_lua_id()));
-                    }
-                }
-            }
+            let mut bases = model.base_types(&first.type_decl_id());
             bases.dedup();
 
             let locations = defs

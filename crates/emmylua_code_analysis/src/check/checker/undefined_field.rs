@@ -14,7 +14,7 @@ use crate::DiagnosticCode;
 use crate::semantic_db::def::{Decl, DeclKind, ModuleExport, TypeDef, TypeDefKind, TypeVisibility};
 use crate::semantic_model::SemanticModel;
 use crate::semantic_model::type_check::is_compatible;
-use crate::{FileId, InFiled, LuaMemberKey, LuaType, LuaTypeDeclId, TypeScope};
+use crate::{FileId, InFiled, LuaMemberKey, LuaType, LuaTypeDeclId};
 
 use super::{CheckContext, Checker};
 
@@ -417,16 +417,10 @@ fn numeric_key_expanded_inner(
         TypeDefKind::Alias => semantic_model
             .alias_target(&def)
             .is_some_and(|target| numeric_key_expanded_inner(semantic_model, &target, visited)),
-        TypeDefKind::Class => def.super_names.iter().any(|super_name| {
-            matches!(super_name.as_str(), "integer" | "number" | "int")
-                || semantic_model
-                    .type_defs_in_scope(TypeScope::Global, super_name.as_str())
-                    .into_iter()
-                    .next()
-                    .is_some_and(|super_def| {
-                        matches!(super_def.name.as_str(), "integer" | "number" | "int")
-                    })
-        }),
+        TypeDefKind::Class => semantic_model
+            .base_types(&def.type_decl_id())
+            .iter()
+            .any(|ty| matches!(ty, LuaType::Integer | LuaType::Number)),
         TypeDefKind::Enum => false,
     }
 }

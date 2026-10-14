@@ -29,7 +29,7 @@ use crate::semantic_db::flow::{
 };
 use crate::{
     FileId, GenericTplId, LuaArrayLen, LuaArrayType, LuaMemberKey, LuaTupleStatus, LuaTupleType,
-    LuaType, LuaUnionType, TypeDef, TypeDefKind, TypeScope, VariadicType,
+    LuaType, LuaUnionType, TypeDef, TypeDefKind, VariadicType,
 };
 
 use super::SemanticModel;
@@ -2348,19 +2348,7 @@ fn class_has_required_named_field(model: &SemanticModel, def: &TypeDef) -> bool 
                 return true;
             }
         }
-        for super_name in &def.super_names {
-            let Some(super_def) = model
-                .resolve_type_def_in(def.file_id, super_name.as_str())
-                .or_else(|| {
-                    model
-                        .type_defs_in_scope(TypeScope::Global, super_name.as_str())
-                        .iter()
-                        .next()
-                        .cloned()
-                })
-            else {
-                continue;
-            };
+        for super_def in model.base_type_defs(&def.type_decl_id()) {
             if collect(model, &super_def, visited) {
                 return true;
             }

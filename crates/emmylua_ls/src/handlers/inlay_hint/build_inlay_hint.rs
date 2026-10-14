@@ -133,10 +133,6 @@ fn is_override_func_stat(
         LuaType::Ref(id) | LuaType::Def(id) => id,
         _ => return false,
     };
-    let def = match model.type_def_of(&type_id) {
-        Some(def) => def,
-        None => return false,
-    };
     let Some(name_token) = index_expr.get_index_name_token() else {
         return false;
     };
@@ -144,16 +140,11 @@ fn is_override_func_stat(
         return false;
     };
     let method_name = method_name_token.get_name_text().to_string();
-    def.super_names.iter().any(|super_name| {
+    model.base_type_defs(&type_id).iter().any(|super_def| {
         model
-            .resolve_type_def(super_name)
-            .map(|super_def| {
-                model
-                    .members_of_owner(&super_def.id)
-                    .iter()
-                    .any(|m| m.name.as_str() == method_name)
-            })
-            .unwrap_or(false)
+            .members_of_owner(&super_def.id)
+            .iter()
+            .any(|m| m.name.as_str() == method_name)
     })
 }
 
@@ -219,15 +210,11 @@ fn build_func_stat_override_hint(
         LuaType::Ref(id) | LuaType::Def(id) => id,
         _ => return None,
     };
-    let def = model.type_def_of(&type_id)?;
     let method_name = LuaNameToken::cast(index_expr.get_index_name_token()?.clone())?
         .get_name_text()
         .to_string();
     let mut has_super_member = false;
-    for super_name in &def.super_names {
-        let Some(super_def) = model.resolve_type_def(super_name) else {
-            continue;
-        };
+    for super_def in model.base_type_defs(&type_id) {
         let members = model.members_of_owner(&super_def.id);
         if members.iter().any(|m| m.name.as_str() == method_name) {
             has_super_member = true;

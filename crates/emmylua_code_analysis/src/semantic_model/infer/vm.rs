@@ -11,8 +11,8 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use emmylua_parser::{
-    BinaryOperator, LuaAstNode, LuaCallExpr, LuaClosureExpr, LuaDocTag, LuaDocType, LuaExpr,
-    LuaIndexKey, LuaReturnStat, LuaSyntaxId,
+    BinaryOperator, LuaAstNode, LuaCallExpr, LuaClosureExpr, LuaDocType, LuaExpr, LuaIndexKey,
+    LuaReturnStat, LuaSyntaxId,
 };
 
 use hashbrown::HashMap;
@@ -3669,120 +3669,45 @@ fn primitive_accepts_const(param: &LuaType, arg: &LuaType) -> bool {
 
 /// Try to project a generic arg (subclass) to a target base class, for inherited-generic
 /// unify like `Subject<T> -> Observable<T>`.
-///
-/// First read the full parent-type args from the class declaration's `---@class` syntax
-/// (e.g. `C_StringHolderWith<T> : Holder<string>`); if that syntax is unavailable, fall back
-/// to the old behavior of filling parent generic args by subclass generic-arg order.
 fn super_generic_type(
     model: &SemanticModel,
     arg_ty: &LuaType,
     target_base: &LuaTypeDeclId,
 ) -> Option<LuaType> {
     use LuaType::*;
-    let (arg_def, arg_params): (TypeDef, Option<Vec<LuaType>>) = match arg_ty {
-        Generic(arg_generic) => {
-            let def = model.type_def_of(&arg_generic.get_base_type_id())?;
-            (def, Some(arg_generic.get_params().to_vec()))
-        }
-        Ref(id) | Def(id) => (model.type_def_of(id)?, None),
+    let (arg_id, arg_params): (&LuaTypeDeclId, Option<&[LuaType]>) = match arg_ty {
+        Generic(arg_generic) => (
+            arg_generic.get_base_type_id_ref(),
+            Some(arg_generic.get_params().as_slice()),
+        ),
+        Ref(id) | Def(id) => (id, None),
         _ => return None,
     };
 
-    // Read full parent-type args from the `---@class` doc tag in the source.
-    if let Some(tree) = model.syntax_tree_of(arg_def.file_id) {
-        let root = tree.get_red_root();
-        for node in root.descendants() {
-            let Some(tag) = LuaDocTag::cast(node) else {
-                continue;
-            };
-            let LuaDocTag::Class(class_tag) = tag else {
-                continue;
-            };
-            let Some(name_token) = class_tag.get_name_token() else {
-                continue;
-            };
-            if name_token.get_name_text() != arg_def.name.as_str() {
+    let mut pending = model
+        .base_types(arg_id)
+        .into_iter()
+        .map(|ty| match arg_params {
+            Some(params) => model.substitute_generic_params(&ty, params),
+            None => ty,
+        })
+        .rev()
+        .collect::<Vec<_>>();
+    while let Some(super_ty) = pending.pop() {
+        let super_id = match &super_ty {
+            Ref(id) | Def(id) => id.clone(),
+            Generic(generic) => generic.get_base_type_id(),
+            Intersection(intersection) => {
+                pending.extend(intersection.get_types().iter().rev().cloned());
                 continue;
             }
-            let Some(supers) = class_tag.get_supers() else {
-                continue;
-            };
-            for super_doc in supers.get_types() {
-                let (super_name, super_args) = match &super_doc {
-                    LuaDocType::Name(name_ty) => (name_ty.get_name_text()?, Vec::new()),
-                    LuaDocType::Generic(generic_ty) => (
-                        generic_ty.get_name_type()?.get_name_text()?,
-                        generic_ty
-                            .get_generic_types()
-                            .map(|list| list.get_types().collect::<Vec<_>>())
-                            .unwrap_or_default(),
-                    ),
-                    _ => continue,
-                };
-                let super_id = LuaTypeDeclId::global(&super_name);
-                let super_def = model.resolve_type_def(super_name.as_str())?;
-                let super_ty = if super_args.is_empty() || super_def.generic_params.is_empty() {
-                    Ref(super_id.clone())
-                } else {
-                    let mut params = Vec::new();
-                    let mut tpl_bindings = unify::TplBindings::new();
-                    if let Some(arg_params) = &arg_params {
-                        for (index, value) in arg_params.iter().enumerate() {
-                            tpl_bindings.insert(GenericTplId::Type(index as u32), value.clone());
-                        }
-                    }
-                    for arg_doc in super_args {
-                        let mut ty = model.doc_type_lua_in(
-                            arg_def.file_id,
-                            arg_doc.get_syntax_id(),
-                            &arg_def.generic_params,
-                        );
-                        if let Some(arg_params) = &arg_params {
-                            let name_bindings: HashMap<std::string::String, LuaType> = arg_def
-                                .generic_params
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(index, param)| {
-                                    arg_params
-                                        .get(index)
-                                        .map(|value| (param.name.to_string(), value.clone()))
-                                })
-                                .collect();
-                            ty = unify::substitute(&ty, &tpl_bindings);
-                            ty = substitute_named_refs(&ty, &name_bindings);
-                        }
-                        params.push(ty);
-                    }
-                    Generic(Rc::new(LuaGenericType::new(super_id.clone(), params)))
-                };
-                if super_id.get_simple_name() == target_base.get_simple_name() {
-                    return Some(super_ty);
-                }
-                // The parent may still not be the target base class
-                // (`C_StringHolderExt : C_StringHolder`); continue projecting up the chain.
-                if let Some(recursive) = super_generic_type(model, &super_ty, target_base) {
-                    return Some(recursive);
-                }
-            }
+            _ => continue,
+        };
+        if &super_id == target_base {
+            return Some(super_ty);
         }
-    }
-
-    // Fallback: without exact parent-type args, fill by subclass arg order (old behavior).
-    let arg_params = arg_params?;
-    for super_name in &arg_def.super_names {
-        let super_id = LuaTypeDeclId::global(super_name);
-        if &super_id != target_base && super_id.get_simple_name() != target_base.get_simple_name() {
-            continue;
-        }
-        let super_def = model.resolve_type_def(super_name)?;
-        if super_def.generic_params.is_empty() {
-            return Some(Ref(super_id));
-        }
-        if super_def.generic_params.len() == arg_params.len() {
-            return Some(Generic(Rc::new(LuaGenericType::new(
-                super_id,
-                arg_params.clone(),
-            ))));
+        if let Some(recursive) = super_generic_type(model, &super_ty, target_base) {
+            return Some(recursive);
         }
     }
     None
@@ -4396,19 +4321,7 @@ fn class_has_required_named_field(model: &SemanticModel, def: &TypeDef) -> bool 
                 return true;
             }
         }
-        for super_name in &def.super_names {
-            let Some(super_def) = model
-                .resolve_type_def_in(def.file_id, super_name.as_str())
-                .or_else(|| {
-                    model
-                        .type_defs_in_scope(TypeScope::Global, super_name.as_str())
-                        .iter()
-                        .next()
-                        .cloned()
-                })
-            else {
-                continue;
-            };
+        for super_def in model.base_type_defs(&def.type_decl_id()) {
             if collect(model, &super_def, visited) {
                 return true;
             }

@@ -892,21 +892,19 @@ fn collect_key_names(
     semantic_model: &SemanticModel<'_>,
     def: &TypeDef,
     keys: &mut Vec<String>,
-    visited: &mut Vec<smol_str::SmolStr>,
+    visited: &mut Vec<SemanticId>,
 ) {
-    if visited.contains(&def.full_name) {
+    if visited.contains(&def.id) {
         return;
     }
-    visited.push(def.full_name.clone());
+    visited.push(def.id.clone());
     for member in semantic_model.members_of_owner(&def.id).iter() {
         if !keys.iter().any(|key| key == member.name.as_str()) {
             keys.push(member.name.to_string());
         }
     }
-    for super_name in &def.super_names {
-        if let Some(super_def) = semantic_model.resolve_type_def_in(def.file_id, super_name) {
-            collect_key_names(semantic_model, &super_def, keys, visited);
-        }
+    for super_def in semantic_model.base_type_defs(&def.type_decl_id()) {
+        collect_key_names(semantic_model, &super_def, keys, visited);
     }
 }
 

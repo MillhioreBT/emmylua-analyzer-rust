@@ -55,8 +55,8 @@ pub struct TypeDef {
     pub kind: TypeDefKind,
     /// Name token range (goto-def positioning).
     pub name_range: TextRange,
-    /// Parent type full names from `---@class Foo : Bar, Baz`.
-    pub super_names: Vec<SmolStr>,
+    /// The complete syntax node for the direct parent type. `---@class Foo<T>: Bar<T>, Baz`.
+    pub base_types: Vec<LuaSyntaxId>,
     /// Generic parameters (`---@class Foo<T: Base>` / `---@alias Foo<T>`).
     pub generic_params: Vec<DocGenericParam>,
     /// Target type node of `---@alias Dir -1|1` (Alias only).
@@ -81,7 +81,7 @@ impl TypeDef {
         visibility: TypeVisibility,
         kind: TypeDefKind,
         name_range: TextRange,
-        super_names: Vec<SmolStr>,
+        base_types: Vec<LuaSyntaxId>,
     ) -> Self {
         let scope = match visibility {
             TypeVisibility::Public => TypeScope::Global,
@@ -96,7 +96,7 @@ impl TypeDef {
             visibility,
             kind,
             name_range,
-            super_names,
+            base_types,
             generic_params: Vec::new(),
             alias_type: None,
             call_overloads: Vec::new(),
@@ -106,7 +106,7 @@ impl TypeDef {
         }
     }
 
-    pub(crate) fn type_decl_id(&self) -> LuaTypeDeclId {
+    pub fn type_decl_id(&self) -> LuaTypeDeclId {
         let SemanticId::TypeDef(key) = &self.id else {
             unreachable!("type definition must have a type identity");
         };
