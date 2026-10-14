@@ -229,7 +229,7 @@ impl<'db> SemanticModel<'db> {
                 )))
             }
             LuaDocType::Object(object) => {
-                let mut fields = hashbrown::HashMap::new();
+                let mut fields = HashMap::new();
                 let mut index_access = Vec::new();
                 for field in object.get_fields() {
                     let Some(key) = field.get_field_key() else {
@@ -527,7 +527,7 @@ impl<'db> SemanticModel<'db> {
                 }
             }
             LuaDocType::Object(object) => {
-                let mut fields = hashbrown::HashMap::new();
+                let mut fields = HashMap::new();
                 let mut index_access = Vec::new();
                 for field in object.get_fields() {
                     let Some(key) = field.get_field_key() else {

@@ -598,6 +598,7 @@ dependencies = [
  "fern",
  "glob",
  "googletest",
+ "hashbrown 0.17.1",
  "include_dir",
  "internment",
  "itertools 0.14.0",

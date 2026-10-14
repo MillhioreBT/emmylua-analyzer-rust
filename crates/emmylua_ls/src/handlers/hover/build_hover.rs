@@ -1,7 +1,5 @@
 use std::rc::Rc;
 
-use std::collections::HashMap;
-
 use emmylua_code_analysis::{
     Decl, DeclKind, GenericTplId, LuaFunctionType, LuaMemberKey, LuaType, LuaTypeDeclId, Member,
     MemberInfo, SemanticDatabase, SemanticId, SemanticModel, TypeDef, TypeDefKind, VariadicType,
@@ -10,6 +8,7 @@ use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaCallExpr, LuaDocAttributeUse, LuaDocDescriptionOwner, LuaDocType,
     LuaExpr, LuaIndexExpr, LuaLocalStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
 };
+use hashbrown::HashMap;
 use lsp_types::{Hover, HoverContents, MarkupContent};
 use rowan::TextRange;
 

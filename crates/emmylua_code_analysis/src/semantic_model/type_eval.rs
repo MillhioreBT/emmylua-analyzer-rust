@@ -4,9 +4,9 @@
 //! All consumers (renderer / type_check / member access / pcall) should reuse this module as much as possible,
 //! instead of duplicating the same evaluation logic in the display or call layers.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
+use hashbrown::HashMap;
 use smol_str::SmolStr;
 
 use crate::{
@@ -41,7 +41,7 @@ pub fn eval_merge_call(model: &SemanticModel, call: &LuaAliasCallType) -> Option
     if operands.len() < 2 {
         return None;
     }
-    let mut fields = hashbrown::HashMap::new();
+    let mut fields = HashMap::new();
     let mut has_info = false;
     for operand in operands {
         let infos = model.member_infos(operand);
@@ -567,7 +567,7 @@ pub fn expand_mapped(model: &SemanticModel, mapped: &LuaMappedType) -> Option<Lu
     if keys.is_empty() {
         return None;
     }
-    let mut fields = hashbrown::HashMap::new();
+    let mut fields = HashMap::new();
     for (key, key_ty) in keys {
         let value = eval_mapped_value(
             model,

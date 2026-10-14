@@ -7,7 +7,7 @@
 //! Values = `LuaType` + optional owner (for member lookup). Cross-file member/declaration
 //! resolution is delegated to semantic queries.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use emmylua_parser::{
@@ -15,6 +15,7 @@ use emmylua_parser::{
     LuaIndexKey, LuaReturnStat, LuaSyntaxId,
 };
 
+use hashbrown::HashMap;
 use smol_str::SmolStr;
 
 use crate::semantic_db::def::{

@@ -4,8 +4,9 @@
 //! infers `T = number` from an actual `list: number[]`, then substitutes it into the
 //! returns and callback params.
 
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use hashbrown::HashMap;
 
 use crate::{
     GenericParam, GenericTplId, LuaAliasCallType, LuaArrayType, LuaConditionalType,

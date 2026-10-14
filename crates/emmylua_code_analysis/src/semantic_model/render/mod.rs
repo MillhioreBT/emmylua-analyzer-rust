@@ -9,6 +9,8 @@ use std::collections::HashSet;
 use std::fmt::{self, Write};
 use std::rc::Rc;
 
+use hashbrown::HashMap;
+
 use crate::{
     AsyncState, GenericTplId, LuaFunctionType, LuaMemberKey, LuaType, LuaTypeDeclId, LuaUnionType,
     VariadicType,
@@ -395,7 +397,7 @@ impl<'a> TypeHumanizer<'a> {
             // Detailed mode: aliases render as `Alias<...> = target type`.
             if self.level == RenderLevel::Detailed && def.kind == TypeDefKind::Alias {
                 if let Some(target) = self.model.alias_target(&def) {
-                    let mut bindings = std::collections::HashMap::new();
+                    let mut bindings = HashMap::new();
                     if let Some(resolved) = &resolved_params {
                         for (index, ty) in resolved.iter().enumerate() {
                             bindings.insert(GenericTplId::Type(index as u32), ty.clone());
@@ -454,9 +456,8 @@ impl<'a> TypeHumanizer<'a> {
             && def.kind == TypeDefKind::Alias
             && let Some(target) = self.model.alias_target(def)
         {
-            let mut bindings = std::collections::HashMap::new();
-            let mut name_bindings: std::collections::HashMap<String, LuaType> =
-                std::collections::HashMap::new();
+            let mut bindings = HashMap::new();
+            let mut name_bindings: HashMap<String, LuaType> = HashMap::new();
             for (index, ty) in resolved.iter().enumerate() {
                 bindings.insert(GenericTplId::Type(index as u32), ty.clone());
                 if let Some(param) = def.generic_params.get(index) {
@@ -666,11 +667,7 @@ impl<'a> TypeHumanizer<'a> {
         w.write_str(" }")
     }
 
-    fn substitute_named_refs(
-        &self,
-        ty: &LuaType,
-        map: &std::collections::HashMap<String, LuaType>,
-    ) -> LuaType {
+    fn substitute_named_refs(&self, ty: &LuaType, map: &HashMap<String, LuaType>) -> LuaType {
         use LuaType::*;
         match ty {
             Ref(id) | Def(id) => map

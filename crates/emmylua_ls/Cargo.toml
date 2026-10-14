@@ -42,6 +42,7 @@ dirs.workspace = true
 wax.workspace = true
 internment.workspace = true
 include_dir.workspace = true
+hashbrown.workspace = true
 
 [dependencies.clap]
 workspace = true

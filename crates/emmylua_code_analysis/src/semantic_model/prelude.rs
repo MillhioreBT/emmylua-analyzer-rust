@@ -3,7 +3,7 @@
 //! Keeping these re-exports here lets `mod.rs` stay a minimal interface while
 //! avoiding a large, duplicated import header in every implementation module.
 
-pub(crate) use std::collections::{HashMap, HashSet};
+pub(crate) use std::collections::HashSet;
 pub(crate) use std::rc::Rc;
 
 pub(crate) use emmylua_parser::{
@@ -14,6 +14,7 @@ pub(crate) use emmylua_parser::{
     LuaSyntaxTree, LuaTableExpr, LuaTableField, LuaTypeBinaryOperator, LuaTypeUnaryOperator,
     LuaVersionNumber, NumberResult, VisibilityKind,
 };
+pub(crate) use hashbrown::HashMap;
 pub(crate) use rowan::TextSize;
 pub(crate) use smol_str::SmolStr;
 

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use emmylua_parser::{LuaAstNode, LuaTableExpr, LuaTableField};
+use hashbrown::HashMap;
 
 use crate::semantic_db::def::{DeclKind, MemberRef, SemanticId, TypeDef, TypeDefKind};
 use crate::semantic_model::infer::unify::{self, TplBindings};
