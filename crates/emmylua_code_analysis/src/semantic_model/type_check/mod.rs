@@ -217,8 +217,10 @@ fn check_general_type_compact(
                 _ => {}
             }
         }
-        // Assignment mode: a target union only needs one compatible member.
-        if let LuaType::Union(union) = compact_type {
+        // Source union members can match different target members; check them below.
+        if let LuaType::Union(union) = compact_type
+            && !matches!(source, LuaType::Union(_))
+        {
             for component in union.iter() {
                 if check_general_type_compact(context, source, component, check_guard.next_level()?)
                     .is_ok()

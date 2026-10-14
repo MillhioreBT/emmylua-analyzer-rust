@@ -231,6 +231,68 @@ mod tests {
     }
 
     #[test]
+    fn test_union_assignment_accepts_each_source_member() {
+        for (source, target) in [
+            // Accept string and nil; 'FILE' is already included in string.
+            ("string?", "(string|'FILE')?"),
+            // Accept true as a boolean, and accept nil.
+            ("true?", "boolean?"),
+            // Match string and integer to different target members.
+            ("string|integer", "string|number|boolean"),
+        ] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@param value {source}
+                local function use(value)
+                    ---@type {target}
+                    local initialized = value
+                    ---@type {target}
+                    local reassigned
+                    reassigned = value
+                    return initialized, reassigned
+                end
+                return use
+                "#,
+            ));
+            assert!(
+                diagnostics.is_empty(),
+                "{source} -> {target}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_union_assignment_rejects_incompatible_source_members() {
+        for (source, target) in [
+            // Reject boolean, even though string and integer are accepted.
+            ("string|integer|boolean", "string|number"),
+            // Reject nil because the target does not accept it.
+            ("true?", "boolean|string"),
+            // Reject number because it can contain non-integer values.
+            ("string|number", "string|integer"),
+            // Reject integer when the target accepts only strings.
+            ("string|integer", "string"),
+        ] {
+            let diagnostics = check_source(&format!(
+                r#"
+                ---@param value {source}
+                local function use(value)
+                    ---@type {target}
+                    local target = value
+                    return target
+                end
+                return use
+                "#,
+            ));
+            assert_eq!(
+                diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+                vec![DiagnosticCode::AssignTypeMismatch],
+                "{source} -> {target}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_table_literal_numeric_key_uses_index_signature() {
         let diagnostics = check_source(
             r#"
