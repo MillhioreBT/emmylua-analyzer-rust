@@ -758,6 +758,20 @@ fn check_arg_pairs(
         if skip_arg(&call_arg_ty, &param_ty) {
             continue;
         }
+        // Check the whole boolean domain before selecting a single union component.
+        if value_kind(semantic_model, &call_arg_ty) == ValueKind::Boolean
+            && !param_ty.contains_tpl_node()
+        {
+            if !is_compatible(semantic_model, &call_arg_ty, &param_ty)
+                && !literal_compatible(semantic_model, &call_arg_ty, &param_ty)
+            {
+                out.push(Mismatch {
+                    range: arg.get_range(),
+                    message: mismatch_message(semantic_model, &call_arg_ty, &param_ty, name),
+                });
+            }
+            continue;
+        }
         // `---@param x string|true`: non-function arguments pass when they match any union component.
         // Unions containing generic components (`` `T`|T ``) cannot be swallowed early by is_compatible, otherwise T won't bind.
         let has_generic_union_tpl = matches!(
@@ -1229,7 +1243,8 @@ fn literal_compatible(
     let Some(arg_text) = arg_text else {
         return false;
     };
-    literal_values(semantic_model, param_ty, &mut Vec::new())
+    let boolean_only = arg_ty.is_boolean();
+    literal_values(semantic_model, param_ty, &mut Vec::new(), boolean_only)
         .is_some_and(|values| values.iter().any(|value| value == &arg_text))
 }
 
@@ -1238,16 +1253,21 @@ fn literal_values(
     semantic_model: &SemanticModel<'_>,
     ty: &LuaType,
     visited: &mut Vec<LuaTypeDeclId>,
+    boolean_only: bool,
 ) -> Option<Vec<String>> {
     match ty {
-        LuaType::StringConst(s) | LuaType::DocStringConst(s) => Some(vec![s.as_ref().to_string()]),
-        LuaType::IntegerConst(i) | LuaType::DocIntegerConst(i) => Some(vec![i.to_string()]),
+        LuaType::StringConst(s) | LuaType::DocStringConst(s) if !boolean_only => {
+            Some(vec![s.as_ref().to_string()])
+        }
+        LuaType::IntegerConst(i) | LuaType::DocIntegerConst(i) if !boolean_only => {
+            Some(vec![i.to_string()])
+        }
         LuaType::BooleanConst(b) | LuaType::DocBooleanConst(b) => Some(vec![b.to_string()]),
         LuaType::Union(union) => {
             let mut values = Vec::new();
             for component in union.into_vec() {
                 if let Some(mut component_values) =
-                    literal_values(semantic_model, &component, visited)
+                    literal_values(semantic_model, &component, visited, boolean_only)
                 {
                     values.append(&mut component_values);
                 }
@@ -1261,9 +1281,9 @@ fn literal_values(
             visited.push(id.clone());
             let def = semantic_model.type_def_of(id)?;
             if def.kind == TypeDefKind::Alias {
-                return semantic_model
-                    .alias_target(&def)
-                    .and_then(|target| literal_values(semantic_model, &target, visited));
+                return semantic_model.alias_target(&def).and_then(|target| {
+                    literal_values(semantic_model, &target, visited, boolean_only)
+                });
             }
             // enum: runtime table member names and values.
             if def.kind == TypeDefKind::Enum {
@@ -1271,7 +1291,9 @@ fn literal_values(
                 let decl = facts.decl_named(def.name.as_str())?;
                 let mut values = Vec::new();
                 for member_ref in semantic_model.members_of_owner(&decl.id).iter() {
-                    values.push(member_ref.name.to_string());
+                    if !boolean_only {
+                        values.push(member_ref.name.to_string());
+                    }
                     if let Some(member_facts) = semantic_model.file_facts_of(member_ref.file_id)
                         && let Some(member) = member_facts.member_by_id(&member_ref.id)
                         && let Some(value_syntax) = member.value_syntax
@@ -1280,7 +1302,10 @@ fn literal_values(
                             .and_then(|tree| value_syntax.to_node_from_root(&tree.get_red_root()))
                     {
                         let raw = node.text().to_string();
-                        values.push(raw.trim_matches(['"', '\'']).to_string());
+                        // Boolean arguments match values, not member names or quoted text.
+                        if !boolean_only || matches!(raw.as_str(), "true" | "false") {
+                            values.push(raw.trim_matches(['"', '\'']).to_string());
+                        }
                     }
                 }
                 return (!values.is_empty()).then_some(values);
