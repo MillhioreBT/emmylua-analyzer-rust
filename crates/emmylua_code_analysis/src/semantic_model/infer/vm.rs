@@ -22,7 +22,7 @@ use crate::semantic_db::def::{
     SignatureDoc,
 };
 use crate::semantic_db::types::PrimitiveType;
-use crate::semantic_model::flow::type_of_expr_with_cast;
+use crate::semantic_model::flow::{ExprCastMode, type_of_expr_with_cast};
 use crate::semantic_model::member::{MemberInfo, table_const_class_type, table_metatable_type};
 use crate::semantic_model::type_eval::{
     class_generic_map, eval_conditionals, expand_alias_generic, sanitize_unresolved_generics,
@@ -2162,7 +2162,7 @@ impl<'a> InferVm<'a> {
             let mut ty = vm.run();
             // `---@as` / flow casts are attached to return expression nodes; flow queries can
             // give a more precise return type than bare VM (e.g. `{} --[[@as Promise<integer>]]`).
-            let flow_ty = type_of_expr_with_cast(self.model, expr_syntax);
+            let flow_ty = type_of_expr_with_cast(self.model, expr_syntax, ExprCastMode::All);
             if !matches!(flow_ty, LuaType::Unknown | LuaType::Any) && flow_ty != ty {
                 ty = flow_ty;
             }

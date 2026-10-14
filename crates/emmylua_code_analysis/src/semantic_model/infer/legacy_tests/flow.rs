@@ -10,6 +10,248 @@ mod test {
     const REPEATED_SELF_ASSIGNMENT_STEPS: usize = 512;
     const REPEATED_SELF_ASSIGNMENT_VARIANT_STEPS: usize = 128;
 
+    #[test]
+    fn test_inline_as_does_not_apply_named_cast_to_initializers() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@param value string
+            local function consume(value) print(value) end
+            ---@param count number
+            ---@param text string
+            local function run(count, text)
+                ---@cast count integer
+                local copy = text
+                consume(copy)
+                print(count)
+            end
+            run(1, 'text')
+            "#,
+        );
+        assert_eq!(last_name_expr_type(&ws, file, "copy"), LuaType::String);
+        assert_eq!(last_name_expr_type(&ws, file, "count"), LuaType::Integer);
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file, tokio_util::sync::CancellationToken::new())
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn test_inline_as_does_not_apply_named_cast_to_table_fields() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@param value string
+            local function consume(value) print(value) end
+            ---@param count number
+            ---@param text string
+            local function run(count, text)
+                ---@cast count integer
+                local state = { text = text }
+                local copy = state.text
+                consume(copy)
+            end
+            run(1, 'text')
+            "#,
+        );
+        assert_eq!(last_name_expr_type(&ws, file, "copy"), LuaType::String);
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file, tokio_util::sync::CancellationToken::new())
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn test_inline_as_does_not_cast_later_call() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        assert!(ws.has_no_diagnostic(
+            DiagnosticCode::CallNonCallable,
+            r#"
+            local function run()
+                local value = 1 --[[@as integer]]
+                print(value)
+            end
+            run()
+            "#,
+        ));
+    }
+
+    #[test]
+    fn test_inline_as_preserves_cast_and_unrelated_types() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@param source unknown
+            local function run(source)
+                local value = source --[[@as integer]]
+                local text = tostring(value)
+                print(text, source)
+            end
+            run('input')
+            "#,
+        );
+        assert_eq!(last_name_expr_type(&ws, file, "value"), LuaType::Integer);
+        assert_eq!(last_name_expr_type(&ws, file, "text"), LuaType::String);
+        assert_eq!(last_name_expr_type(&ws, file, "source"), LuaType::Unknown);
+    }
+
+    #[test]
+    fn test_inline_as_assignment_cast_stays_with_last_value() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@class InlineCastValue
+            ---@field count integer
+            local first, second, object
+            first, second = 'text', {} --[[@as InlineCastValue]]
+            do
+                object = {} --[[@as InlineCastValue]]
+                print(object.count)
+            end
+            print(first, second, object)
+            "#,
+        );
+        assert_eq!(last_name_expr_type(&ws, file, "first"), ws.ty("'text'"));
+        assert_eq!(
+            last_name_expr_type(&ws, file, "second"),
+            ws.ty("InlineCastValue")
+        );
+        assert_eq!(
+            last_name_expr_type(&ws, file, "object"),
+            ws.ty("InlineCastValue")
+        );
+    }
+
+    #[test]
+    fn test_inline_as_member_assignment_preserves_unrelated_members() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@class InlineCastMember
+            ---@field count integer
+            local state = { text = 'text' }
+            state.object = {} --[[@as InlineCastMember]]
+            local object = state.object
+            local text = state.text
+            local count = state.text --[[@as integer]]
+            print(object, text, count)
+            "#,
+        );
+        assert_eq!(
+            last_name_expr_type(&ws, file, "object"),
+            ws.ty("InlineCastMember")
+        );
+        assert_eq!(last_name_expr_type(&ws, file, "text"), ws.ty("'text'"));
+        assert_eq!(last_name_expr_type(&ws, file, "count"), LuaType::Integer);
+    }
+
+    #[test]
+    fn test_inline_as_preserves_initializer_expression_casts() {
+        let mut ws = VirtualWorkspace::new();
+        for expression in ["'input'", "(true)", "function() end", "{}", "1 + 2"] {
+            assert_eq!(
+                ws.expr_ty(&format!("{expression} --[[@as integer]]")),
+                LuaType::Integer,
+                "{expression}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_inline_as_call_assignment_keeps_the_cast_result() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@class InlineCastOptions
+            ---@field count integer
+            local _InlineCastOptions = {}
+            ---@param value unknown
+            ---@return unknown
+            local function identity(value) return value end
+            ---@param options? InlineCastOptions
+            local function run(options)
+                options = identity(options) --[[@as InlineCastOptions]]
+                print(options.count)
+            end
+            run()
+            "#,
+        );
+        assert_eq!(
+            last_name_expr_type(&ws, file, "options"),
+            ws.ty("InlineCastOptions")
+        );
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file, tokio_util::sync::CancellationToken::new())
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn test_inline_as_does_not_cast_call_parts_or_other_arguments() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@param value unknown
+            ---@return unknown
+            local function identity(value) return value end
+            ---@param value integer
+            ---@param text string
+            local function consume(value, text) print(value, text) end
+            local value = identity('input') --[[@as integer]]
+            consume(value, 'text')
+            consume(identity('input') --[[@as integer]], 'text')
+            print(value)
+            "#,
+        );
+        assert_eq!(last_name_expr_type(&ws, file, "value"), LuaType::Integer);
+        let diagnostics = ws
+            .analysis
+            .diagnose_file(file, tokio_util::sync::CancellationToken::new())
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn test_inline_as_keeps_invalid_call_and_argument_diagnostics() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let file = ws.def(
+            r#"
+            ---@param value string
+            local function consume(value) print(value) end
+            local function run()
+                local value = 'input' --[[@as integer]]
+                value()
+                consume(value)
+            end
+            run()
+            "#,
+        );
+        let mut diagnostics = ws
+            .analysis
+            .diagnose_file(file, tokio_util::sync::CancellationToken::new())
+            .unwrap();
+        diagnostics.sort_by_key(|diagnostic| diagnostic.range.start);
+        let codes: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.clone())
+            .collect();
+        assert_eq!(
+            codes,
+            vec![
+                Some(lsp_types::NumberOrString::String(
+                    "call-non-callable".into()
+                )),
+                Some(lsp_types::NumberOrString::String(
+                    "param-type-mismatch".into()
+                )),
+            ],
+            "{diagnostics:#?}"
+        );
+    }
+
     fn last_name_expr_type(ws: &VirtualWorkspace, file_id: FileId, name: &str) -> LuaType {
         let semantic_model = ws.analysis.semantic_model(file_id);
         let chunk = semantic_model.chunk().expect("chunk must exist");
