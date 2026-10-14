@@ -10,7 +10,7 @@ use emmylua_parser::{
 use crate::DiagnosticCode;
 use crate::semantic_db::def::{SemanticId, TypeDef, TypeDefKind, TypeScope};
 use crate::semantic_model::SemanticModel;
-use crate::{LuaMemberKey, LuaType, LuaUnionType};
+use crate::{LuaMemberKey, LuaType, LuaTypeDeclId, LuaUnionType};
 
 use super::assign_type_mismatch::signature_matches_key;
 use super::param_type_check::callable_candidates;
@@ -438,6 +438,18 @@ fn check_against_type(
     let Some(target_id) = resolve_target(semantic_model, target) else {
         return;
     };
+
+    // Only the canonical standard-library dictionary bypasses closed-record
+    // checks. A user-defined `table<T>` still has a normal class field surface.
+    // This is after compound-type handling, so an intersection checks its other
+    // components even when its dictionary component returns here.
+    if let LuaType::Generic(generic) = target
+        && generic.get_base_type_id() == LuaTypeDeclId::global("table")
+        && find_type_def(semantic_model, &target_id)
+            .is_some_and(|def| semantic_model.is_std_file(def.file_id))
+    {
+        return;
+    }
 
     // Target type's @field members (including inheritance).
     let mut members = HashMap::new();

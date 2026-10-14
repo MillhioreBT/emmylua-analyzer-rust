@@ -498,3 +498,153 @@ mod test {
         ));
     }
 }
+
+// These tests load the standard library because its `table` declaration is
+// what made dictionaries incorrectly look like closed records.
+mod dictionary_constructor {
+    use crate::{DiagnosticCode, VirtualWorkspace};
+    use googletest::prelude::*;
+
+    #[googletest::gtest]
+    fn dictionary_constructor_accepts_keys_with_standard_library() {
+        for declaration in ["local signals", "signals"] {
+            let mut ws = VirtualWorkspace::new_with_init_std_lib();
+            let source = format!(
+                r#"
+            ---@class Signal
+            ---@field name string
+            KEY = 'depot'
+            ---@type table<string, Signal>
+            {declaration} = {{
+                [KEY] = {{name = KEY}},
+                literal = {{name = 'literal'}},
+                ['bracket'] = {{name = 'bracket'}},
+            }}
+        "#
+            );
+            assert_that!(
+                ws.has_no_diagnostic(DiagnosticCode::InjectField, &source),
+                eq(true),
+                "{declaration}"
+            );
+        }
+    }
+
+    #[googletest::gtest]
+    fn dictionary_constructor_alias_and_call_argument() {
+        for target in ["table<integer, string>", "Dictionary"] {
+            let mut ws = VirtualWorkspace::new_with_init_std_lib();
+            ws.def("---@alias Dictionary table<integer, string>");
+            let source = format!(
+                r#"
+            ---@param values {target}
+            local function consume(values) end
+            consume({{[1] = 'one', [2] = 'two'}})
+            ---@type {target}
+            local values = {{}}
+            values = {{[3] = 'three'}}
+        "#
+            );
+            assert_that!(
+                ws.has_no_diagnostic(DiagnosticCode::InjectField, &source),
+                eq(true),
+                "{target}"
+            );
+        }
+    }
+
+    #[googletest::gtest]
+    fn dictionary_constructor_does_not_disable_class_field_checks() {
+        for target in ["Record", "Box<string>"] {
+            let mut ws = VirtualWorkspace::new_with_init_std_lib();
+            ws.def(
+                r#"
+            ---@class Record
+            ---@field name string
+            ---@class Box<T>
+            ---@field name T
+        "#,
+            );
+            assert_that!(
+                ws.has_no_diagnostic(
+                    DiagnosticCode::InjectField,
+                    &format!("---@type {target}\nlocal value = {{name = 'ok', extra = true}}")
+                ),
+                eq(false),
+                "{target}"
+            );
+            assert_that!(
+                ws.has_no_diagnostic(
+                    DiagnosticCode::MissingFields,
+                    &format!("---@type {target}\nlocal value = {{}}")
+                ),
+                eq(false),
+                "{target}"
+            );
+        }
+    }
+
+    #[googletest::gtest]
+    fn dictionary_constructor_preserves_user_defined_table_types() {
+        for private in [false, true] {
+            let mut ws = if private {
+                VirtualWorkspace::new_with_init_std_lib()
+            } else {
+                VirtualWorkspace::new()
+            };
+            let modifier = if private { "(private) " } else { "" };
+            let source = format!(
+                "---@class {modifier}table<T>\n---@field name T\n---@type table<string>\nlocal value = {{name = 'ok', extra = true}}"
+            );
+            // has_no_diagnostic enables and matches exactly the requested code.
+            assert_that!(
+                ws.has_no_diagnostic(DiagnosticCode::InjectField, &source),
+                eq(false),
+                "{modifier}"
+            );
+        }
+    }
+
+    #[googletest::gtest]
+    fn dictionary_constructor_compound_targets_keep_record_checks() {
+        for target in [
+            "table<string, integer> & Record",
+            "Record & table<string, integer>",
+        ] {
+            let mut ws = VirtualWorkspace::new_with_init_std_lib();
+            ws.def(&format!(
+                "---@class Record\n---@field name string\n---@alias Combined {target}"
+            ));
+            assert_that!(
+                ws.has_no_diagnostic(
+                    DiagnosticCode::MissingFields,
+                    "---@type Combined\nlocal value = {}"
+                ),
+                eq(false),
+                "{target}"
+            );
+            assert_that!(
+                ws.has_no_diagnostic(
+                    DiagnosticCode::InjectField,
+                    "---@type Combined\nlocal value = {name = 'ok', extra = true}"
+                ),
+                eq(false),
+                "{target}"
+            );
+        }
+        for target in [
+            "table<string, integer> | nil",
+            "nil | table<string, integer>",
+        ] {
+            let mut ws = VirtualWorkspace::new_with_init_std_lib();
+            assert_that!(
+                ws.has_no_diagnostic(
+                    DiagnosticCode::InjectField,
+                    &format!("---@type {target}\nlocal value = {{answer = 42}}")
+                ),
+                eq(true),
+                "{target}"
+            );
+        }
+    }
+}
