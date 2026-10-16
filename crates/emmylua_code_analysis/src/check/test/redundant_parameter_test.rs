@@ -243,6 +243,34 @@ mod test {
     }
 
     #[test]
+    fn test_issue_1274_luajit_loadstring() {
+        use crate::{Emmyrc, EmmyrcLuaVersion};
+
+        let mut ws = VirtualWorkspace::new();
+        let mut config = Emmyrc::default();
+        config.runtime.version = EmmyrcLuaVersion::LuaJIT;
+        ws.update_emmyrc(config);
+        ws.analysis.init_std_lib(None);
+
+        // LuaJIT: `loadstring` is an alias for `load` and accepts `mode`/`env`.
+        assert!(ws.has_no_diagnostic(
+            DiagnosticCode::RedundantParameter,
+            r#"
+            local storage = { env = {} }
+            local _ = loadstring("return 42", nil, nil, storage.env)
+        "#
+        ));
+
+        // Guard against a vacuous pass: a 5th argument must still be redundant.
+        assert!(!ws.has_no_diagnostic(
+            DiagnosticCode::RedundantParameter,
+            r#"
+            loadstring("return 42", nil, nil, {}, {})
+        "#
+        ));
+    }
+
+    #[test]
     fn test_named_dots_zero_args() {
         let mut ws = VirtualWorkspace::new();
 
