@@ -1366,7 +1366,7 @@ fn format_single_arg_call_without_parens(
             .is_single_arg_no_parens()
             .then(|| args_list.get_single_arg_expr())
             .flatten(),
-        SingleArgCallParens::Omit => args_list.get_single_arg_expr(),
+        SingleArgCallParens::Omit => sole_arg_expr(args_list),
     }?;
 
     Some(match single_arg {
@@ -1378,6 +1378,22 @@ fn format_single_arg_call_without_parens(
         }
         LuaSingleArgExpr::LiteralExpr(_) => return None,
     })
+}
+
+/// The argument of a parenthesized call that has exactly one argument and no comments,
+/// i.e. one whose parentheses can be dropped without losing anything.
+fn sole_arg_expr(args_list: &LuaCallArgList) -> Option<LuaSingleArgExpr> {
+    let mut args = args_list.get_args();
+    let arg = args.next()?;
+    if args.next().is_some()
+        || args_list
+            .syntax()
+            .children()
+            .any(|child| LuaComment::cast(child).is_some())
+    {
+        return None;
+    }
+    LuaSingleArgExpr::cast(arg.syntax().clone())
 }
 
 fn format_table_expr(ctx: &FormatContext, plan: &FormatPlan, expr: &LuaTableExpr) -> Vec<DocIR> {
