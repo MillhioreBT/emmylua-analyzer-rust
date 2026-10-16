@@ -2961,9 +2961,7 @@ n = n + 1
     #[test]
     fn test_issue_600() {
         let mut ws = VirtualWorkspace::new();
-        // New semantics: `a` is Test2 runtime table and `a.test` is known `string[]`;
-        // Under strict array indexing elements are nullable; current flow does not yet narrow truthiness along class-field array subscripts.
-        assert!(!ws.has_no_diagnostic(
+        assert!(ws.has_no_diagnostic(
             DiagnosticCode::NeedCheckNil,
             r#"
             ---@class Test2
