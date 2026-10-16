@@ -271,6 +271,62 @@ mod test {
     }
 
     #[test]
+    fn test_issue_1274_luajit_load() {
+        use crate::{Emmyrc, EmmyrcLuaVersion};
+
+        let mut ws = VirtualWorkspace::new();
+        let mut config = Emmyrc::default();
+        config.runtime.version = EmmyrcLuaVersion::LuaJIT;
+        ws.update_emmyrc(config);
+        ws.analysis.init_std_lib(None);
+
+        // LuaJIT: `load` accepts `chunk, chunkname?, mode?, env?`.
+        assert!(ws.has_no_diagnostic(
+            DiagnosticCode::RedundantParameter,
+            r#"
+            local storage = { env = {} }
+            local _ = load("return 42", nil, nil, storage.env)
+        "#
+        ));
+
+        // Guard against a vacuous pass: a 5th argument must still be redundant.
+        assert!(!ws.has_no_diagnostic(
+            DiagnosticCode::RedundantParameter,
+            r#"
+            load("return 42", nil, nil, {}, {})
+        "#
+        ));
+    }
+
+    #[test]
+    fn test_issue_1274_luajit_loadfile() {
+        use crate::{Emmyrc, EmmyrcLuaVersion};
+
+        let mut ws = VirtualWorkspace::new();
+        let mut config = Emmyrc::default();
+        config.runtime.version = EmmyrcLuaVersion::LuaJIT;
+        ws.update_emmyrc(config);
+        ws.analysis.init_std_lib(None);
+
+        // LuaJIT: `loadfile` accepts `filename?, mode?, env?`.
+        assert!(ws.has_no_diagnostic(
+            DiagnosticCode::RedundantParameter,
+            r#"
+            local storage = { env = {} }
+            local _ = loadfile("chunk.lua", nil, storage.env)
+        "#
+        ));
+
+        // Guard against a vacuous pass: a 4th argument must still be redundant.
+        assert!(!ws.has_no_diagnostic(
+            DiagnosticCode::RedundantParameter,
+            r#"
+            loadfile("chunk.lua", nil, {}, {})
+        "#
+        ));
+    }
+
+    #[test]
     fn test_named_dots_zero_args() {
         let mut ws = VirtualWorkspace::new();
 
