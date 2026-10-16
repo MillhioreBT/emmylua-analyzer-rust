@@ -1427,7 +1427,7 @@ fn contains_mapped(ty: &LuaType) -> bool {
                     .any(|(k, v)| contains_mapped(k) || contains_mapped(v))
         }
         Variadic(variadic) => match variadic.as_ref() {
-            VariadicType::Base(base) => contains_mapped(base),
+            VariadicType::Base(base) | VariadicType::Repeat(base) => contains_mapped(base),
             VariadicType::Multi(types) => types.iter().any(contains_mapped),
         },
         Call(call) => call.get_operands().iter().any(contains_mapped),

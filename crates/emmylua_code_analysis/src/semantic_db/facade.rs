@@ -706,6 +706,9 @@ impl<'db> AnalysisView<'db> {
                 TypeCandidate::Variadic(base) => LuaType::Variadic(Rc::new(VariadicType::Base(
                     self.project_shell_in(file_id, base, generic_names),
                 ))),
+                TypeCandidate::Repeat(base) => LuaType::Variadic(Rc::new(VariadicType::Repeat(
+                    self.project_shell_in(file_id, base, generic_names),
+                ))),
                 TypeCandidate::Tuple(types) => LuaType::Tuple(Rc::new(LuaTupleType::new(
                     types
                         .iter()

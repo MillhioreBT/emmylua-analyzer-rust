@@ -339,7 +339,7 @@ pub(crate) fn member_info_impl(
             is_method: first.as_ref().is_some_and(|info| info.is_method),
         });
     }
-    if let Some(info) = member_infos(model, prefix_type)
+    if let Some(info) = member_infos_with_key(model, prefix_type, key)
         .into_iter()
         .find(|info| &info.key == key)
     {
@@ -704,7 +704,7 @@ fn collect_members(
             for member_ref in owner_member_refs(model, &owner, filter) {
                 if let Some(info) = member_info_of(model, &member_ref, bindings, name_bindings) {
                     if let Some(expanded) =
-                        expand_table_multi_return_member(model, table, &member_ref, &info)
+                        expand_table_multi_return_member(model, table, &member_ref, &info, filter)
                     {
                         for info in expanded {
                             push_member_info(out, filter, info);
@@ -817,13 +817,14 @@ fn collect_members(
     }
 }
 
-/// If the last unkeyed field of a Lua table constructor is a multi-return function call,
+/// If the last unkeyed field of a Lua table constructor supplies multiple values,
 /// all returned values expand consecutively into integer-keyed fields (`{ coroutine.resume(...) }` → `[1]`, `[2]`, ...).
 fn expand_table_multi_return_member(
     model: &SemanticModel,
     table: &InFiled<rowan::TextRange>,
     member_ref: &MemberRef,
     info: &MemberInfo,
+    filter: Option<&LuaMemberKey>,
 ) -> Option<Vec<MemberInfo>> {
     let LuaType::Variadic(variadic) = &info.typ else {
         return None;
@@ -850,7 +851,7 @@ fn expand_table_multi_return_member(
     {
         return None;
     }
-    // Lua expands only the function call in the last field.
+    // Lua expands calls and varargs only in the last unkeyed field.
     let is_last = table_expr
         .get_fields()
         .last()
@@ -858,7 +859,13 @@ fn expand_table_multi_return_member(
     if !is_last {
         return None;
     }
-    let types = flatten_table_multi_return(variadic);
+    // A repeated tail cannot be enumerated. Resolve the requested slot directly.
+    let (start, types) = if let Some(LuaMemberKey::Integer(index)) = filter {
+        let offset = usize::try_from(index.checked_sub(start)?).ok()?;
+        (*index, vec![info.typ.get_result_slot_type(offset)?])
+    } else {
+        (start, flatten_table_multi_return(variadic))
+    };
     if types.is_empty() {
         return None;
     }
@@ -884,13 +891,13 @@ fn flatten_table_multi_return(variadic: &VariadicType) -> Vec<LuaType> {
             .iter()
             .flat_map(|ty| match ty {
                 LuaType::Variadic(inner) => match inner.as_ref() {
-                    VariadicType::Base(base) => vec![base.clone()],
+                    VariadicType::Base(base) | VariadicType::Repeat(base) => vec![base.clone()],
                     VariadicType::Multi(inner_types) => inner_types.clone(),
                 },
                 other => vec![other.clone()],
             })
             .collect(),
-        VariadicType::Base(base) => vec![base.clone()],
+        VariadicType::Base(base) | VariadicType::Repeat(base) => vec![base.clone()],
     }
 }
 

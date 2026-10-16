@@ -361,7 +361,7 @@ fn type_contains_tpl_ref(ty: &LuaType) -> bool {
         Generic(generic) => generic.get_params().iter().any(type_contains_tpl_ref),
         TableGeneric(generic) => generic.iter().any(type_contains_tpl_ref),
         Variadic(variadic) => match variadic.as_ref() {
-            VariadicType::Base(base) => type_contains_tpl_ref(base),
+            VariadicType::Base(base) | VariadicType::Repeat(base) => type_contains_tpl_ref(base),
             VariadicType::Multi(types) => types.iter().any(type_contains_tpl_ref),
         },
         DocFunction(fun) => {
@@ -686,39 +686,23 @@ pub fn pcall_return_type(callback_ret: LuaType, include_error_string: bool) -> L
         }
     }
 
-    let slots = match callback_ret {
-        LuaType::Variadic(variadic) => match variadic.as_ref() {
-            VariadicType::Multi(types) => {
-                let mut slots = vec![LuaType::Boolean];
-                if let Some(first) = types.first() {
-                    let slot = if include_error_string {
-                        LuaType::from_vec(vec![first.clone(), LuaType::String])
-                    } else {
-                        first.clone()
-                    };
-                    slots.push(with_nil_for_variadic(slot));
-                }
-                slots.extend(types.iter().skip(1).cloned().map(with_nil_for_variadic));
-                slots
-            }
-            VariadicType::Base(base) => {
-                let slot = if include_error_string {
-                    LuaType::from_vec(vec![base.clone(), LuaType::String])
-                } else {
-                    base.clone()
-                };
-                vec![LuaType::Boolean, with_nil_for_variadic(slot)]
-            }
-        },
-        other => {
-            let slot = if include_error_string {
-                LuaType::from_vec(vec![other, LuaType::String])
-            } else {
-                other
-            };
-            vec![LuaType::Boolean, with_nil_for_variadic(slot)]
-        }
+    // Only Multi lists separate result slots. Keep a repeated tail as a sequence.
+    let callback_slots = if let LuaType::Variadic(variadic) = &callback_ret
+        && let VariadicType::Multi(types) = variadic.as_ref()
+    {
+        types.clone()
+    } else {
+        vec![callback_ret]
     };
+    let mut slots = vec![LuaType::Boolean];
+    for (index, ty) in callback_slots.into_iter().enumerate() {
+        let slot = if index == 0 && include_error_string {
+            LuaType::from_vec(vec![ty, LuaType::String])
+        } else {
+            ty
+        };
+        slots.push(with_nil_for_variadic(slot));
+    }
     LuaType::Variadic(Rc::new(VariadicType::Multi(slots)))
 }
 

@@ -466,6 +466,433 @@ fn token_at(
     }
 }
 
+#[test]
+fn test_vararg_semantic_info_keeps_function_ownership() {
+    let source = r#"
+        ---@param ... integer
+        local function outer(...)
+            do print(...) end
+            ---@param ... string
+            local function inner(...)
+                print(...)
+            end
+            inner('hello')
+            print(...)
+        end
+        outer(1)
+    "#;
+    let env = model_of(source);
+    let model = env.model();
+    let declarations: Vec<_> = model
+        .decls()
+        .unwrap()
+        .iter()
+        .filter(|decl| decl.name == "...")
+        .collect();
+    assert_eq!(declarations.len(), 2);
+    for (decl, (occurrences, expected)) in declarations
+        .iter()
+        .zip([(vec![2, 6], LuaType::Integer), (vec![5], LuaType::String)])
+    {
+        for n in occurrences {
+            let token = token_at(&model, source, "...", n);
+            let info = model.semantic_info(token.into()).unwrap();
+            assert_eq!(info.decl, Some(decl.id.clone()));
+            assert_eq!(info.typ.get_result_slot_type(0), Some(expected.clone()));
+        }
+    }
+}
+
+#[test]
+fn test_vararg_references_do_not_cross_non_variadic_functions() {
+    let source = r#"
+        local function outer(...)
+            local function inner()
+                print(...)
+            end
+            inner()
+        end
+        print(...)
+    "#;
+    let env = model_of(source);
+    let model = env.model();
+    for occurrence in [1, 2] {
+        let token = token_at(&model, source, "...", occurrence);
+        assert_eq!(model.find_decl(token.clone().into()), None);
+        assert_eq!(model.semantic_info(token.into()).unwrap().decl, None);
+    }
+}
+
+#[test]
+fn test_vararg_expression_lists_expand_only_the_last_value() {
+    let env = model_of(
+        r#"
+        ---@param ... integer
+        local function values(...)
+            local first, second = ..., 'last'
+            local third, fourth = 1, ...
+            local fifth, sixth = (...)
+        end
+    "#,
+    );
+    let model = env.model();
+    let locals: Vec<_> = model
+        .chunk()
+        .unwrap()
+        .descendants::<emmylua_parser::LuaLocalStat>()
+        .collect();
+    let actual: Vec<Vec<LuaType>> = locals
+        .iter()
+        .map(|local| {
+            let exprs = local.get_value_exprs().collect::<Vec<_>>();
+            model
+                .infer_expr_list_types(&exprs, Some(2))
+                .into_iter()
+                .map(|(ty, _)| ty)
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        vec![
+            vec![
+                LuaType::Integer,
+                LuaType::StringConst(smol_str::SmolStr::new("last").into())
+            ],
+            vec![LuaType::IntegerConst(1), LuaType::Integer],
+            vec![LuaType::Integer],
+        ]
+    );
+}
+
+#[test]
+fn test_vararg_operators_take_the_first_value() {
+    let env = model_of(
+        r#"
+        ---@param ... integer
+        local function values(...)
+            local negative = -...
+            local choice = ... or false
+        end
+    "#,
+    );
+    let model = env.model();
+    for name in ["negative", "choice"] {
+        let facts = model.file_facts().unwrap();
+        let decl = facts.decl_by_id(&decl_of(&model, name)).unwrap();
+        assert_eq!(
+            model.type_of_expr(decl.value_expr_syntax.unwrap()),
+            LuaType::Integer
+        );
+    }
+}
+
+#[test]
+fn test_vararg_packing_distinguishes_tuple_values_and_sequences() {
+    let env = model_of(
+        r#"
+        ---@param ... [string, integer]
+        local function tuples(...)
+            local packed = { ... }
+            local tuple_first = packed[1]
+            local tuple_third = packed[3]
+            local tuple_count = select('#', ...)
+        end
+        ---@param ... [string, integer]...
+        local function sequence(...)
+            local packed = { ... }
+            local sequence_first = packed[1]
+            local sequence_second = packed[2]
+            local sequence_third = packed[3]
+            local selected = { select(2, ...) }
+            local selected_sequence = selected[1]
+            local sequence_count = select('#', ...)
+        end
+        ---@return boolean, [string, integer]...
+        local function returned_sequence() error('stub') end
+        local returned = { returned_sequence() }
+        local returned_first = returned[2]
+        local returned_second = returned[3]
+        ---@param ... [string, integer]
+        local function forward(...) return true, ... end
+        local forwarded = { forward({'a', 1}, {'b', 2}) }
+        local forwarded_second = forwarded[3]
+        local alias = forward
+        local aliased = { alias({'a', 1}, {'b', 2}) }
+        local aliased_second = aliased[3]
+        ---@param ... [string, integer]...
+        local function first(...) local value = ...; return value end
+        local first_value = first('a', 1)
+    "#,
+    );
+    let model = env.model();
+    let tuple = LuaType::Tuple(Rc::new(crate::LuaTupleType::new(
+        vec![LuaType::String, LuaType::Integer],
+        crate::LuaTupleStatus::DocResolve,
+    )));
+    for name in [
+        "tuple_first",
+        "tuple_third",
+        "forwarded_second",
+        "aliased_second",
+    ] {
+        assert_eq!(
+            model.type_of_decl(&decl_of(&model, name)),
+            Some(tuple.clone()),
+            "{name}"
+        );
+    }
+    for (name, expected) in [
+        ("sequence_first", LuaType::String),
+        ("sequence_second", LuaType::Integer),
+        ("sequence_third", LuaType::Nil),
+        ("tuple_count", LuaType::Integer),
+        ("selected_sequence", LuaType::Integer),
+        ("sequence_count", LuaType::IntegerConst(2)),
+        ("returned_first", LuaType::String),
+        ("returned_second", LuaType::Integer),
+        ("first_value", LuaType::String),
+    ] {
+        assert_eq!(
+            model.type_of_decl(&decl_of(&model, name)),
+            Some(expected),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn test_vararg_packing_expands_only_the_last_unkeyed_field() {
+    let env = model_of(
+        r#"
+        ---@param ... integer
+        local function values(...)
+            local final = { 0, ... }
+            local repeated = final[3]
+            local nonfinal = { ..., 'last' }
+            local parenthesized = { (...) }
+            local keyed = { [1] = ... }
+            local last = nonfinal[2]
+            local missing = parenthesized[2]
+            local also_missing = keyed[2]
+        end
+    "#,
+    );
+    let model = env.model();
+    assert_eq!(
+        model.type_of_decl(&decl_of(&model, "repeated")),
+        Some(LuaType::Integer)
+    );
+    assert_eq!(
+        model.type_of_decl(&decl_of(&model, "last")),
+        Some(LuaType::StringConst(smol_str::SmolStr::new("last").into()))
+    );
+    for name in ["missing", "also_missing"] {
+        assert_eq!(
+            model.type_of_decl(&decl_of(&model, name)),
+            Some(LuaType::Nil)
+        );
+    }
+}
+
+#[test]
+fn test_vararg_return_lists_preserve_value_positions() {
+    let mut ws = crate::VirtualWorkspace::new();
+    ws.def(
+        r#"
+        ---@param ... integer
+        local function forward(...) return ... end
+        ---@param ... integer
+        local function prefix(...) return false, ... end
+        ---@param ... integer
+        local function suffix(...) return ..., 'last' end
+        ---@param ... integer
+        local function single(...) return (...) end
+        forward_first, forward_second = forward(1, 2)
+        prefix_first, prefix_second, prefix_third = prefix(1, 2)
+        suffix_first, suffix_second = suffix(1, 2)
+        single_first = single(1, 2)
+        single_count = select('#', single(1, 2))
+    "#,
+    );
+    for name in [
+        "forward_first",
+        "forward_second",
+        "prefix_second",
+        "prefix_third",
+        "suffix_first",
+        "single_first",
+    ] {
+        assert_eq!(ws.expr_ty(name), ws.ty("integer"), "{name}");
+    }
+    assert_eq!(ws.expr_ty("prefix_first"), ws.ty("boolean"));
+    assert_eq!(ws.expr_ty("suffix_second"), ws.ty("string"));
+    assert_eq!(ws.expr_ty("single_count"), LuaType::IntegerConst(1));
+}
+
+#[test]
+fn test_vararg_argument_counts_respect_single_value_contexts() {
+    let env = model_of(
+        r#"
+        ---@param ... integer
+        local function values(...)
+            local all = select('#', ...)
+            local one = select('#', (...))
+            local two = select('#', ..., 'last')
+        end
+    "#,
+    );
+    let model = env.model();
+    for (name, expected) in [
+        ("all", LuaType::Integer),
+        ("one", LuaType::IntegerConst(1)),
+        ("two", LuaType::IntegerConst(2)),
+    ] {
+        assert_eq!(
+            model.type_of_decl(&decl_of(&model, name)),
+            Some(expected),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn test_vararg_pcall_keeps_repeated_result_types() {
+    let env = model_of(
+        r#"
+        ---@param ... [string, integer]
+        local function forward(...) return ... end
+        local selected_tuple = select(3, pcall(forward, {'a', 1}, {'b', 2}))
+        local protected_count = select('#', pcall(forward, {'a', 1}, {'b', 2}))
+        local extended = {xpcall(forward, tostring, {'a', 1}, {'b', 2})}
+        local extended_tuple = extended[3]
+    "#,
+    );
+    let model = env.model();
+    let pair = LuaType::Tuple(Rc::new(crate::LuaTupleType::new(
+        vec![LuaType::String, LuaType::Integer],
+        crate::LuaTupleStatus::DocResolve,
+    )));
+    for name in ["selected_tuple", "extended_tuple"] {
+        assert_eq!(
+            model.type_of_decl(&decl_of(&model, name)),
+            Some(LuaType::from_vec(vec![pair.clone(), LuaType::Nil])),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        model.type_of_decl(&decl_of(&model, "protected_count")),
+        Some(LuaType::Integer)
+    );
+}
+
+#[test]
+fn test_vararg_select_keeps_nested_result_types() {
+    let env = model_of(
+        r#"
+        ---@param ... integer
+        local function values(...) return true, ... end
+        local count = select('#', values(1, 2, 3))
+        ---@param ... integer
+        local function prefixed(...)
+            local prefix, tail = select(1, 'head', ...)
+        end
+        ---@return boolean, [string, integer]...
+        local function finite() error('stub') end
+        local finite_count = select('#', finite())
+        local finite_third = select(3, finite())
+    "#,
+    );
+    let model = env.model();
+    for (name, expected) in [
+        ("count", LuaType::Integer),
+        ("prefix", LuaType::String),
+        ("tail", LuaType::Integer),
+        ("finite_count", LuaType::IntegerConst(3)),
+        ("finite_third", LuaType::Integer),
+    ] {
+        assert_eq!(
+            model.type_of_decl(&decl_of(&model, name)),
+            Some(expected),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn test_vararg_generic_callback_keeps_result_tail() {
+    let env = model_of(
+        r#"
+        ---@generic First, Rest
+        ---@param callback fun(): First, Rest...
+        ---@return First, Rest...
+        local function wrap(callback) return callback() end
+        ---@param ... [string, integer]
+        local function tuples(...) return ... end
+        local pairs = {wrap(function() return tuples({'a', 1}, {'b', 2}, {'c', 3}) end)}
+        local third_pair = pairs[3]
+        ---@return boolean, string, integer
+        local function finite() error('stub') end
+        local fixed = {wrap(finite)}
+        local finite_text = fixed[2]
+        local finite_number = fixed[3]
+    "#,
+    );
+    let model = env.model();
+    let pair = LuaType::Tuple(Rc::new(crate::LuaTupleType::new(
+        vec![LuaType::String, LuaType::Integer],
+        crate::LuaTupleStatus::DocResolve,
+    )));
+    for (name, expected) in [
+        ("third_pair", pair),
+        ("finite_text", LuaType::String),
+        ("finite_number", LuaType::Integer),
+    ] {
+        assert_eq!(
+            model.type_of_decl(&decl_of(&model, name)),
+            Some(expected),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn test_vararg_index_keys_take_the_first_value() {
+    let env = model_of(
+        r#"
+        ---@param ... 'key'
+        local function values(...)
+            local fields = { key = 'value' }
+            local value = fields[...]
+        end
+    "#,
+    );
+    let model = env.model();
+    assert_eq!(
+        model.type_of_decl(&decl_of(&model, "value")),
+        Some(LuaType::StringConst(smol_str::SmolStr::new("value").into()))
+    );
+}
+
+#[test]
+fn test_vararg_nested_returns_do_not_change_outer_result_types() {
+    let mut ws = crate::VirtualWorkspace::new();
+    ws.def(
+        r#"
+        ---@param ... integer
+        local function outer(...)
+            ---@param ... string
+            local function inner(...) return ... end
+            inner('ignored')
+            return ...
+        end
+        first, second = outer(1, 2)
+    "#,
+    );
+    assert_eq!(ws.expr_ty("first"), ws.ty("integer"));
+    assert_eq!(ws.expr_ty("second"), ws.ty("integer"));
+}
+
 /// Name-use point -> declaration.
 #[test]
 fn test_find_decl_name_use() {

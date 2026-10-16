@@ -4,6 +4,233 @@ mod tests {
     use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
+    fn test_vararg_packing_keeps_tuple_assignment_checks() {
+        let source = r#"
+            ---@param ... [string, integer]
+            local function tuples(...)
+                local packed = { ... }
+                ---@type [string, integer]
+                local first = packed[1]
+                ---@type [string, integer]
+                local second = packed[2]
+                ---@type integer
+                local wrong = packed[3]
+                return first, second, wrong
+            end
+            return tuples({'a', 1}, {'b', 2}, {'c', 3})
+        "#;
+        let diagnostics = check_source(source);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].code, DiagnosticCode::AssignTypeMismatch);
+        assert_eq!(
+            usize::from(diagnostics[0].range.start()),
+            source.find("packed[3]").unwrap()
+        );
+        assert_eq!(
+            diagnostics[0].message,
+            "expected `integer` but found `(string,integer)`. expected `integer`, found `(string,integer)`"
+        );
+    }
+
+    #[test]
+    fn test_vararg_builtin_results_keep_assignment_checks() {
+        let source = r#"
+            ---@param ... [string, integer]
+            local function forward(...) return ... end
+            local packed = {pcall(forward, {'a', 1}, {'b', 2})}
+            ---@type [string, integer]?
+            local valid_tuple = packed[3]
+            ---@type integer?
+            local invalid_tuple = packed[3]
+            ---@param ... integer
+            local function values(...) return true, ... end
+            ---@type integer
+            local valid_integer = select(3, values(1, 2, 3))
+            ---@type string?
+            local invalid_integer = select(3, values(1, 2, 3))
+            return valid_tuple, invalid_tuple, valid_integer, invalid_integer
+        "#;
+        let diagnostics = check_source(source);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (diagnostic.code, usize::from(diagnostic.range.start())))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    DiagnosticCode::AssignTypeMismatch,
+                    source.find("invalid_tuple = packed[3]").unwrap() + "invalid_tuple = ".len()
+                ),
+                (
+                    DiagnosticCode::AssignTypeMismatch,
+                    source.rfind("select(3, values(1, 2, 3))").unwrap()
+                ),
+            ],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn test_vararg_function_results_keep_callback_parameter_rules() {
+        let source = r#"
+            ---@alias Formatter fun(text: string): string
+            ---@alias Constant fun(): string
+            ---@alias WrongArgument fun(value: integer): string
+            local function constant() return 'hello' end
+            ---@param ... Constant
+            local function forward(...) return ... end
+            local function produce() return forward(constant, constant) end
+            ---@param producer fun(): Formatter...
+            local function use(producer)
+                local first, second = producer()
+                return first('one'), second('two')
+            end
+            ---@param producer fun(): Formatter, Formatter...
+            local function use_tail(producer)
+                local first, second = producer()
+                return first('one'), second('two')
+            end
+            ---@param ... WrongArgument
+            local function invalid(...) return ... end
+            use(produce)
+            use_tail(produce)
+            use(invalid)
+            use_tail(invalid)
+            constant('extra')
+        "#;
+        let diagnostics = check_source(source);
+        let mut actual = diagnostics
+            .iter()
+            .map(|d| (d.code, usize::from(d.range.start())))
+            .collect::<Vec<_>>();
+        actual.sort_by_key(|(_, offset)| *offset);
+        assert_eq!(
+            actual,
+            vec![
+                (
+                    DiagnosticCode::ParamTypeMismatch,
+                    source.find("use(invalid)").unwrap() + "use(".len()
+                ),
+                (
+                    DiagnosticCode::ParamTypeMismatch,
+                    source.find("use_tail(invalid)").unwrap() + "use_tail(".len()
+                ),
+                (
+                    DiagnosticCode::RedundantParameter,
+                    source.find("'extra'").unwrap()
+                ),
+            ],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn test_vararg_callback_numeric_results_follow_assignment_rules() {
+        let source = r#"
+            ---@param callback fun(): number...
+            local function accepts_numbers(callback) return callback() end
+            ---@param callback fun(): number, number...
+            local function accepts_number_tail(callback) return callback() end
+            ---@param ... integer
+            local function integers(...) return ... end
+            accepts_numbers(integers)
+            accepts_number_tail(integers)
+            ---@param callback fun(): integer...
+            local function requires_integers(callback) return callback() end
+            ---@param callback fun(): integer, integer...
+            local function requires_integer_tail(callback) return callback() end
+            ---@param ... number
+            local function numbers(...) return ... end
+            requires_integers(numbers)
+            requires_integer_tail(numbers)
+        "#;
+        let diagnostics = check_source(source);
+        let mut actual = diagnostics
+            .iter()
+            .map(|d| (d.code, usize::from(d.range.start())))
+            .collect::<Vec<_>>();
+        actual.sort_by_key(|(_, offset)| *offset);
+        assert_eq!(
+            actual,
+            vec![
+                (
+                    DiagnosticCode::ParamTypeMismatch,
+                    source.find("requires_integers(numbers)").unwrap() + "requires_integers(".len()
+                ),
+                (
+                    DiagnosticCode::ParamTypeMismatch,
+                    source.find("requires_integer_tail(numbers)").unwrap()
+                        + "requires_integer_tail(".len()
+                ),
+            ],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn test_vararg_generic_callback_keeps_assignment_and_callback_checks() {
+        let source = r#"
+            ---@generic First, Rest
+            ---@param callback fun(): First, Rest...
+            ---@return First, Rest...
+            local function wrap(callback) return callback() end
+            ---@param ... integer
+            local function values(...) return ... end
+            local packed = {wrap(function() return values(1, 2, 3) end)}
+            ---@type integer
+            local valid = packed[3]
+            ---@type string?
+            local invalid = packed[3]
+            ---@generic Rest
+            ---@param callback fun(): string, Rest...
+            local function requires_text(callback) return callback() end
+            requires_text(function() return values(1, 2, 3) end)
+            ---@generic First
+            ---@param callback fun(): First, string...
+            local function requires_string_tail(callback) return callback() end
+            requires_string_tail(values)
+            ---@param callback fun(): integer...
+            local function consume_numbers(callback) return callback() end
+            ---@param ... [integer, integer]...
+            local function fixed(...) return ... end
+            consume_numbers(fixed)
+            ---@generic Results
+            ---@param callback fun(): Results...
+            ---@return Results...
+            local function invoke(callback) return callback() end
+            ---@param ... [string, integer]
+            local function tuples(...) return ... end
+            local function pairs() return tuples({'a', 1}, {'b', 2}) end
+            invoke(pairs)
+            return valid, invalid
+        "#;
+        let diagnostics = check_source(source);
+        let mut actual = diagnostics
+            .iter()
+            .map(|d| (d.code, usize::from(d.range.start())))
+            .collect::<Vec<_>>();
+        actual.sort_by_key(|(_, offset)| *offset);
+        assert_eq!(
+            actual,
+            vec![
+                (
+                    DiagnosticCode::AssignTypeMismatch,
+                    source.rfind("packed[3]").unwrap()
+                ),
+                (
+                    DiagnosticCode::ParamTypeMismatch,
+                    source.rfind("function() return values").unwrap()
+                ),
+                (
+                    DiagnosticCode::ParamTypeMismatch,
+                    source.rfind("values)").unwrap()
+                ),
+            ],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
     fn test_table_literal_numeric_key_uses_index_signature() {
         let diagnostics = check_source(
             r#"

@@ -457,7 +457,9 @@ pub fn type_of_expr_at(
             if let Some(resolved) = model.resolve_member(index_expr)
                 && let Some(member_id) = resolved.member_id
             {
-                let mut member_ty = type_of_member_at(model, &member_id, offset);
+                let mut member_ty = type_of_member_at(model, &member_id, offset)
+                    .get_result_slot_type(0)
+                    .unwrap_or(LuaType::Nil);
                 // Old semantics use `LuaType::Signature` to represent the closure member's definition site;
                 // flow-sensitive member values also keep that identity, matching the VM's member access path.
                 if matches!(member_ty, LuaType::Function)
@@ -3026,6 +3028,7 @@ fn widen_const_type(ty: LuaType) -> LuaType {
         LuaType::Variadic(variadic) => {
             let widened = match variadic.as_ref() {
                 VariadicType::Base(base) => VariadicType::Base(widen_const_type(base.clone())),
+                VariadicType::Repeat(base) => VariadicType::Repeat(widen_const_type(base.clone())),
                 VariadicType::Multi(types) => {
                     VariadicType::Multi(types.iter().map(|t| widen_const_type(t.clone())).collect())
                 }

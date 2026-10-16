@@ -149,7 +149,10 @@ pub fn infer_expr_list_types(
             break;
         }
 
-        let expr_type = infer_expr(model, expr.get_syntax_id());
+        let mut expr_type = infer_expr(model, expr.get_syntax_id());
+        if idx + 1 < exprs.len() {
+            expr_type = expr_type.get_result_slot_type(0).unwrap_or(LuaType::Nil);
+        }
         if let Some(var_count) = var_count
             && expr_type.contain_multi_return()
         {
@@ -168,7 +171,7 @@ pub fn infer_expr_list_types(
         match &expr_type {
             LuaType::Variadic(variadic) => {
                 match variadic.as_ref() {
-                    VariadicType::Base(base) => {
+                    VariadicType::Base(base) | VariadicType::Repeat(base) => {
                         value_types.push((base.clone(), expr.get_range()));
                     }
                     VariadicType::Multi(types) => {
