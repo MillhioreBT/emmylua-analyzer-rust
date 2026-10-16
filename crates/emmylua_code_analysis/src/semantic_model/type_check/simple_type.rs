@@ -86,17 +86,41 @@ pub fn check_simple_type_compact(
                 return Ok(());
             }
         }
-        LuaType::Boolean | LuaType::BooleanConst(_) => {
-            if compact_type.is_boolean() {
-                return Ok(());
+        LuaType::Boolean => {
+            // Both values must fit, possibly through different target union members.
+            let next_guard = check_guard.next_level()?;
+            for value in [true, false] {
+                super::check_general_type_compact(
+                    context,
+                    &LuaType::BooleanConst(value),
+                    compact_type,
+                    next_guard,
+                )?;
             }
-            // Union targets such as `string|true`: a boolean constant matching any component is compatible.
-            if let LuaType::Union(union) = compact_type
-                && union.iter().any(|ty| ty.is_boolean())
-            {
-                return Ok(());
-            }
+            return Ok(());
         }
+        LuaType::BooleanConst(value) | LuaType::DocBooleanConst(value) => match compact_type {
+            LuaType::Boolean => return Ok(()),
+            LuaType::BooleanConst(other) | LuaType::DocBooleanConst(other) if value == other => {
+                return Ok(());
+            }
+            LuaType::Union(union) => {
+                for component in union.iter() {
+                    match super::check_general_type_compact(
+                        context,
+                        source,
+                        component,
+                        check_guard.next_level()?,
+                    ) {
+                        Ok(()) => return Ok(()),
+                        Err(err) if err.is_type_not_match() => {}
+                        Err(err) => return Err(err),
+                    }
+                }
+                return Err(context.mismatch(source, compact_type));
+            }
+            _ => {}
+        },
         LuaType::String => match compact_type {
             LuaType::String
             | LuaType::StringConst(_)
@@ -235,22 +259,6 @@ pub fn check_simple_type_compact(
             LuaType::String => return Err(context.mismatch(source, compact_type)),
             LuaType::DocStringConst(t) => {
                 if s == t {
-                    return Ok(());
-                }
-                return Err(context.mismatch(source, compact_type));
-            }
-            _ => {}
-        },
-        LuaType::DocBooleanConst(b) => match compact_type {
-            LuaType::BooleanConst(t) => {
-                if b == t {
-                    return Ok(());
-                }
-                return Err(context.mismatch(source, compact_type));
-            }
-            LuaType::Boolean => return Err(context.mismatch(source, compact_type)),
-            LuaType::DocBooleanConst(t) => {
-                if b == t {
                     return Ok(());
                 }
                 return Err(context.mismatch(source, compact_type));

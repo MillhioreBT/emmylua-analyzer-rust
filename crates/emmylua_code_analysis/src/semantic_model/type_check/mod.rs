@@ -155,6 +155,27 @@ fn check_general_type_compact(
         return Ok(());
     }
 
+    // Resolve boolean aliases before assignment mode selects a target union member.
+    if matches!(source, LuaType::Ref(_) | LuaType::Def(_)) {
+        let mut resolved = source.clone();
+        let mut alias_guard = check_guard;
+        while let LuaType::Ref(id) | LuaType::Def(id) = &resolved
+            && let Some(target) = context.alias_target_of(id)
+            && let Ok(next_guard) = alias_guard.next_level()
+        {
+            resolved = target;
+            alias_guard = next_guard;
+        }
+        if resolved.is_boolean() {
+            return check_general_type_compact(context, &resolved, compact_type, alias_guard);
+        }
+    }
+
+    // Check the whole boolean domain before assignment mode selects a union member.
+    if matches!(source, LuaType::Boolean) {
+        return simple_type::check_simple_type_compact(context, source, compact_type, check_guard);
+    }
+
     // Assignment mode: integer is assignable to number; number is not assignable to integer.
     if context.assign_mode {
         match (source, compact_type) {

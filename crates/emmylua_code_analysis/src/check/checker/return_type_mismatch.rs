@@ -80,12 +80,7 @@ fn check_return_stat(
     docs: &SignatureDoc,
 ) {
     for expr in ret.get_expr_list() {
-        let mut raw =
-            semantic_model.type_of_expr_at(expr.get_syntax_id(), expr.get_range().start());
-        // `return dd() ---@as integer`: the inline type assertion overrides the expression type.
-        if let Some(as_type) = inline_as_type(semantic_model, ret, &expr) {
-            raw = as_type;
-        }
+        let raw = semantic_model.type_of_expr_at(expr.get_syntax_id(), expr.get_range().start());
         // Uninstantiated function generic argument `Ref("T")`: check against the constraint when present, otherwise skip.
         if is_unresolved_generic_ref(semantic_model, &raw, docs) {
             if let Some(constraint) = generic_constraint_type(semantic_model, &raw)
@@ -276,77 +271,4 @@ fn generic_constraint_type(semantic_model: &SemanticModel<'_>, ty: &LuaType) -> 
         }
     }
     None
-}
-
-/// Inline type for `return expr ---@as integer` / `--[[@as integer]]`.
-fn inline_as_type(
-    semantic_model: &SemanticModel<'_>,
-    ret: &LuaReturnStat,
-    expr: &emmylua_parser::LuaExpr,
-) -> Option<LuaType> {
-    let expr_siblings = expr.syntax().siblings_with_tokens(rowan::Direction::Next);
-    let ret_siblings = ret.syntax().siblings_with_tokens(rowan::Direction::Next);
-    for sibling in expr_siblings.chain(ret_siblings) {
-        if let Some(ty) = as_type_from_token(semantic_model, sibling.as_token()) {
-            return Some(ty);
-        }
-    }
-    // The parser may not attach the end-of-line comment as a sibling of ReturnStat; fall back to searching by position inside the closure.
-    if let Some(closure) = ret.ancestors::<LuaClosureExpr>().next() {
-        let mut prev_text = String::new();
-        let mut pending_as = false;
-        for item in closure.syntax().descendants_with_tokens() {
-            let Some(token) = item.into_token() else {
-                continue;
-            };
-            let text = token.text();
-            if pending_as {
-                let name: String = text
-                    .trim()
-                    .trim_start_matches(['[', '-'])
-                    .chars()
-                    .take_while(|c| {
-                        c.is_alphanumeric() || matches!(c, '.' | '_' | '?' | '|' | '<' | '>')
-                    })
-                    .collect();
-                let name = name.trim_end_matches([']', '-']);
-                if !name.is_empty() {
-                    return Some(semantic_model.type_from_name(name));
-                }
-                if !text.trim().is_empty() {
-                    pending_as = false;
-                }
-            }
-            if prev_text.ends_with("---@") && text == "as" {
-                pending_as = true;
-            }
-            prev_text = text.to_string();
-            if token.text_range().start() >= expr.get_range().end() {
-                if let Some(ty) = as_type_from_token(semantic_model, Some(&token)) {
-                    return Some(ty);
-                }
-            }
-        }
-    }
-    None
-}
-
-fn as_type_from_token(
-    semantic_model: &SemanticModel<'_>,
-    token: Option<&emmylua_parser::LuaSyntaxToken>,
-) -> Option<LuaType> {
-    let token = token?;
-    let text = token.text();
-    let mark = text.find("@as")?;
-    let rest = &text[mark + 3..];
-    let name: String = rest
-        .trim_start_matches(|c: char| c.is_whitespace() || c == '[' || c == '-')
-        .chars()
-        .take_while(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '?' | '|' | '<' | '>'))
-        .collect();
-    let name = name.trim_end_matches([']', '-']);
-    if name.is_empty() {
-        return None;
-    }
-    Some(semantic_model.type_from_name(name))
 }

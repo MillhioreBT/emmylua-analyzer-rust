@@ -3,6 +3,63 @@ mod tests {
     use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
+    fn test_issue_1226() {
+        let diagnostics = crate::check::test::check_source(
+            r#"
+            ---@return boolean
+            local function test1()
+                return true ---@as true | false
+            end
+
+            ---@return true | false
+            local function test2()
+                return true ---@as boolean
+            end
+            "#,
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.code != DiagnosticCode::ReturnTypeMismatch),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_inline_as_return_compatibility() {
+        for (target, expression, cast, accepted) in [
+            ("boolean", "true", "true|false", true),
+            ("true", "true", "boolean", false),
+            ("false", "false", "boolean", false),
+            ("true", "true", "false", false),
+            ("false", "false", "true", false),
+            ("string", "1", "string", true),
+            ("number", "'text'", "number", true),
+            ("nil", "true", "nil", true),
+            ("string", "'text'", "number", false),
+            ("number", "1", "string", false),
+            ("boolean", "true", "nil", false),
+        ] {
+            let mut ws = VirtualWorkspace::new();
+            assert_eq!(
+                ws.has_no_diagnostic(
+                    DiagnosticCode::ReturnTypeMismatch,
+                    &format!(
+                        r#"
+                        ---@return {target}
+                        local function test()
+                            return {expression} ---@as {cast}
+                        end
+                        "#,
+                    ),
+                ),
+                accepted,
+                "{expression} as {cast} -> {target}"
+            );
+        }
+    }
+
+    #[test]
     fn test_issue_242() {
         let mut ws = VirtualWorkspace::new_with_init_std_lib();
         assert!(ws.has_no_diagnostic_in_namespace(
