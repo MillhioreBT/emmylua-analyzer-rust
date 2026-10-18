@@ -46,7 +46,7 @@ fn check_require(
         LuaType::StringConst(s) | LuaType::DocStringConst(s) => s.as_ref().to_string(),
         _ => return,
     };
-    if semantic_model.require_module_type(&module_path) != LuaType::Unknown {
+    if semantic_model.module_file_of(&module_path).is_some() {
         return;
     }
     context.add_diagnostic(

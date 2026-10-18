@@ -77,4 +77,31 @@ mod tests {
             "#,
         ));
     }
+
+    #[test]
+    fn test_require_module_without_return_value() {
+        for source in ["", "initialized = true", "return"] {
+            let mut ws = VirtualWorkspace::new();
+            ws.def_file("side_effect.lua", source);
+
+            assert!(
+                ws.has_no_diagnostic(
+                    DiagnosticCode::UnresolvedRequire,
+                    r#"require("side_effect")"#,
+                ),
+                "module source: {source:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_require_module_with_unknown_export() {
+        let mut ws = VirtualWorkspace::new();
+        ws.def_file("unknown_export.lua", "return unknown_value()");
+
+        assert!(ws.has_no_diagnostic(
+            DiagnosticCode::UnresolvedRequire,
+            r#"local value = require("unknown_export")"#,
+        ));
+    }
 }
