@@ -153,10 +153,12 @@ function load(chunk, chunkname, mode, env) end
 --- @version 5.1, JIT
 --- @param text       Language<"Lua">
 --- @param chunkname? string
+--- @param mode?      std.loadmode
+--- @param env?       table
 --- @return_overload function chunk
 --- @return_overload nil, string error_message
 --- @nodiscard
-function loadstring(text, chunkname) end
+function loadstring(text, chunkname, mode, env) end
 
 --- 类似于 `load`，但从文件 `filename` 获取代码块，或者如果没有给出文件名，
 --- 则从标准输入获取。
@@ -165,6 +167,7 @@ function loadstring(text, chunkname) end
 --- @param env?      table
 --- @return_overload function chunk
 --- @return_overload nil, string error_message
+--- @nodiscard
 function loadfile(filename, mode, env) end
 
 --- @version 5.1, JIT
