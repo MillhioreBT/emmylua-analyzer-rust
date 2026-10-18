@@ -1932,6 +1932,25 @@ fn test_module_export_decl() {
 }
 
 #[test]
+fn test_module_export_nested_class_decl_uses_named_type() {
+    let mut db = setup();
+    let fid = set_test_file(
+        &mut db,
+        1,
+        "linked.lua",
+        "---@class LinkedTableA\n\n---@class LinkedTableA.API\nlocal API = {}\n\n---@return LinkedTable\nfunction API.create()\nend\n\nreturn API",
+    );
+
+    let shell = db.analysis().module_export_type(fid).expect("export type");
+    assert_eq!(
+        shell.candidates,
+        vec![TypeCandidate::Named("LinkedTableA.API".into())],
+        "nested class module exports should use the declared named type: {:?}",
+        shell
+    );
+}
+
+#[test]
 fn test_module_export_expr_and_none() {
     let mut db = setup();
     let fid = set_test_file(&mut db, 1, "mod.lua", "return { a = 1 }");
