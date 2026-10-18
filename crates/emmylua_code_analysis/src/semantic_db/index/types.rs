@@ -61,7 +61,8 @@ impl WorkspaceTypeIndex {
             };
             let new_defs: Vec<TypeDef> = defs
                 .iter()
-                .filter(|def| def.id != type_id)
+                // 同名类型共享语义 ID, 只移除当前文件中的定义.
+                .filter(|def| def.file_id != file_id || def.id != type_id)
                 .cloned()
                 .collect();
             if new_defs.is_empty() {
